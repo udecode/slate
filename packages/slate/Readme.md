@@ -33,6 +33,31 @@ runtime for framework packages and advanced multi-root integrations. App UI
 normally starts from the framework package helper, such as `useSlateEditor` in
 `slate-react`.
 
+## Runtime Identity
+
+Slate paths are live coordinates. Runtime ids are local node identities for the
+current editor runtime. Use them when a local projection, DOM binding, widget,
+or long-lived target needs to survive inserts, moves, splits, and deletes.
+
+```ts
+const textRuntimeId = editor.read((state) => state.runtime.idAt([0, 0]))
+
+editor.update((tx) => {
+  tx.nodes.insert({ type: 'paragraph', children: [{ text: 'Before' }] }, {
+    at: [0],
+  })
+
+  const currentPath = textRuntimeId
+    ? tx.runtime.pathOf(textRuntimeId)
+    : null
+})
+```
+
+Runtime ids are not document data. `state.value.get()` returns serializable
+Slate JSON without runtime ids, indexes, or DOM metadata. Persist your own
+semantic ids when the document needs product identity; use runtime ids for local
+editor identity.
+
 ## Public Type Groups
 
 Core document and editor shapes include `Editor`, `BaseEditor`, `Value`,

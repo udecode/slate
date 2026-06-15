@@ -130,12 +130,17 @@ describe('slate-layout public docs', () => {
 
     expect(packageReadme).toContain('Experimental page layout helpers')
     expect(packageReadme).toContain('explicit product proof')
+    expect(packageReadme).toContain('derived geometry')
     expect(packageReadme).toContain(
       "import { PagedEditable, useSlateLayout } from 'slate-layout/react'"
     )
     expect(libraryReadme).toContain('The package is experimental')
     expect(libraryReadme).toContain('explicit flags')
     expect(libraryReadme).toContain('authoritative page breaks')
+    expect(libraryReadme).toContain('Headless And Static Use')
+    expect(libraryReadme).toContain(
+      'authoritative PDF, print, or collaboration'
+    )
   })
 })
 

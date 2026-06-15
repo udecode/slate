@@ -2,6 +2,7 @@ import {
   getLatestContentOperation,
   getLatestOperation,
   getOperationCount,
+  isInTransaction,
 } from '../core/public-state'
 import type { EditorStaticApi } from '../interfaces/editor'
 import { isNormalizing } from './is-normalizing'
@@ -12,6 +13,7 @@ export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   editor,
   fn
 ) => {
+  const wasInTransaction = isInTransaction(editor)
   const operationCount = getOperationCount(editor)
   const value = isNormalizing(editor)
   setNormalizing(editor, false)
@@ -19,6 +21,10 @@ export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
     fn()
   } finally {
     setNormalizing(editor, value)
+  }
+
+  if (wasInTransaction) {
+    return
   }
 
   const latestOperation =

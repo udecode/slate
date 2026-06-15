@@ -64,6 +64,31 @@ operation index, and runtime id index.
 const snapshot = editor.read((state) => state.runtime.snapshot())
 ```
 
+## Local Provenance
+
+Use update `tag` values for cheap lifecycle labels and `metadata.origin` for
+typed local policy. A paste handler, import tool, or command palette action can
+label the commit without adding provenance fields to document nodes.
+
+```javascript
+editor.update(
+  tx => {
+    tx.text.insert(importedText)
+  },
+  {
+    tag: ['paste', 'import'],
+    metadata: {
+      origin: { kind: 'clipboard', source: 'html' },
+    },
+  }
+)
+```
+
+Use `persist: false` state fields for local provenance UI that should follow the
+runtime but stay out of saved document JSON. Runtime ids are useful for local
+projection and debug links; semantic product ids belong in your own model when
+they need to persist.
+
 ## Preserving Ranges
 
 Use bookmarks when you need a local range to survive document edits.

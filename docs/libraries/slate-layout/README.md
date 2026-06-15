@@ -61,6 +61,14 @@ Use `createSlatePageLayout` or `useSlatePageLayout` only when you provide an
 explicit `engine`, such as a custom measurement engine or
 `pretextPageLayoutEngine()`.
 
+## Headless And Static Use
+
+`createSlateLayout` can run outside React and can fall back to an estimated
+engine when browser canvas measurement is unavailable. Use that for previews,
+tests, and export planning. Treat static output as derived geometry, not as an
+authoritative PDF, print, or collaboration layout source unless your product
+provides the measurement engine and proof for that target.
+
 ## Provider-Owned Boxes
 
 Tables, images, embeds, and other block formatting context style nodes should

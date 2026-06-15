@@ -23,5 +23,10 @@ For React page surfaces, use `slate-layout/react`.
 import { PagedEditable, useSlateLayout } from 'slate-layout/react'
 ```
 
+`createSlateLayout` can also run outside React for previews, tests, and export
+planning. Treat static output as derived geometry, not an authoritative
+PDF/print/collaboration layout source, unless your product supplies the
+measurement engine and proof for that target.
+
 Keep production use behind explicit product proof for browser geometry, export,
 tables, images, collaboration, and selection behavior.

@@ -306,6 +306,128 @@ describe('slate transaction contract', () => {
     ])
   })
 
+  it('keeps runtime-id multi-node replacement atomic until commit and rollbackable', () => {
+    const editor = createEditor()
+    const publishedStates: ReturnType<typeof getVisibleState>[] = []
+    const normalizedPaths: string[] = []
+
+    replaceChildren(editor, [
+      paragraph('before'),
+      paragraph('target'),
+      paragraph('after'),
+    ])
+
+    const targetRuntimeId = Editor.getRuntimeId(editor, [1])
+    assert(targetRuntimeId)
+
+    const unextend = editor.extend({
+      name: 'atomic-replace-normalizer-spy',
+      normalizers: {
+        node({ entry, next }) {
+          normalizedPaths.push(entry[1].join('.'))
+          next()
+        },
+      },
+    })
+    const unsubscribe = Editor.subscribe(editor, () => {
+      publishedStates.push(getVisibleState(editor))
+    })
+
+    publishedStates.length = 0
+    normalizedPaths.length = 0
+
+    editor.update((transaction) => {
+      const targetPath = Editor.getPathByRuntimeId(editor, targetRuntimeId)
+
+      assert.deepEqual(targetPath, [1])
+      assert(targetPath)
+
+      transaction.nodes.remove({ at: targetPath })
+
+      assert.equal(publishedStates.length, 0)
+      assert.deepEqual(normalizedPaths, [])
+      assert.equal(Editor.getPathByRuntimeId(editor, targetRuntimeId), null)
+
+      transaction.nodes.insert(
+        [paragraph('replacement-a'), paragraph('replacement-b')],
+        { at: targetPath }
+      )
+
+      assert.equal(Editor.string(editor, [1]), 'replacement-a')
+      assert.equal(Editor.string(editor, [2]), 'replacement-b')
+      assert.equal(publishedStates.length, 0)
+      assert.deepEqual(normalizedPaths, [])
+    })
+
+    unsubscribe()
+    unextend()
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert.equal(publishedStates.length, 1)
+    assert(normalizedPaths.length > 0)
+    assert(commit)
+    assert.deepEqual(commit.classes, ['structural'])
+    assert.deepEqual(
+      commit.operations.map((operation) => operation.type),
+      ['remove_node', 'insert_node', 'insert_node']
+    )
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('before'),
+      paragraph('replacement-a'),
+      paragraph('replacement-b'),
+      paragraph('after'),
+    ])
+
+    const rollbackEditor = createEditor()
+    const rollbackPublishedStates: ReturnType<typeof getVisibleState>[] = []
+
+    replaceChildren(rollbackEditor, [
+      paragraph('before'),
+      paragraph('target'),
+      paragraph('after'),
+    ])
+
+    const rollbackTargetRuntimeId = Editor.getRuntimeId(rollbackEditor, [1])
+    assert(rollbackTargetRuntimeId)
+
+    const rollbackBefore = getVisibleState(rollbackEditor)
+    const unsubscribeRollback = Editor.subscribe(rollbackEditor, () => {
+      rollbackPublishedStates.push(getVisibleState(rollbackEditor))
+    })
+
+    rollbackPublishedStates.length = 0
+
+    assert.throws(() => {
+      rollbackEditor.update((transaction) => {
+        const targetPath = Editor.getPathByRuntimeId(
+          rollbackEditor,
+          rollbackTargetRuntimeId
+        )
+
+        assert.deepEqual(targetPath, [1])
+        assert(targetPath)
+
+        transaction.nodes.remove({ at: targetPath })
+        transaction.nodes.insert(
+          [paragraph('replacement-a'), paragraph('replacement-b')],
+          { at: targetPath }
+        )
+
+        throw new Error('reject preview')
+      })
+    }, /reject preview/)
+
+    unsubscribeRollback()
+
+    assert.equal(rollbackPublishedStates.length, 0)
+    assert.deepEqual(getVisibleState(rollbackEditor), rollbackBefore)
+    assert.deepEqual(
+      Editor.getPathByRuntimeId(rollbackEditor, rollbackTargetRuntimeId),
+      [1]
+    )
+  })
+
   it('internal transaction exposes live draft state through the transaction argument', () => {
     const editor = createEditor()
 

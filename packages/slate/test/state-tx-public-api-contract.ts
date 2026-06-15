@@ -373,6 +373,61 @@ describe('state/tx public API contract', () => {
     })
   })
 
+  it('resolves runtime ids through structural draft changes without serializing them', () => {
+    const editor = createSeededEditor()
+    const firstBlockRuntimeId = editor.read((state) => state.runtime.idAt([0]))
+    const secondTextRuntimeId = editor.read((state) =>
+      state.runtime.idAt([1, 0])
+    )
+    let fragmentRuntimeId: string | null = null
+
+    assert.equal(typeof firstBlockRuntimeId, 'string')
+    assert.equal(typeof secondTextRuntimeId, 'string')
+
+    editor.update((tx) => {
+      tx.nodes.insert(paragraph('zero'), { at: [0] })
+
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [1])
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [2, 0])
+
+      tx.nodes.move({ at: [2], to: [0] })
+
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+
+      tx.selection.set({
+        anchor: { path: [2, 0], offset: 1 },
+        focus: { path: [2, 0], offset: 1 },
+      })
+      tx.nodes.split()
+
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+
+      tx.fragment.insert([paragraph('fragment')], { at: [1] })
+      fragmentRuntimeId = tx.runtime.idAt([1])
+
+      assert.equal(typeof fragmentRuntimeId, 'string')
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+    })
+
+    const exportedValue = editor.read((state) => state.value.get())
+    const serialized = JSON.stringify(exportedValue)
+
+    assert.deepEqual(exportedValue, {
+      children: [
+        paragraph('two'),
+        paragraph('fragmentzero'),
+        paragraph('o'),
+        paragraph('ne'),
+      ],
+    })
+    assert.equal(serialized.includes(firstBlockRuntimeId!), false)
+    assert.equal(serialized.includes(secondTextRuntimeId!), false)
+    assert.equal(serialized.includes(fragmentRuntimeId!), false)
+  })
+
   it('exposes complete query groups through state instead of direct editor aliases', () => {
     const editor = createSeededEditor()
 

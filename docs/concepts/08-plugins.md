@@ -242,6 +242,13 @@ commands. Use transform middleware for behavior equivalent to Slate transform
 names such as `deleteBackward`, `deleteForward`, `insertBreak`, and
 `insertText`.
 
+Use `clipboard.insertData` for paste/drop ingress. The handler receives the
+`DataTransfer`, may apply a document update, and returns `true` when it handles
+the payload. Return `next()` to keep Slate's fragment and plain-text fallback.
+Use `queries.fragment.get` to sanitize copied or dragged Slate fragments, such
+as removing local preview marks before DOM clipboard serialization. Product
+formats belong in those extension policies, not in Slate core.
+
 ## Element Specs
 
 Use `elements` when an extension owns editor behavior for an element type.

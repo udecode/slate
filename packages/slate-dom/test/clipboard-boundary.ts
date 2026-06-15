@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import {
   createEditor,
   type Descendant,
+  defineEditorExtension,
   type Node,
   type Range,
   ElementApi as SlateElement,
@@ -385,6 +386,70 @@ describe('slate-dom clipboard boundary', () => {
     expect(typeof editor.api.clipboard.insertData).toBe('function')
     expect(typeof editor.api.clipboard.writeSelection).toBe('function')
     expect('clipboard' in editor).toBe(false)
+  })
+
+  it('lets clipboard middleware consume app paste data and delegate fallback paste', () => {
+    const seen: string[] = []
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: 'beta' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      undefined,
+      (target) => {
+        target.extend(
+          defineEditorExtension({
+            name: 'product-card-paste',
+            clipboard: {
+              insertData(data, { editor, next, state }) {
+                const title = data.getData('application/x-product-card-title')
+
+                seen.push(
+                  `${title ? 'consume' : 'delegate'}:${
+                    state.selection.get()?.anchor.offset ?? -1
+                  }`
+                )
+
+                if (!title) {
+                  return next()
+                }
+
+                editor.update((tx) => {
+                  tx.text.insert(`Card: ${title}`)
+                })
+                return true
+              },
+            },
+          })
+        )
+      }
+    )
+    const productCard = new FakeDataTransfer()
+    const plainText = new FakeDataTransfer()
+
+    productCard.setData('application/x-product-card-title', 'Ada')
+    productCard.setData('text/plain', 'fallback')
+    plainText.setData('text/plain', '!')
+
+    editor.update(() => {
+      expect(
+        editor.api.clipboard.insertData(productCard as unknown as DataTransfer)
+      ).toBe(true)
+    })
+    editor.update(() => {
+      expect(
+        editor.api.clipboard.insertData(plainText as unknown as DataTransfer)
+      ).toBe(true)
+    })
+
+    expect(Editor.string(editor, [0])).toBe('Card: Ada!beta')
+    expect(seen).toEqual(['consume:0', 'delegate:9'])
   })
 
   it('round-trips a selected fragment through clipboard payloads and replaces the target selection', () => {

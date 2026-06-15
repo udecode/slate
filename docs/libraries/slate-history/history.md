@@ -93,3 +93,30 @@ Read the current merge flag.
 #### `editor.api.history.isSaving(): boolean | undefined`
 
 Read the current saving flag.
+
+## Controlled Previews
+
+Render proposed edits from local state, decorations, or sidecar UI until the
+user accepts them. Do not mutate document content for a preview and then try to
+make that preview history later.
+
+Use a local `defineStateField` with `persist: false` and `history: 'skip'` for
+preview state. Cancel by clearing that field. Accept by clearing the preview and
+applying the real document edit in one normal update.
+
+```tsx
+const previewReplacement = defineStateField<string | null>({
+  key: 'local.preview.replacement',
+  history: 'skip',
+  initial: () => null,
+  persist: false,
+})
+
+editor.update((tx) => {
+  tx.setField(previewReplacement, null)
+  tx.text.delete({ at: selectedRange })
+  tx.text.insert(acceptedText)
+})
+```
+
+Undo then restores the document content without resurrecting preview UI.

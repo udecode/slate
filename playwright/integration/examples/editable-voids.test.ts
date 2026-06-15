@@ -1179,6 +1179,83 @@ test.describe('editable voids', () => {
     }
   })
 
+  test('copies and cuts same-runtime child-root selection without editing outer text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop child-root copy/cut proof needs clipboard events'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const childEditor = page
+      .locator('[aria-label="Editable void rich content"]')
+      .first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const childRoot = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-child-root',
+      childEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+    const childSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 1], offset: 'rich'.length },
+    }
+
+    try {
+      await outer.selection.select(outerSelection)
+      await childRoot.selection.select(childSelection)
+      await childEditor.evaluate((element: HTMLElement) => element.focus())
+
+      const copyPayload = await childRoot.clipboard.copyEventPayload()
+
+      expect(copyPayload.text).toBe('This is editable rich')
+      expect(copyPayload.slateFragment).toBeTruthy()
+      expect(copyPayload.types).toEqual(
+        expect.arrayContaining([
+          'application/x-slate-fragment',
+          'text/html',
+          'text/plain',
+        ])
+      )
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .toContain('This is editable rich text')
+
+      const cutPayload = await childRoot.clipboard.cutEventPayload()
+
+      expect(cutPayload.text).toBe('This is editable rich')
+      expect(cutPayload.slateFragment).toBeTruthy()
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .toContain(' text, much better than a <textarea>!')
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .not.toContain('This is editable rich')
+
+      await outer.focus()
+      await outer.selection.select(outerSelection)
+      await page.keyboard.type('Outer ')
+
+      await expect
+        .poll(() => outer.get.modelText())
+        .toContain('Outer In addition to nodes')
+      await expect.poll(() => childRoot.get.modelText()).not.toContain('Outer ')
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('drops HTML payload inside same-runtime child root without stealing outer selection', async ({
     page,
   }, testInfo) => {
