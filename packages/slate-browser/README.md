@@ -2,10 +2,23 @@
 
 Browser proof harness for Slate editor behavior.
 
-`slate-browser` owns browser proof lanes. It is proof infrastructure, not the
-product surface of Slate itself.
+`slate-browser` is the first-party Slate test harness for browser-visible
+editing behavior. Use it in Playwright, CI, generated stress replay, and release
+proof. Do not ship it in the editor runtime bundle; product code belongs in
+`slate`, `slate-dom`, `slate-react`, and application extensions.
 
-Stable package surface:
+## Install
+
+```text
+npm install -D slate-browser @playwright/test
+```
+
+Use the matching command for pnpm, Yarn, or Bun when your project uses another
+package manager.
+
+The package is subpath-only. Import exactly the layer you need:
+
+## Package Surface
 
 - `slate-browser/core`
   - pure selection helpers: `serializePoint`, `serializeRange`, `isCollapsed`
@@ -17,8 +30,8 @@ Stable package surface:
     `createPersistentBrowserSoakProofArtifact`
   - first-party parity contracts:
     `assertSlateBrowserFirstPartyParityContracts`
-  - plugin proof contracts: `defineSlateBrowserPluginContract`,
-    `createSlateBrowserPluginContractRegistry`
+  - feature proof contracts: `defineSlateBrowserFeatureContract`,
+    `createSlateBrowserFeatureContractRegistry`
   - debug snapshot parsers for agent-browser and Appium proof artifacts
 - `slate-browser/browser`
   - DOM selection snapshots: `takeDOMSelectionSnapshot`,
@@ -53,15 +66,9 @@ Stable package surface:
     contenteditable repair proof
   - replayable selection-contract assertions for model, native selected text,
     DOM endpoints, visible selection, and double-highlight proof
-
-Secondary public surface:
-
-- Playwright helper types:
-  - `ReadyOptions`
-  - `EditorSurfaceOptions`
-  - selection and clipboard snapshot types
-  - native event trace snapshot and anomaly types
-- `withExclusiveClipboardAccess(...)`
+  - helper types: `ReadyOptions`, `EditorSurfaceOptions`, selection and
+    clipboard snapshot types, native event trace snapshot and anomaly types
+  - `withExclusiveClipboardAccess(...)`
 - `slate-browser/transports`
   - browser-mobile transport descriptors
   - proof-scope classifiers for mobile transport claims
@@ -70,15 +77,45 @@ Secondary public surface:
     - Appium Android
     - Appium iOS
 
-Freeze rule:
+## Boundaries
 
-- keep `slate-browser` as proof infrastructure, not product API
-- keep the current subpath surface and `ready` contract as the stable package shape
-- keep transport identity explicit; no fake universal driver
-- Appium descriptors can close automated device-browser input/IME proof only
-  when the device gate actually runs; `agent-browser` iOS is proxy evidence,
-  and the current automated surface does not claim native mobile clipboard,
-  human soft-keyboard, glide typing, or voice input proof
+- `slate-browser` is public test infrastructure, not the editor runtime API.
+- The root module is intentionally unavailable. Use `slate-browser/core`,
+  `slate-browser/browser`, `slate-browser/playwright`, or
+  `slate-browser/transports`.
+- `slate-browser/playwright` owns browser tests. It may depend on Playwright
+  types and test fixtures.
+- `slate-browser/core` and `slate-browser/browser` stay small enough for pure
+  assertions, classifiers, and DOM snapshots.
+- `slate-browser/transports` describes proof scope for device/browser lanes. It
+  is not a universal mobile automation driver.
+- Transport identity stays explicit; Appium descriptors can close automated
+  device-browser input/IME proof only when the device gate actually runs.
+  `agent-browser` iOS is proxy evidence, and the current automated surface does
+  not claim native mobile clipboard, human soft-keyboard, glide typing, or voice
+  input proof.
+
+## First Playwright Test
+
+```ts
+import { expect, test } from '@playwright/test'
+import { openExample } from 'slate-browser/playwright'
+
+test('types through the Slate browser path', async ({ page }) => {
+  const editor = await openExample(page, 'plaintext', {
+    ready: { editor: 'visible' },
+  })
+
+  await editor.focus()
+  await editor.type('Hello from slate-browser')
+
+  await editor.assert.text('Hello from slate-browser')
+  await editor.assert.noDoubleSelectionHighlight()
+  expect(await editor.get.selectedText()).toBe('')
+})
+```
+
+## Proof Style
 
 Use the `ready` contract for maintained callsites and examples.
 For editor surfaces, do not use Playwright `locator.fill()` as proof. Slate

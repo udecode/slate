@@ -1338,11 +1338,12 @@ describe('core package library docs', () => {
     assert.doesNotMatch(source, /previously|migration|deprecated/)
   })
 
-  it('links slate and slate-dom from the library navigation', () => {
+  it('links core public libraries from the library navigation', () => {
     const summary = readFileSync(resolve(repoRoot, 'docs/Summary.md'), 'utf8')
 
     assert.match(summary, /- \[Slate\]\(libraries\/slate\.md\)/)
     assert.match(summary, /- \[Slate DOM\]\(libraries\/slate-dom\.md\)/)
+    assert.match(summary, /- \[Slate Browser\]\(libraries\/slate-browser\.md\)/)
   })
 
   it('documents the slate package as the core runtime', () => {

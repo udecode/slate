@@ -1,13 +1,13 @@
 import {
-  createSlateBrowserPluginContractRegistry,
-  defineSlateBrowserPluginContract,
-  type SlateBrowserPluginContractRow,
-} from './plugin-contracts'
+  createSlateBrowserFeatureContractRegistry,
+  defineSlateBrowserFeatureContract,
+  type SlateBrowserFeatureContractRow,
+} from './feature-contracts'
 
-/** First-party browser behavior row without its owning plugin label. */
+/** First-party browser behavior row without its owning feature label. */
 export type SlateBrowserOperationFamilyContract = Omit<
-  SlateBrowserPluginContractRow,
-  'plugin'
+  SlateBrowserFeatureContractRow,
+  'feature'
 >
 
 /** Small cross-route parity slice used to keep canonical examples aligned. */
@@ -323,41 +323,41 @@ const rowsByFamily = (families: readonly string[]) =>
     families.includes(contract.family)
   )
 
-/** Plugin-indexed registry built from the first-party behavior families. */
-export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
-  createSlateBrowserPluginContractRegistry([
-    defineSlateBrowserPluginContract({
-      plugin: 'mentions',
+/** Feature-indexed registry built from the first-party behavior families. */
+export const SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY =
+  createSlateBrowserFeatureContractRegistry([
+    defineSlateBrowserFeatureContract({
+      feature: 'mentions',
       rows: rowsByFamily([
         'inline-void-boundary-navigation',
         'markable-inline-void-formatting',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'media',
+    defineSlateBrowserFeatureContract({
+      feature: 'media',
       rows: rowsByFamily([
         'block-void-navigation',
         'paste-html-image-void',
         'stale-target-remote-rebase',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'editable-island',
+    defineSlateBrowserFeatureContract({
+      feature: 'editable-island',
       rows: rowsByFamily(['editable-island-native-focus']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'table',
+    defineSlateBrowserFeatureContract({
+      feature: 'table',
       rows: rowsByFamily(['table-cell-boundary-navigation']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'external-decorations',
+    defineSlateBrowserFeatureContract({
+      feature: 'external-decorations',
       rows: rowsByFamily([
         'external-decoration-refresh',
         'overlay-many-decoration-sources',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'annotations',
+    defineSlateBrowserFeatureContract({
+      feature: 'annotations',
       rows: rowsByFamily([
         'overlay-annotation-metadata-only',
         'overlay-annotation-bookmark-rebase',
@@ -365,12 +365,12 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
         'overlay-mixed-update',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'selection-ui',
+    defineSlateBrowserFeatureContract({
+      feature: 'selection-ui',
       rows: rowsByFamily(['mouse-selection-toolbar']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'core-editing',
+    defineSlateBrowserFeatureContract({
+      feature: 'core-editing',
       rows: rowsByFamily([
         'huge-document-projected-vertical-selection',
         'huge-document-virtualized-scroll-stability',
@@ -384,8 +384,8 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
         'ime-composition-undo',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'inline-void-ime',
+    defineSlateBrowserFeatureContract({
+      feature: 'inline-void-ime',
       rows: rowsByFamily(['ime-composition-inline-void-boundary']),
     }),
   ])
@@ -393,14 +393,14 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
 /** Assert that first-party behavior and parity contract registries agree. */
 export const assertSlateBrowserFirstPartyParityContracts =
   (): SlateBrowserFirstPartyParityContractResult => {
-    const registry = SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY
+    const registry = SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY
 
     if (
       registry.rows.length !==
       SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.length
     ) {
       throw new Error(
-        'Plugin browser contract registry is missing stress rows.'
+        'Feature browser contract registry is missing stress rows.'
       )
     }
 
@@ -409,12 +409,12 @@ export const assertSlateBrowserFirstPartyParityContracts =
 
       if (!row) {
         throw new Error(
-          `Plugin browser contract registry is missing "${contract.family}".`
+          `Feature browser contract registry is missing "${contract.family}".`
         )
       }
       if (row.routes.join('\0') !== contract.routes.join('\0')) {
         throw new Error(
-          `Plugin browser contract "${contract.family}" has stale routes.`
+          `Feature browser contract "${contract.family}" has stale routes.`
         )
       }
     }

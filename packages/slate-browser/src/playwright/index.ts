@@ -13,12 +13,12 @@ import {
 import type { PlaceholderShape } from '../browser/zero-width'
 
 export {
-  createSlateBrowserPluginContractRegistry,
-  defineSlateBrowserPluginContract,
-  type SlateBrowserPluginContractDefinition,
-  type SlateBrowserPluginContractRegistry,
-  type SlateBrowserPluginContractRow,
-} from '../core/plugin-contracts'
+  createSlateBrowserFeatureContractRegistry,
+  defineSlateBrowserFeatureContract,
+  type SlateBrowserFeatureContractDefinition,
+  type SlateBrowserFeatureContractRegistry,
+  type SlateBrowserFeatureContractRow,
+} from '../core/feature-contracts'
 
 import {
   commitSyntheticCompositionText,

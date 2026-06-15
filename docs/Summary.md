@@ -66,6 +66,7 @@
 
 - [Slate](libraries/slate.md)
 - [Slate DOM](libraries/slate-dom.md)
+- [Slate Browser](libraries/slate-browser.md)
 - [Slate React](libraries/slate-react/README.md)
   - [React Editor Setup](libraries/slate-react/react-editor-setup.md)
   - [React Editor](libraries/slate-react/react-editor.md)

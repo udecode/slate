@@ -2,7 +2,7 @@ import { faker } from '@faker-js/faker'
 import { expect, test } from '@playwright/test'
 import {
   assertSlateBrowserFirstPartyParityContracts,
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY,
 } from 'slate-browser/core'
 import {
   assertNoIllegalKernelTransitions,
@@ -56,7 +56,7 @@ const familyEnabled = (family: string) =>
 assertSlateBrowserFirstPartyParityContracts()
 
 const contractByFamily =
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY.rowByFamily
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY.rowByFamily
 
 const point = (path: number[], offset: number) => ({ path, offset })
 

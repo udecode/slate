@@ -1,8 +1,7 @@
 {
   "name": "slate-browser",
   "description": "Browser proof harness for Slate editors.",
-  "version": "0.0.0-private",
-  "private": true,
+  "version": "0.124.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",

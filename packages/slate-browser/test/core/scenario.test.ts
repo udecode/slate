@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   assertSlateBrowserFirstPartyParityContracts,
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY,
   SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES,
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
 } from '../../src/core'
 import {
   classifyScenarioTransportClaim,
@@ -12,16 +12,16 @@ import {
   createScenarioReplay,
   createSlateBrowserCompositionGauntlet,
   createSlateBrowserDestructiveEditingGauntlet,
+  createSlateBrowserFeatureContractRegistry,
   createSlateBrowserInlineCutTypingGauntlet,
   createSlateBrowserInternalControlGauntlet,
   createSlateBrowserMixedEditingConformanceGauntlet,
-  createSlateBrowserPluginContractRegistry,
   createSlateBrowserSemanticEditingConformanceGauntlet,
   createSlateBrowserShellActivationGauntlet,
   createSlateBrowserToolbarMarkClickTypingGauntlet,
   createSlateBrowserWarmLoopSteps,
   createSlateBrowserWarmToolbarArrowGauntlet,
-  defineSlateBrowserPluginContract,
+  defineSlateBrowserFeatureContract,
   normalizeScenarioMetadata,
   type SlateBrowserScenarioStep,
   serializeScenarioStepForReplay,
@@ -70,10 +70,10 @@ describe('scenario helpers', () => {
     expect(createScenarioReductionCandidates(steps)).toEqual([])
   })
 
-  test('registers first-party plugin browser contract rows', () => {
-    const registry = createSlateBrowserPluginContractRegistry([
-      defineSlateBrowserPluginContract({
-        plugin: 'media',
+  test('registers first-party feature browser contract rows', () => {
+    const registry = createSlateBrowserFeatureContractRegistry([
+      defineSlateBrowserFeatureContract({
+        feature: 'media',
         rows: [
           {
             assertions: [
@@ -85,8 +85,8 @@ describe('scenario helpers', () => {
           },
         ],
       }),
-      defineSlateBrowserPluginContract({
-        plugin: 'table',
+      defineSlateBrowserFeatureContract({
+        feature: 'table',
         rows: [
           {
             assertions: [
@@ -100,18 +100,18 @@ describe('scenario helpers', () => {
       }),
     ])
 
-    expect(registry.rows.map((row) => [row.plugin, row.family])).toEqual([
+    expect(registry.rows.map((row) => [row.feature, row.family])).toEqual([
       ['media', 'block-void-navigation'],
       ['table', 'table-cell-boundary-navigation'],
     ])
     expect(registry.rowByFamily.get('block-void-navigation')).toMatchObject({
-      plugin: 'media',
+      feature: 'media',
       routes: ['images', 'embeds'],
     })
     expect(() =>
-      createSlateBrowserPluginContractRegistry([
-        defineSlateBrowserPluginContract({
-          plugin: 'first',
+      createSlateBrowserFeatureContractRegistry([
+        defineSlateBrowserFeatureContract({
+          feature: 'first',
           rows: [
             {
               assertions: ['one'],
@@ -120,8 +120,8 @@ describe('scenario helpers', () => {
             },
           ],
         }),
-        defineSlateBrowserPluginContract({
-          plugin: 'second',
+        defineSlateBrowserFeatureContract({
+          feature: 'second',
           rows: [
             {
               assertions: ['two'],
@@ -149,8 +149,8 @@ describe('scenario helpers', () => {
       'table-cell-boundary-navigation',
     ])
     expect(
-      SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY.rows.map((row) => [
-        row.plugin,
+      SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY.rows.map((row) => [
+        row.feature,
         row.family,
         row.routes,
       ])

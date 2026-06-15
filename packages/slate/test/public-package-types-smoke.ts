@@ -23,6 +23,8 @@ type PublicPackageNamedExports = [
   typeof import('slate/internal').isObject,
   typeof import('slate-browser/browser').takeDOMSelectionSnapshot,
   typeof import('slate-browser/core').assertSlateBrowserReleaseProof,
+  typeof import('slate-browser/core').createSlateBrowserFeatureContractRegistry,
+  typeof import('slate-browser/core').defineSlateBrowserFeatureContract,
   typeof import('slate-browser/core').validateSlateBrowserReleaseProof,
   typeof import('slate-browser/playwright').assertSlateBrowserSelectionContract,
   typeof import('slate-browser/transports').resolveBrowserMobileSurface,

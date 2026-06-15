@@ -109,6 +109,7 @@ app needs the full persisted document with named roots and state fields.
 - [Executing Commands](./docs/walkthroughs/05-executing-commands.md)
 - [Editor API](./docs/api/nodes/editor.md)
 - [Transforms](./docs/api/transforms.md)
+- [Slate Browser](./docs/libraries/slate-browser.md)
 - [Slate React](./docs/libraries/slate-react/README.md)
 
 ## Examples

@@ -14,17 +14,17 @@ const expectedSlateBrowserRuntimeSubpathExports = {
     'takeEditorSelectionSnapshot',
   ],
   core: [
+    'SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY',
     'SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS',
     'SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES',
-    'SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY',
     'SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS',
     'assertSlateBrowserFirstPartyParityContracts',
     'assertSlateBrowserReleaseProof',
     'createBrowserMobileReleaseProofArtifact',
     'createPersistentBrowserSoakProofArtifact',
     'createReleaseDisciplineProofArtifact',
-    'createSlateBrowserPluginContractRegistry',
-    'defineSlateBrowserPluginContract',
+    'createSlateBrowserFeatureContractRegistry',
+    'defineSlateBrowserFeatureContract',
     'evaluateImeInput',
     'evaluatePlaceholderInput',
     'extractAgentBrowserDebugSnapshot',
@@ -52,20 +52,20 @@ const expectedSlateBrowserRuntimeSubpathExports = {
     'createSlateBrowserDestructiveEditingGauntlet',
     'createSlateBrowserDropDataGauntlet',
     'createSlateBrowserEditorHarness',
+    'createSlateBrowserFeatureContractRegistry',
     'createSlateBrowserInlineCutTypingGauntlet',
     'createSlateBrowserInternalControlGauntlet',
     'createSlateBrowserMarkClickTypingGauntlet',
     'createSlateBrowserMarkTypingGauntlet',
     'createSlateBrowserMixedEditingConformanceGauntlet',
     'createSlateBrowserNavigationTypingGauntlet',
-    'createSlateBrowserPluginContractRegistry',
     'createSlateBrowserSemanticEditingConformanceGauntlet',
     'createSlateBrowserShellActivationGauntlet',
     'createSlateBrowserTextInsertionGauntlet',
     'createSlateBrowserToolbarMarkClickTypingGauntlet',
     'createSlateBrowserWarmLoopSteps',
     'createSlateBrowserWarmToolbarArrowGauntlet',
-    'defineSlateBrowserPluginContract',
+    'defineSlateBrowserFeatureContract',
     'findSlateBrowserKernelTraceEntry',
     'getIllegalKernelTransitions',
     'getSlateReactRenderProfilerSnapshot',
@@ -285,6 +285,31 @@ describe('package scripts', () => {
     expect(coreIndex).not.toContain('parseDebugSnapshotProof')
   })
 
+  test('keeps slate-browser metadata public-ready and subpath-only', () => {
+    const packageJsonPath = fileURLToPath(
+      new URL('../../package.json', import.meta.url)
+    )
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      files: string[]
+      license: string
+      name: string
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+      private?: boolean
+      version: string
+    }
+
+    expect(packageJson.name).toBe('slate-browser')
+    expect(packageJson.private).toBeUndefined()
+    expect(packageJson.version).not.toContain('private')
+    expect(packageJson.license).toBe('MIT')
+    expect(packageJson.files).toEqual(['dist/'])
+    expect(packageJson.peerDependencies?.['@playwright/test']).toBe('>=1.52.0')
+    expect(
+      packageJson.peerDependenciesMeta?.['@playwright/test']?.optional
+    ).toBe(true)
+  })
+
   test('keeps slate-browser public entrypoints on owned subpaths', () => {
     const packageJsonPath = fileURLToPath(
       new URL('../../package.json', import.meta.url)
@@ -339,8 +364,8 @@ describe('package scripts', () => {
       'createBrowserMobileReleaseProofArtifact',
       'createPersistentBrowserSoakProofArtifact',
       'assertSlateBrowserFirstPartyParityContracts',
-      'defineSlateBrowserPluginContract',
-      'createSlateBrowserPluginContractRegistry',
+      'defineSlateBrowserFeatureContract',
+      'createSlateBrowserFeatureContractRegistry',
       'debug snapshot parsers',
       'slate-browser/browser',
       'takeDOMSelectionSnapshot',

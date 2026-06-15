@@ -326,9 +326,8 @@ claim.
 
 ### Browser-Proof Harness
 
-`slate-browser` is a repo-private first-party proof harness for editor
-behavior. It is not the product editing API, and it is not part of the public
-install surface until the release lane explicitly promotes it.
+`slate-browser` is Slate's first-party browser proof harness for editor
+behavior. It is public test infrastructure, not the product editing API.
 
 It includes Playwright helpers for:
 
@@ -377,7 +376,7 @@ Slate v2 keeps package ownership explicit:
 | `slate-history`     | undo/redo extension exposed through `state.history`, `tx.history`, and `editor.api.history`                             |
 | `slate-hyperscript` | JSX-style test and fixture helpers                                                                                      |
 | `slate-layout`      | experimental page layout and page rendering helpers                                                                     |
-| `slate-browser`     | repo-private browser proof harness and generated editing-test infrastructure                                            |
+| `slate-browser`     | browser proof harness, Playwright helpers, feature contracts, screenshots, traces, and generated editing-test replay     |
 
 Apps should import from root package exports. The `/internal` subpaths are for
 sibling Slate packages in this repo.
@@ -595,15 +594,19 @@ import { createSlateLayout } from 'slate-layout'
 import { PagedEditable, useSlateLayout } from 'slate-layout/react'
 ```
 
-### Repo-Private `slate-browser`
+### Slate Browser
 
-Inside the Slate repo, use `slate-browser` for browser proof, not product code.
-Do not treat it as a public package until it is explicitly promoted out of
-`0.0.0-private`.
+Use `slate-browser` for browser proof, not product code. It installs as a dev
+dependency and stays subpath-only.
 
 ```tsx
 import { openExample } from 'slate-browser/playwright'
 ```
+
+The root module is intentionally unavailable. Use `slate-browser/playwright`
+for Playwright editor tests, `slate-browser/core` for pure proof contracts,
+`slate-browser/browser` for DOM snapshots, and `slate-browser/transports` for
+proof-scope descriptors.
 
 ---
 
@@ -665,7 +668,7 @@ large-document claim is not real until the right proof lane owns it.
 | History            | `history()` extension, `state.history`, `tx.history`, `editor.api.history`, history stack validation                                                                                                  |
 | Hyperscript        | JSX fixture factory, custom fixture tags, low-level fixture creators                                                                                                                                  |
 | Layout             | experimental `createSlateLayout`, `PagedEditable`, page mount plans, fragment hooks                                                                                                                   |
-| Browser proof      | repo-private `slate-browser/core`, `slate-browser/browser`, `slate-browser/playwright`, transport classifiers, stress replay/reduction                                                                |
+| Browser proof      | public `slate-browser/core`, `slate-browser/browser`, `slate-browser/playwright`, `slate-browser/transports`, feature contracts, transport classifiers, stress replay/reduction                      |
 | Docs               | migration guide, package docs, roots/state docs, React setup docs, DOM coverage docs, layout docs                                                                                                     |
 | Examples           | plaintext, richtext, markdown shortcuts, inlines, editable voids, paste HTML, hidden content blocks, huge document, search/code highlighting, async decorations, persistent annotations, comment mode |
 | Hard cuts          | rootless primary document APIs, no primary mutable editor fields, no primary `Transforms.*`, no direct apply/onChange extension story, no product child-count chunking                                |
