@@ -10,6 +10,46 @@ React runtime.
 > until the v2 editor has matching behavior, and delete each old path as soon as
 > the replacement is verified.
 
+## On This Page
+
+- [Should You Migrate This Editor?](#should-you-migrate-this-editor)
+- [First Migration Slice](#first-migration-slice)
+- [Migration Map](#migration-map)
+- [Step 1: Install The Packages](#step-1-install-the-packages)
+- [Step 14: Check Import Boundaries](#step-14-check-import-boundaries)
+- [Proof Before Deleting The Old Path](#proof-before-deleting-the-old-path)
+- [Validation Checklist](#validation-checklist)
+
+## Should You Migrate This Editor?
+
+Migrate when the v2 runtime solves a real ownership problem in your editor. Do
+not migrate just to rename APIs.
+
+| Migrate this surface first | Wait or defer |
+| --- | --- |
+| A representative editor that users type in, save, undo, and paste into. | A low-value editor with no active product pressure. |
+| An editor that needs cleaner command ownership, document state, overlays, extra roots, or large-document proof. | An editor whose only goal is to keep old Slate 0.x behavior with the smallest possible diff. |
+| A surface where you can run browser proof for selection, paste, undo, and save/load. | A surface whose correctness depends on mobile-device proof, collaboration adapters, or production pagination that your app cannot verify yet. |
+
+Keep the old editor path alive until the v2 path proves the same user-visible
+behavior. If that sounds expensive, the migration is not ready.
+
+## First Migration Slice
+
+Port the thinnest useful editor before touching every command or reusable
+feature:
+
+1. Create one v2 editor with the same representative document value.
+2. Render one `<Editable>` with the existing element and leaf renderers.
+3. Save the primary value on `change.valueChanged`.
+4. Port one toolbar or shortcut command to `editor.read(...)` and
+   `editor.update(...)`.
+5. Verify typing, selection, paste, undo/redo, and save/load in the browser.
+6. Delete only the old code covered by that proof.
+
+Do not start with comments, collaboration, pagination, custom mobile input, or
+every reusable feature. Those belong after the basic editor behaves correctly.
+
 ## Before You Begin
 
 Start with the smallest editor surface that users can type in, save, and undo.
@@ -22,7 +62,8 @@ You should have:
 - the commands your app calls from toolbars, shortcuts, and paste handlers;
 - the tests that prove typing, selection, copy/paste, undo/redo, and save/load.
 
-Do not start by porting every plugin. That is how migrations turn into archaeology.
+Do not start by porting every reusable feature. That is how migrations turn
+into archaeology.
 
 ## Migration Map
 
@@ -37,17 +78,23 @@ Do not start by porting every plugin. That is how migrations turn into archaeolo
 | `ReactEditor.*` DOM bridge calls                 | `editor.api.dom.*`, `editor.api.react.*`, or renderer hooks such as `useElementPath()`                    |
 | `useSlate`, `useSlateStatic`                     | `useEditor()` and `useEditorState(...)`                                                                   |
 | `useSelected`, `useFocused`, `useReadOnly`       | `useElementSelected(...)`, `useEditorFocused()`, and `useEditorReadOnly()`                                |
-| `onChange(value)` as the main persistence hook   | `onChange(value, change)` and `change.valueChanged`, or `state.value.get()` for the full document         |
+| `onChange(value)` as the primary persistence hook | `onChange(value, change)` and `change.valueChanged`, or `state.value.get()` for the full document        |
 | editor-only `children` persistence               | primary `children`, optional extra `roots`, and optional document `state`                                 |
+| `decorate` for simple local ranges               | `<Editable decorate={...} />`                                                                             |
+| `decorate` for shared, external, frequent, or source-scoped overlays | `useSlateDecorationSource`, `useSlateRangeDecorationSource`, or `useSlateAnnotationStore`      |
 
 ## Step 1: Install The Packages
 
-For a React editor, install the core editor, DOM helpers, React renderer, and
-React peer packages.
+For a published v2 package set, install the core editor, DOM helpers, React
+renderer, and React peer packages.
 
 ```text
 npm install slate slate-dom slate-react react react-dom
 ```
+
+Do not run any `npm install` command in this section against npm until the v2
+release lane publishes those packages. During repo-local migration work, use the
+workspace packages.
 
 Install the optional packages only when your app imports them directly.
 
@@ -710,6 +757,25 @@ import { createHyperscript, jsx } from 'slate-hyperscript'
 
 The `ReactEditor` export in `slate-react` is a type. Do not build runtime code
 around `ReactEditor.*` static calls.
+
+## Proof Before Deleting The Old Path
+
+Delete old Slate code only after the v2 path proves the behavior users depend
+on. Model assertions are useful, but they do not prove browser selection,
+clipboard, focus, or DOM repair.
+
+| Behavior | Minimum proof |
+| --- | --- |
+| Typing and deletion | Type text, Backspace/Delete, Enter, and follow-up typing after command changes. |
+| Selection | Check model selection and native selection for arrows, Shift+arrows, drag, double-click, and blank-space clicks when the surface supports them. |
+| Clipboard and paste | Verify copy, cut, paste, and app-specific paste normalization through browser events. |
+| Undo/redo | Prove command grouping, text input, paste, and structural edits undo and redo in the expected order. |
+| Custom rendering | Verify custom elements, leaves, voids, placeholders, hidden content, and DOM coverage paths used by the editor. |
+| Persistence | Save and reload the exact value shape the editor owns: primary `children`, plus extra `roots` or document `state` when used. |
+
+For selection-sensitive editors, run browser proof before deleting the old path.
+For app-only commands, focused unit tests can be enough after one browser path
+has proven the runtime integration.
 
 ## Validation Checklist
 

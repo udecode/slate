@@ -105,5 +105,5 @@ const isImageElement = (value: unknown): value is ImageElement =>
   typeof value.url === 'string'
 ```
 
-Use [Plugins](08-plugins.md) when a helper should become a typed `state`, `tx`,
-or `api` namespace installed on the editor.
+Use [Extensions](08-extensions.md) when a helper should become a typed `state`,
+`tx`, or `api` namespace installed on the editor.

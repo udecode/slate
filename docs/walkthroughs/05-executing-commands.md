@@ -226,7 +226,7 @@ const Toolbar = ({ editor }) => {
 ## Extension Commands
 
 Plain functions are enough for app code. Extensions can expose typed `state`
-and `tx` namespaces when a behavior needs to be shared by plugins.
+and `tx` namespaces when a behavior needs to be shared across editors.
 
 Raw Slate does not ship product commands like lists, headings, or links. Those
 belong in extensions or higher-level frameworks.

@@ -16,7 +16,7 @@ editor.update(tx => {
 })
 ```
 
-The main transaction groups are:
+The core transaction groups are:
 
 - `tx.nodes` for inserting, removing, moving, wrapping, unwrapping, and setting
   nodes

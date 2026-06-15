@@ -285,7 +285,7 @@ field.
 
 ## Runtime APIs
 
-Extensions expose mounted host handles through `editor.api`.
+Extensions expose mounted host and runtime services through `editor.api`.
 
 ```javascript
 editor.api.dom.focus()
@@ -296,6 +296,12 @@ editor.api.history.withoutSaving(() => {
   })
 })
 ```
+
+Use `api` for services that are not transaction-scoped document mutations:
+DOM/React bridges, clipboard ingress, history batching, mounted overlay handles,
+measurements, or framework adapters. Do not put product editing commands there.
+If a feature changes Slate model state, expose it as a `tx` group and call it
+inside `editor.update(...)`.
 
 Use `editor.getApi(extension)` when the call site owns the extension token and
 needs the typed API for that extension.

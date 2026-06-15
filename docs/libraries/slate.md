@@ -74,6 +74,9 @@ Middleware and debug APIs include `EditorTransformApi`,
 Extensions register schema facts, state groups, transaction groups,
 normalizers, operation middleware, commit listeners, and runtime APIs.
 
+Use `api` for mounted host/runtime services. Use `tx` for feature commands that
+change Slate model state.
+
 ```ts
 import { defineEditorExtension, defineStateField, elementProperty } from 'slate'
 ```
@@ -91,8 +94,8 @@ pure operations on Slate data outside an editor transaction.
 ## Internal Subpath
 
 The `/internal` package subpath is reserved for sibling Slate packages in this
-repo. Applications, plugins, and framework adapters outside this workspace
-should use the root `slate` export.
+repo. Applications, extension libraries, and framework adapters outside this
+workspace should use the root `slate` export.
 
 ## Related Docs
 
@@ -101,4 +104,4 @@ should use the root `slate` export.
 - [Interfaces](../concepts/01-interfaces.md)
 - [Locations](../concepts/03-locations.md)
 - [Commands](../concepts/06-commands.md)
-- [Plugins](../concepts/08-plugins.md)
+- [Extensions](../concepts/08-extensions.md)

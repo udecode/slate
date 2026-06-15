@@ -59,4 +59,4 @@ That's the shape: learn the editor, render it with React, then add the behaviors
 
 ## Contributing
 
-Slate is [MIT-licensed](https://github.com/ianstormtaylor/slate/blob/main/License.md). Check out the [Contributing instructions](general/contributing.md) if you'd like to help.
+Slate is [MIT-licensed](https://github.com/ianstormtaylor/slate/blob/HEAD/License.md). Check out the [Contributing instructions](general/contributing.md) if you'd like to help.

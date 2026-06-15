@@ -104,8 +104,8 @@ React applications usually configure DOM coverage through
 ## Internal Subpath
 
 The `/internal` package subpath is reserved for sibling Slate packages in this
-repo. Applications, plugins, and framework adapters outside this workspace
-should use the root `slate-dom` export.
+repo. Applications, extension libraries, and framework adapters outside this
+workspace should use the root `slate-dom` export.
 
 ## Related Docs
 

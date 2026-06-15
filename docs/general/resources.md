@@ -8,13 +8,13 @@ These Slate utilities are helpful when developing editor keyboard behavior:
 
 - `Hotkeys` from `slate-dom` provides semantic editor checks like `Hotkeys.isBold(event)`.
 
-## Extensions and Plugins
+## Extensions and Ecosystem Libraries
 
-These extensions and plugins add additional features and capabilities to Slate:
+These extensions and libraries add features around Slate:
 
 - [@liveblocks/yjs](https://liveblocks.io/docs/api-reference/liveblocks-yjs) A fully-hosted WebSocket infrastructure and
   persisted data store for Yjs documents
-- [Plate](https://github.com/udecode/plate) Rich text editor plugin system for Slate & React
+- [Plate](https://github.com/udecode/plate) Rich text editor framework for Slate & React
 - [`slate-angular`](https://github.com/worktile/slate-angular) Angular-based view layer, which is a useful supplement to
   Slate for building a rich text editor using Angular.
 - [`slate-yjs`](https://github.com/BitPhinix/slate-yjs/) Collaborative editing utilities for Slate leveraging Yjs
@@ -31,10 +31,10 @@ These products use Slate, and can give you an idea of what's possible:
 - [Campfire](https://www.campfirewriting.com/): The most versatile writing software [for fiction]
 - [Chatterbug](https://chatterbug.com/): Learn languages from real people
 - [CoCalc](https://cocalc.com/): Collaborative calculation and data science
-- [Coda](https://coda.io/): Coda brings all your words, data, and teamwork into one powerful doc
+- [Coda](https://coda.io/): Coda brings words, data, and teamwork into one doc
 - [Decap CMS](https://decapcms.org/): Open source content management for your Git workflow
 - [Dropdeck](https://www.dropdeck.com/): Magically create beautiful slides — faster than ever
-- [Easy Email Pro](https://www.easyemail.pro/): A powerful, highly customizable email editor
+- [Easy Email Pro](https://www.easyemail.pro/): A customizable email editor
 - [Eraser](https://www.tryeraser.com/): The Whiteboard for Engineering Teams
 - [GitBook](https://www.gitbook.com/): Plan, centralize and share knowledge
 - [Discord](https://discord.com/): Text & voice channels to collaborate & share
@@ -75,8 +75,7 @@ These pre-packaged editors are built on top of Slate, and can be helpful to see 
   light-weight medium-style editor with no editor chrome.
 - [React Page](https://github.com/react-page/react-page) is a self-contained, customizable inline WYSIWYG editor
   library.
-- [Plate (Plugins for Slate)](https://github.com/udecode/plate) provides an editor with configurable and
-  extendable plugins.
+- [Plate](https://github.com/udecode/plate) provides a rich text framework with configurable product-level plugins.
 - [Tripdocs](https://github.com/ctripcorp/tripdocs): It's a modern, production-ready rich text editor.
 
 \(Or, if you have their exact use case, can be a drop-in editor for you.\)

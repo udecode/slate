@@ -39,11 +39,6 @@ const initialValue: CustomValue = [
 
 const ChecklistExtension = defineEditorExtension({
   name: 'checklist',
-  api: {
-    checklist: {
-      toggle() {},
-    },
-  },
   state: {
     checklist(state) {
       return {
@@ -64,9 +59,20 @@ const ChecklistExtension = defineEditorExtension({
   },
 })
 
+const RuntimeHostExtension = defineEditorExtension({
+  name: 'runtime-host',
+  api: {
+    runtimeHost: {
+      status() {
+        return 'ready' as const
+      },
+    },
+  },
+})
+
 const editor = createEditor({
   initialValue,
-  extensions: [ChecklistExtension],
+  extensions: [ChecklistExtension, RuntimeHostExtension],
 })
 
 const installedValue: CustomValue = editor.read((state) =>
@@ -83,14 +89,16 @@ editor.update((tx) => {
   void value
 })
 
-editor.api.checklist.toggle()
-editor.getApi(ChecklistExtension).toggle()
+const hostStatus: 'ready' = editor.api.runtimeHost.status()
+const tokenHostStatus: 'ready' = editor.getApi(RuntimeHostExtension).status()
 
-const OtherChecklistExtension = defineEditorExtension({
-  name: 'other-checklist',
+const OtherRuntimeHostExtension = defineEditorExtension({
+  name: 'other-runtime-host',
   api: {
-    checklist: {
-      toggle() {},
+    runtimeHost: {
+      status() {
+        return 'ready' as const
+      },
     },
   },
 })
@@ -110,9 +118,19 @@ const DisabledChecklistExtension = defineEditorExtension({
   name: 'checklist',
 })
 
+const DisabledRuntimeHostExtension = defineEditorExtension({
+  enabled: false,
+  name: 'runtime-host',
+})
+
 const disabledEditor = createEditor({
   initialValue,
-  extensions: [ChecklistExtension, DisabledChecklistExtension],
+  extensions: [
+    ChecklistExtension,
+    DisabledChecklistExtension,
+    RuntimeHostExtension,
+    DisabledRuntimeHostExtension,
+  ],
 })
 
 // @ts-expect-error disabled extensions do not contribute state groups
@@ -121,11 +139,11 @@ disabledEditor.read((state) => state.checklist.isActive())
 // @ts-expect-error disabled extensions do not contribute tx groups
 disabledEditor.update((tx) => tx.checklist.toggle())
 
-// @ts-expect-error disabled extensions do not contribute api handles
-disabledEditor.api.checklist.toggle()
+// @ts-expect-error disabled extensions do not contribute runtime API handles
+disabledEditor.api.runtimeHost.status()
 
 // @ts-expect-error disabled extension tokens cannot access installed API
-disabledEditor.getApi(ChecklistExtension)
+disabledEditor.getApi(RuntimeHostExtension)
 
 const FirstSameNameExtension = defineEditorExtension({
   name: 'same-name',
@@ -169,13 +187,15 @@ plainEditor.read((state) => state.checklist.isActive())
 plainEditor.update((tx) => tx.checklist.toggle())
 
 // @ts-expect-error extension api handles are only present when installed
-plainEditor.api.checklist.toggle()
+plainEditor.api.runtimeHost.status()
 
 // @ts-expect-error capability lookup by string is not public API
-editor.getApi('checklist')
+editor.getApi('runtime-host')
 
 // @ts-expect-error uninstalled extension tokens cannot access installed API
-editor.getApi(OtherChecklistExtension)
+editor.getApi(OtherRuntimeHostExtension)
 
 const _keepsValueInference: Descendant = installedValue[0]
 const _keepsBooleanInference: boolean = installedActive
+const _keepsHostStatusInference: 'ready' = hostStatus
+const _keepsTokenHostStatusInference: 'ready' = tokenHostStatus

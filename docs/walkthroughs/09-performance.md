@@ -12,7 +12,7 @@ INP is easiest to measure in Chrome using the [Performance panel](https://develo
 
 ![Screenshot of the Stack Chart tab of the Firefox Profiler, annotated to show a breakdown of time spent in core Slate, React, and painting the DOM.](../images/performance/firefox-inp.png)
 
-There are three main areas that can be optimized:
+There are three areas that can be optimized:
 
 - [Improving Performance](#improving-performance)
   - [Optimizing Slate Core](#optimizing-slate-core)

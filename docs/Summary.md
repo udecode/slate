@@ -2,6 +2,10 @@
 
 - [Introduction](Introduction.md)
 
+## Releases
+
+- [Slate v2 Release Draft](releases/slate-v2.md)
+
 ## Migration
 
 - [Migrating to Slate v2](migration/slate-v2.md)
@@ -26,7 +30,7 @@
 - [Operations](concepts/05-operations.md)
 - [Commands](concepts/06-commands.md)
 - [Editor](concepts/07-editor.md)
-- [Plugins](concepts/08-plugins.md)
+- [Extensions](concepts/08-extensions.md)
 - [Rendering](concepts/09-rendering.md)
 - [Serializing](concepts/10-serializing.md)
 - [Normalizing](concepts/11-normalizing.md)

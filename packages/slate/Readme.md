@@ -90,7 +90,8 @@ Middleware and debug APIs include `EditorTransformApi`,
 `DebugValueScrubber`.
 
 The `/internal` package subpath is reserved for sibling Slate packages in this
-repo. Apps, plugins, and framework adapters should use the root `slate` export.
+repo. Apps, extension libraries, and framework adapters should use the root
+`slate` export.
 
 ## Extension Authoring
 
@@ -101,6 +102,9 @@ import { defineEditorExtension, defineStateField, elementProperty } from 'slate'
 Extensions register schema facts, state groups, transaction groups,
 normalizers, operation middleware, commit listeners, and runtime APIs without
 mutating random fields onto the editor object.
+
+Use runtime APIs for mounted host services. Use transaction groups for feature
+commands that change Slate model state.
 
 ## Helper Namespaces
 
