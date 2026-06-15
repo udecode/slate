@@ -2,6 +2,10 @@
 
 - [Introduction](Introduction.md)
 
+## Migration
+
+- [Migrating to Slate v2](migration/slate-v2.md)
+
 ## Walkthroughs
 
 - [Installing Slate](walkthroughs/01-installing-slate.md)
