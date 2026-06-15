@@ -87,7 +87,8 @@ export type Value = TElement[]
 export type RootKey = string
 
 export type EditorDocumentValue<V extends Value = Value> = {
-  roots: Record<RootKey, V>
+  children: V
+  roots?: Record<RootKey, V>
   state?: Record<string, unknown>
 }
 
@@ -95,10 +96,7 @@ export type InitialValue<V extends Value = Value> =
   | V
   | {
       children: V
-      state?: Record<string, unknown>
-    }
-  | {
-      roots: Record<RootKey, V>
+      roots?: Record<RootKey, V>
       state?: Record<string, unknown>
     }
 
@@ -152,9 +150,10 @@ export type EditorStateValueApi<V extends Value = Value> = {
   operations: (startIndex?: number) => readonly Operation<V>[]
   /**
    * Reads one document root without cloning the serializable document value.
+   * Omit `root` to read the primary document.
    * Treat the returned nodes as read-only live state.
    */
-  root: (root: RootKey) => readonly Descendant[]
+  root: (root?: RootKey) => Readonly<V>
 }
 
 export type EditorTransactionValueApi<V extends Value = Value> =

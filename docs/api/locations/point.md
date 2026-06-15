@@ -11,10 +11,9 @@ interface Point {
 ```
 
 When `root` is omitted, Slate resolves the point against the current editor or
-view root. The base editor and pure helpers fall back to `main`; root-bound
-views fall back to their own root. Points may also carry `root: 'main'`
-explicitly. Points in header, footer, content-root, or other named roots carry
-that root key.
+view root. The base editor and pure helpers fall back to the primary document;
+root-bound views fall back to their own root. Points in header, footer,
+content-root, or other extra roots carry that root key.
 
 - [Static methods](point.md#static-methods)
   - [Retrieval methods](point.md#retrieval-methods)

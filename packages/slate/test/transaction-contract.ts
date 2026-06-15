@@ -200,8 +200,13 @@ describe('slate transaction contract', () => {
     const value = editor.read((state) => state.value.get())
 
     assert.deepEqual(root, [paragraph('header')])
-    assert.deepEqual(value.roots.header, [paragraph('header')])
-    assert.notEqual(root, value.roots.header)
+    assert.deepEqual(
+      editor.read((state) => state.value.root()),
+      [paragraph('main')]
+    )
+    assert.deepEqual(value.children, [paragraph('main')])
+    assert.deepEqual(value.roots?.header, [paragraph('header')])
+    assert.notEqual(root, value.roots?.header)
   })
 
   it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
@@ -307,10 +312,7 @@ describe('slate transaction contract', () => {
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
 
     editor.update((tx) => {
-      assert.deepEqual(tx.value.get().roots.main, [
-        paragraph('one'),
-        paragraph('two'),
-      ])
+      assert.deepEqual(tx.value.root(), [paragraph('one'), paragraph('two')])
       assert.equal(tx.selection.get(), null)
       assert.deepEqual(tx.value.operations(), [])
 
@@ -323,7 +325,7 @@ describe('slate transaction contract', () => {
         },
       ])
 
-      assert.equal(tx.value.get().roots.main[0]?.children[0]?.text, 'one!')
+      assert.equal(tx.value.root()[0]?.children[0]?.text, 'one!')
       assert.equal(tx.value.operations().length, 1)
 
       tx.selection.set({
@@ -1002,10 +1004,8 @@ describe('slate transaction contract', () => {
   it('keeps rootless selection commands caller-shaped while committing the view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

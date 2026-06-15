@@ -4,14 +4,14 @@
 
 Node, text, selection, fragment, and `replace_children` operations may include
 `root`. When `root` is omitted, Slate resolves the operation against the
-active operation/view root, then falls back to `main` for the base editor.
-Serialized non-main operations should preserve `root`.
+active operation/view root, then falls back to the primary document for the
+base editor. Serialized extra-root operations should preserve `root`.
 
 Root lifecycle updates from `tx.roots.create`, `tx.roots.replace`, and
 `tx.roots.delete` are represented as `replace_children` operations at `path:
 []`. Those operations carry `root`, `rootWasPresent`, and `rootIsPresent` so
 history and collaboration replay can create, replace, or delete the named root
-instead of applying the change to `main`.
+instead of applying the change to the primary document.
 
 - [Static methods](operation.md#static-methods)
   - [Manipulation methods](operation.md#manipulation-methods)

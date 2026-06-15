@@ -453,6 +453,58 @@ describe('createSlatePageLayout', () => {
     layout.destroy()
   })
 
+  it('rejects explicit public main roots in layout options', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Primary layout.' }],
+        },
+      ],
+    })
+
+    expect(() =>
+      createSlatePageLayout(editor, () => ({
+        engine: createEstimatedPageLayoutEngine(),
+        page: pageSettings,
+        root: 'main',
+      }))
+    ).toThrow(/Omit root to target the primary document/)
+  })
+
+  it('rejects explicit public main roots in layout projection options', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Primary projection.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+    }))
+
+    expect(() =>
+      layout.projectRange(
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 7 },
+        },
+        { root: 'main' }
+      )
+    ).toThrow(/Omit root to target the primary document/)
+    expect(() =>
+      layout.projectRange({
+        anchor: { path: [0, 0], offset: 0, root: 'main' },
+        focus: { path: [0, 0], offset: 7 },
+      })
+    ).toThrow(/Omit root to target the primary document/)
+
+    layout.destroy()
+  })
+
   it('accepts a caller-supplied engine in the generic layout API', () => {
     const editor = createEditor({
       initialValue: [
@@ -731,17 +783,17 @@ describe('createSlatePageLayout', () => {
     const mainText = 'Main '.repeat(12)
     const editor = createEditor({
       initialValue: {
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: mainText }],
+          },
+        ],
         roots: {
           header: [
             {
               type: 'paragraph',
               children: [{ text: headerText }],
-            },
-          ],
-          main: [
-            {
-              type: 'paragraph',
-              children: [{ text: mainText }],
             },
           ],
         },
@@ -770,14 +822,14 @@ describe('createSlatePageLayout', () => {
     ).toBeGreaterThan(0)
     expect(
       layout.projectRange({
-        anchor: { path: [0, 0], offset: 0, root: 'main' },
-        focus: { path: [0, 0], offset: 4, root: 'main' },
+        anchor: { path: [0, 0], offset: 0, root: 'footer' },
+        focus: { path: [0, 0], offset: 4, root: 'footer' },
       })
     ).toEqual([])
     expect(
       layout.projectRange({
         anchor: { path: [0, 0], offset: 0, root: 'header' },
-        focus: { path: [0, 0], offset: 4, root: 'main' },
+        focus: { path: [0, 0], offset: 4, root: 'footer' },
       })
     ).toEqual([])
 
@@ -1240,9 +1292,9 @@ describe('createSlatePageLayout', () => {
 
     expect(snapshot.pages).toHaveLength(2)
     expect(snapshot.blocks).toHaveLength(1)
-    expect(editor.read((state) => state.value.get().roots.main)).toHaveLength(1)
+    expect(editor.read((state) => state.value.root())).toHaveLength(1)
     expect(
-      editor.read((state) => state.value.get().roots.main[0]?.children)
+      editor.read((state) => state.value.root()[0]?.children)
     ).toHaveLength(4)
     expect(snapshot.fragments.map((fragment) => fragment.path)).toEqual([
       [0],

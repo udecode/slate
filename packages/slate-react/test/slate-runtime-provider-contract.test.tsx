@@ -70,11 +70,8 @@ const rootText = (state: { nodes: { children: () => Descendant[] } }) => {
 }
 
 const initialValue = () => ({
-  roots: {
-    footer: [paragraph('footer')],
-    header: [paragraph('header')],
-    main: [paragraph('body')],
-  },
+  children: [paragraph('body')],
+  roots: { footer: [paragraph('footer')], header: [paragraph('header')] },
 })
 
 const editableIsland = defineEditorExtension({
@@ -113,16 +110,14 @@ describe('SlateRuntime provider contract', () => {
     const editor = createReactEditor({
       extensions: [editableIsland],
       initialValue: {
-        roots: {
-          [childRoot]: [paragraph('about')],
-          main: [
-            {
-              type: 'editable-void',
-              childRoots: { body: childRoot },
-              children: [{ text: '' }],
-            },
-          ],
-        },
+        children: [
+          {
+            type: 'editable-void',
+            childRoots: { body: childRoot },
+            children: [{ text: '' }],
+          },
+        ],
+        roots: { [childRoot]: [paragraph('about')] },
       },
     })
     let childEditor!: ReturnType<typeof useSlateRootEditor>
@@ -166,7 +161,7 @@ describe('SlateRuntime provider contract', () => {
     expect(screen.getByTestId('island-body-status')).toHaveTextContent(
       `${childRoot}:about!`
     )
-    expect(editor.read((state) => state.value.get().roots.main)).toMatchObject([
+    expect(editor.read((state) => state.value.root())).toMatchObject([
       {
         childRoots: { body: childRoot },
         type: 'editable-void',
@@ -184,10 +179,8 @@ describe('SlateRuntime provider contract', () => {
     const editor = createReactEditor({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          [childRoot]: [paragraph('about')],
-          main: [element],
-        },
+        children: [element],
+        roots: { [childRoot]: [paragraph('about')] },
       },
     })
     let contentRootEditor!: ReturnType<typeof useSlateRootEditor>
@@ -229,10 +222,8 @@ describe('SlateRuntime provider contract', () => {
     const editor = createReactEditor({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          [childRoot]: [paragraph('slot body')],
-          main: [element],
-        },
+        children: [element],
+        roots: { [childRoot]: [paragraph('slot body')] },
       },
     })
 
@@ -275,7 +266,7 @@ describe('SlateRuntime provider contract', () => {
       headerEditor = useSlateRootEditor('header')
       headerValues.push(headerText)
 
-      return <span data-testid="active-root">{activeRoot}</span>
+      return <span data-testid="active-root">{activeRoot ?? 'primary'}</span>
     }
 
     render(
@@ -290,7 +281,7 @@ describe('SlateRuntime provider contract', () => {
     expect(screen.getByLabelText('Header editor')).toHaveTextContent('header')
     expect(screen.getByLabelText('Main editor')).toHaveTextContent('body')
     expect(screen.getByLabelText('Footer editor')).toHaveTextContent('footer')
-    expect(screen.getByTestId('active-root')).toHaveTextContent('main')
+    expect(screen.getByTestId('active-root')).toHaveTextContent('primary')
 
     const renderCountAfterMount = headerValues.length
 
@@ -419,14 +410,14 @@ describe('SlateRuntime provider contract', () => {
 
   test('useSlateActiveRoot rerenders only when the active root changes', async () => {
     let runtime!: ReturnType<typeof useSlateRuntime>
-    const activeRoots: string[] = []
+    const activeRoots: (string | undefined)[] = []
 
     const Probe = () => {
       const activeRoot = useSlateActiveRoot()
 
       activeRoots.push(activeRoot)
 
-      return <span data-testid="active-root">{activeRoot}</span>
+      return <span data-testid="active-root">{activeRoot ?? 'primary'}</span>
     }
 
     const RuntimeViews = () => {
@@ -441,7 +432,7 @@ describe('SlateRuntime provider contract', () => {
 
     render(<RuntimeViews />)
 
-    expect(screen.getByTestId('active-root')).toHaveTextContent('main')
+    expect(screen.getByTestId('active-root')).toHaveTextContent('primary')
     const renderCountAfterMount = activeRoots.length
 
     await act(async () => {
@@ -464,7 +455,7 @@ describe('SlateRuntime provider contract', () => {
     expect(activeRoots.at(-1)).toBe('header')
   })
 
-  test('SlateRuntime with Slate defaults to main and Slate root binds another root', () => {
+  test('SlateRuntime with Slate defaults to the primary root and Slate root binds another root', () => {
     const main = renderHook(
       () => ({
         root: useEditorState((state) => state.view.root()),
@@ -516,14 +507,10 @@ describe('SlateRuntime provider contract', () => {
 
   test('nested SlateRuntime providers isolate runtime selectors', () => {
     const OuterRuntime = createRuntimeWrapper({
-      roots: {
-        main: [paragraph('outer')],
-      },
+      children: [paragraph('outer')],
     })
     const InnerRuntime = createRuntimeWrapper({
-      roots: {
-        main: [paragraph('inner')],
-      },
+      children: [paragraph('inner')],
     })
 
     const { result } = renderHook(() => useSlateRuntimeState(rootText), {
@@ -593,7 +580,7 @@ describe('SlateRuntime provider contract', () => {
     })
 
     await act(async () => {
-      createEditorView(runtime, { root: 'main' }).update((tx) => {
+      createEditorView(runtime).update((tx) => {
         tx.selection.set({
           anchor: { path: [0, 0], offset: 4 },
           focus: { path: [0, 0], offset: 4 },
@@ -739,7 +726,7 @@ describe('SlateRuntime provider contract', () => {
 
         return { editor, text }
       },
-      { wrapper: createRootWrapper('main') }
+      { wrapper: createRootWrapper() }
     )
 
     await act(async () => {
@@ -910,10 +897,10 @@ describe('SlateRuntime provider contract', () => {
     const RuntimeViews = () => {
       const runtime = useSlateRuntime({
         initialValue: {
+          children: [paragraph('body')],
           roots: {
             footer: [paragraph('footer')],
             header: [paragraph('header'), paragraph('pending')],
-            main: [paragraph('body')],
           },
         },
       })
@@ -1017,10 +1004,10 @@ describe('SlateRuntime provider contract', () => {
     const RuntimeViews = () => {
       const runtime = useSlateRuntime({
         initialValue: {
+          children: [paragraph('body')],
           roots: {
             footer: [paragraph('footer')],
             header: [markedParagraph('header', { bold: true })],
-            main: [paragraph('body')],
           },
         },
       })

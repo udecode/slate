@@ -15,6 +15,7 @@ import type {
   SlateSourceDirtiness,
 } from './projection-store'
 import {
+  createSlateViewBoundaryRootMap,
   getSlateBoundaryPoint,
   getSlateDescendantAtPath,
   resolveSlateViewBoundarySegmentEndpoint,
@@ -252,7 +253,9 @@ const readSlateViewSelectionDecorations = (
 
   let roots: Readonly<Record<string, readonly Descendant[]>> | null = null
   const getRoots = () => {
-    roots ??= editor.read((state) => state.value.get().roots)
+    roots ??= editor.read((state) =>
+      createSlateViewBoundaryRootMap(state.value.get())
+    )
 
     return roots
   }

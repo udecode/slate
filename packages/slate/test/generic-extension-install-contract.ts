@@ -48,7 +48,7 @@ const ChecklistExtension = defineEditorExtension({
     checklist(state) {
       return {
         isActive: () => state.selection.get() != null,
-        value: () => state.value.get().roots.main as CustomValue,
+        value: () => state.value.root() as CustomValue,
       }
     },
   },
@@ -58,7 +58,7 @@ const ChecklistExtension = defineEditorExtension({
         toggle() {
           tx.nodes.set({ checked: true }, { at: [0, 0] })
         },
-        value: () => tx.value.get().roots.main as CustomValue,
+        value: () => tx.value.root() as CustomValue,
       }
     },
   },

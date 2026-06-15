@@ -112,7 +112,8 @@ return (
 
 Pass `options.root` to bind history controls to one root. Pass
 `focusPolicy: 'preserve'` when undo/redo is controlled from external UI and
-DOM focus should stay outside the editor.
+DOM focus should stay outside the editor. `history.root` is `undefined` for the
+primary document and the root key for an extra root.
 
 ## Runtime And Root Hooks
 
@@ -145,9 +146,10 @@ selected value.
 Subscribe to one root's state. The selector skips commits that cannot affect
 that root.
 
-#### `useSlateActiveRoot(): RootKey`
+#### `useSlateActiveRoot(): RootKey | undefined`
 
-Read the root key that owns the current selection.
+Read the extra root key that owns the current selection. It returns `undefined`
+for the primary document.
 
 #### `useSlateRootEditor(root?, options?): SlateRootEditor`
 
@@ -155,6 +157,7 @@ Create a command-capable editor for one root.
 
 Use this for root-specific toolbar or sidebar commands. Pass `{ readOnly:
 true }` when the editor should only read state.
+Omit `root` for the primary document.
 
 #### `useSlateActiveEditor(): SlateRootEditor`
 

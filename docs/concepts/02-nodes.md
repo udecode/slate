@@ -7,19 +7,17 @@ two node types:
 - `Text` nodes hold string content and mark properties.
 
 The editor runtime can also act as the root ancestor for node APIs, but the
-persisted document value is roots plus optional state fields. Save
-`state.value.get()` when you need the whole document.
+persisted document value is primary children, optional extra roots, and optional
+state fields. Save `state.value.get()` when you need the whole document.
 
 ```ts
 const documentValue = {
-  roots: {
-    main: [
-      {
-        type: 'paragraph',
-        children: [{ text: 'A line of text!' }],
-      },
-    ],
-  },
+  children: [
+    {
+      type: 'paragraph',
+      children: [{ text: 'A line of text!' }],
+    },
+  ],
   state: {
     'document.title': 'Draft',
   },
@@ -27,7 +25,7 @@ const documentValue = {
 ```
 
 The short editor value is still an array of block elements. Slate treats that
-array as the `main` root.
+array as the primary document.
 
 ```ts
 const initialValue = [
@@ -39,7 +37,7 @@ const initialValue = [
 ```
 
 See [Document State](14-document-state.md) for persistence and
-[Roots](13-roots.md) for named roots, content roots, and multi-root rendering.
+[Roots](13-roots.md) for extra roots, content roots, and multi-root rendering.
 
 ## Element
 

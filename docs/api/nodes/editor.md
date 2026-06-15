@@ -134,28 +134,30 @@ editor.update((tx, { afterCommit }) => {
 
 ## Document roots
 
-The default document root is `main`. A plain block array initializes `main`.
-Pass `initialValue.roots` when one editor owns multiple roots.
+A plain block array initializes the primary document. Pass
+`initialValue.children` plus `initialValue.roots` when one editor owns extra
+roots.
 
 ```javascript
 const editor = createEditor({
   initialValue: {
+    children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
     roots: {
       header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
-      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
       footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
     },
   },
 })
 ```
 
-Read roots from `state.value.get().roots`.
+Read the primary document with `state.value.root()`. Read an extra root by key.
 
 ```javascript
-const footer = editor.read((state) => state.value.get().roots.footer)
+const body = editor.read((state) => state.value.root())
+const footer = editor.read((state) => state.value.root('footer'))
 ```
 
-Create, replace, or delete non-main roots with `tx.roots`.
+Create, replace, or delete extra roots with `tx.roots`.
 
 ```javascript
 editor.update((tx) => {
@@ -165,7 +167,7 @@ editor.update((tx) => {
 })
 ```
 
-Use normal node and text transforms for the `main` root. See
+Use normal node and text transforms for the primary document. See
 [Roots](../../concepts/13-roots.md) for React rendering, root chrome, and
 content roots.
 
@@ -175,13 +177,14 @@ content roots.
 
 ```ts
 type EditorDocumentValue = {
-  roots: Record<string, Descendant[]>
+  children: Descendant[]
+  roots?: Record<string, Descendant[]>
   state?: Record<string, unknown>
 }
 ```
 
-Use it for database persistence because it includes named roots and persistent
-state fields.
+Use it for database persistence because it includes the primary document, extra
+roots, and persistent state fields.
 
 ```javascript
 const documentValue = editor.read((state) => state.value.get())

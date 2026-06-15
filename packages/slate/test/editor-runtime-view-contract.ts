@@ -27,13 +27,22 @@ const markedParagraph = (text: string, marks: Record<string, unknown>) =>
   }) satisfies Descendant
 
 describe('editor runtime/view contract', () => {
+  it('rejects explicit public main view roots', () => {
+    const runtime = createEditorRuntime({
+      initialValue: [paragraph('body')],
+    })
+
+    assert.throws(
+      () => createEditorView(runtime, { root: 'main' }),
+      /Omit root to target the primary document/
+    )
+  })
+
   it('routes static replace and reset through root-bound view runtime', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -56,10 +65,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('replaced header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('replaced header')] },
       }
     )
     assert.deepEqual(
@@ -80,10 +87,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('reset header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('reset header')] },
       }
     )
     assert.equal(
@@ -96,14 +101,12 @@ describe('editor runtime/view contract', () => {
   it('lets one runtime own value while root-bound views own view policy', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
 
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const writableHeaderEditor = createEditorView(runtime, { root: 'header' })
     const headerEditor = createEditorView(runtime, {
       readOnly: true,
@@ -154,10 +157,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body!')],
-        },
+        children: [paragraph('body!')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(
@@ -183,10 +184,8 @@ describe('editor runtime/view contract', () => {
         }),
       ],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -202,18 +201,10 @@ describe('editor runtime/view contract', () => {
 
   it('does not materialize missing roots for no-op or failed view updates', () => {
     const runtime = createEditorRuntime({
-      initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
-      },
+      initialValue: { children: [paragraph('body')] },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const expectedValue = {
-      roots: {
-        main: [paragraph('body')],
-      },
-    }
+    const expectedValue = { children: [paragraph('body')] }
 
     headerEditor.update(() => {})
 
@@ -237,14 +228,12 @@ describe('editor runtime/view contract', () => {
   it('passes root-scoped afterCommit snapshots for nested root-bound view updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const snapshots: string[] = []
     const getSnapshotText = (children: readonly Descendant[]) =>
       (children[0]?.children[0] as { text: string }).text
@@ -275,14 +264,12 @@ describe('editor runtime/view contract', () => {
   it('keeps afterCommit bound to the context root when registered during a nested update', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const getSnapshotText = (children: readonly Descendant[]) =>
       (children[0]?.children[0] as { text: string }).text
     let snapshotText = ''
@@ -327,13 +314,11 @@ describe('editor runtime/view contract', () => {
         }),
       ],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     let snapshotSelection: unknown = null
 
     mainEditor.update((tx, { afterCommit }) => {
@@ -357,10 +342,8 @@ describe('editor runtime/view contract', () => {
   it('reads root-local paths through a root-bound view', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -381,20 +364,16 @@ describe('editor runtime/view contract', () => {
     assert.notEqual(viewRead.runtimeId, mainRuntimeId)
     assert.deepEqual(viewRead.snapshot.children, [paragraph('header')])
     assert.deepEqual(viewRead.value, {
-      roots: {
-        header: [paragraph('header')],
-        main: [paragraph('main')],
-      },
+      children: [paragraph('main')],
+      roots: { header: [paragraph('header')] },
     })
   })
 
   it('honors explicit roots on runtime read locations', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerRange = {
@@ -430,10 +409,8 @@ describe('editor runtime/view contract', () => {
   it('honors the current selection root on implicit runtime reads', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
 
@@ -465,14 +442,12 @@ describe('editor runtime/view contract', () => {
   it('uses main for rootless explicit runtime selections after a sibling root was active', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [markedParagraph('header', { bold: true })],
-          main: [paragraph('m1'), paragraph('m2')],
-        },
+        children: [paragraph('m1'), paragraph('m2')],
+        roots: { header: [markedParagraph('header', { bold: true })] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     headerEditor.update((tx) => {
       tx.selection.set({
@@ -507,14 +482,12 @@ describe('editor runtime/view contract', () => {
   it('keeps implicit view reads on the view root when a sibling root owns selection', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -545,11 +518,8 @@ describe('editor runtime/view contract', () => {
   it('rejects mixed explicit-root runtime read ranges', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          footer: [paragraph('footer')],
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { footer: [paragraph('footer')], header: [paragraph('header')] },
       },
     })
 
@@ -570,14 +540,12 @@ describe('editor runtime/view contract', () => {
         focus: { path: [0, 0], offset: 6, root: 'header' },
       },
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     assert.deepEqual(
       headerEditor.read((state) => state.selection.get()),
@@ -595,14 +563,12 @@ describe('editor runtime/view contract', () => {
   it('reads marks through the active view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [markedParagraph('header', { bold: true })],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [markedParagraph('header', { bold: true })] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     headerEditor.update((tx) => {
       tx.selection.set({
@@ -624,14 +590,12 @@ describe('editor runtime/view contract', () => {
   it('hides sibling-root selection and marks in view snapshots', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -658,14 +622,12 @@ describe('editor runtime/view contract', () => {
   it('keeps selection-dependent view mutations inside the active root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -697,10 +659,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       }
     )
   })
@@ -708,14 +668,12 @@ describe('editor runtime/view contract', () => {
   it('keeps implicit view node mutations from using sibling-root selections', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('h1'), paragraph('h2')],
-          main: [paragraph('m1'), paragraph('m2')],
-        },
+        children: [paragraph('m1'), paragraph('m2')],
+        roots: { header: [paragraph('h1'), paragraph('h2')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -730,10 +688,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('h1'), paragraph('h2')],
-          main: [paragraph('m1'), paragraph('m2')],
-        },
+        children: [paragraph('m1'), paragraph('m2')],
+        roots: { header: [paragraph('h1'), paragraph('h2')] },
       }
     )
 
@@ -744,10 +700,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('h1')],
-          main: [paragraph('m1'), paragraph('m2')],
-        },
+        children: [paragraph('m1'), paragraph('m2')],
+        roots: { header: [paragraph('h1')] },
       }
     )
   })
@@ -755,10 +709,8 @@ describe('editor runtime/view contract', () => {
   it('keeps batched view node insert dirty paths on the invoking root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('h1')],
-          main: [paragraph('m1')],
-        },
+        children: [paragraph('m1')],
+        roots: { header: [paragraph('h1')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -774,10 +726,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('h1'), paragraph('h2'), paragraph('h3')],
-          main: [paragraph('m1')],
-        },
+        children: [paragraph('m1')],
+        roots: { header: [paragraph('h1'), paragraph('h2'), paragraph('h3')] },
       }
     )
     assert.deepEqual(
@@ -791,10 +741,8 @@ describe('editor runtime/view contract', () => {
   it('uses the view root for implicit text inserts when selection is null', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -806,10 +754,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(
@@ -828,10 +774,8 @@ describe('editor runtime/view contract', () => {
   it('keeps full document reads stable inside a root-bound update', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -842,20 +786,16 @@ describe('editor runtime/view contract', () => {
     })
 
     assert.deepEqual(valueInUpdate, {
-      roots: {
-        header: [paragraph('header')],
-        main: [paragraph('main')],
-      },
+      children: [paragraph('main')],
+      roots: { header: [paragraph('header')] },
     })
   })
 
   it('rolls back imported operations in non-main roots', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       },
     })
 
@@ -877,10 +817,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('header')] },
       }
     )
   })
@@ -888,10 +826,8 @@ describe('editor runtime/view contract', () => {
   it('keeps base runtime subscriptions on the base snapshot for rooted replay', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     let listenerText: string | undefined
@@ -927,10 +863,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
   })
@@ -938,10 +872,8 @@ describe('editor runtime/view contract', () => {
   it('preserves sibling-root runtime ids after failed non-main root updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -963,10 +895,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
   })
@@ -974,10 +904,8 @@ describe('editor runtime/view contract', () => {
   it('keeps path refs scoped to their owning root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('first'), paragraph('second')],
-        },
+        children: [paragraph('first'), paragraph('second')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1005,10 +933,8 @@ describe('editor runtime/view contract', () => {
     } as Descendant
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [emptyParagraph],
-        },
+        children: [emptyParagraph],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1022,10 +948,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('inserted'), paragraph('header')],
-          main: [emptyParagraph],
-        },
+        children: [emptyParagraph],
+        roots: { header: [paragraph('inserted'), paragraph('header')] },
       }
     )
   })
@@ -1033,10 +957,8 @@ describe('editor runtime/view contract', () => {
   it('plans writes against the invoking view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('one'), paragraph('two')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('one'), paragraph('two')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1050,10 +972,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('one'), paragraph('two!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('one'), paragraph('two!')] },
       }
     )
   })
@@ -1061,10 +981,8 @@ describe('editor runtime/view contract', () => {
   it('defaults rootless path refs to the invoking view root during updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('first'), paragraph('second')],
-          main: [paragraph('main'), paragraph('other')],
-        },
+        children: [paragraph('main'), paragraph('other')],
+        roots: { header: [paragraph('first'), paragraph('second')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1081,10 +999,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('second')],
-          main: [paragraph('main'), paragraph('other')],
-        },
+        children: [paragraph('main'), paragraph('other')],
+        roots: { header: [paragraph('second')] },
       }
     )
   })
@@ -1092,10 +1008,8 @@ describe('editor runtime/view contract', () => {
   it('defaults rootless point and range refs to the invoking view root during updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('first'), paragraph('second')],
-          main: [paragraph('main'), paragraph('other')],
-        },
+        children: [paragraph('main'), paragraph('other')],
+        roots: { header: [paragraph('first'), paragraph('second')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1135,7 +1049,7 @@ describe('editor runtime/view contract', () => {
       focus: { path: [0, 0], offset: 3 },
     })
     assert.deepEqual(
-      runtime.read((state) => state.value.get().roots.main),
+      runtime.read((state) => state.value.root()),
       [paragraph('!main'), paragraph('other')]
     )
   })
@@ -1143,14 +1057,12 @@ describe('editor runtime/view contract', () => {
   it('defaults rootless bookmarks to the invoking view root during reads', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const bookmark = headerEditor.read((state) =>
       state.ranges.bookmark({
         anchor: { path: [0, 0], offset: 6 },
@@ -1179,10 +1091,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body?')],
-        },
+        children: [paragraph('body?')],
+        roots: { header: [paragraph('header!')] },
       }
     )
   })
@@ -1190,14 +1100,12 @@ describe('editor runtime/view contract', () => {
   it('defaults rootless static bookmarks to the invoking view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const viewBookmark = Editor.bookmark(headerEditor, {
       anchor: { path: [0, 0], offset: 6 },
       focus: { path: [0, 0], offset: 6 },
@@ -1230,10 +1138,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body?')],
-        },
+        children: [paragraph('body?')],
+        roots: { header: [paragraph('header!')] },
       }
     )
   })
@@ -1241,10 +1147,8 @@ describe('editor runtime/view contract', () => {
   it('keeps root-view static transforms from reusing another root selection', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1266,10 +1170,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
 
@@ -1280,10 +1182,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
   })
@@ -1291,10 +1191,8 @@ describe('editor runtime/view contract', () => {
   it('deletes multi-block selections from the invoking view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('ab'), paragraph('cd')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('ab'), paragraph('cd')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1309,25 +1207,18 @@ describe('editor runtime/view contract', () => {
 
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
-      {
-        roots: {
-          header: [paragraph('ad')],
-          main: [paragraph('main')],
-        },
-      }
+      { children: [paragraph('main')], roots: { header: [paragraph('ad')] } }
     )
   })
 
   it('restores the view root before notifying subscribers for nested-root structural edits', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('ab'), paragraph('cd')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('ab'), paragraph('cd')] },
       },
     })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const headerEditor = createEditorView(runtime, { root: 'header' })
     const getViewTexts = (editor: typeof mainEditor) =>
       editor.read((state) =>
@@ -1356,10 +1247,8 @@ describe('editor runtime/view contract', () => {
   it('keeps repeated view-local text inserts ordered after rootless selection import', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('Confidential quarterly plan')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('Confidential quarterly plan')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1380,10 +1269,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('helloConfidential quarterly plan')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('helloConfidential quarterly plan')] },
       }
     )
     assert.deepEqual(
@@ -1399,14 +1286,12 @@ describe('editor runtime/view contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const mainSelection = {
       anchor: { path: [0, 0], offset: 4 },
       focus: { path: [0, 0], offset: 4 },
@@ -1431,10 +1316,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(
@@ -1457,10 +1340,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
     assert.deepEqual(
@@ -1488,14 +1369,12 @@ describe('editor runtime/view contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const mainSelection = {
       anchor: { path: [0, 0], offset: 4 },
       focus: { path: [0, 0], offset: 4 },
@@ -1525,10 +1404,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(
@@ -1549,10 +1426,8 @@ describe('editor runtime/view contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1581,10 +1456,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
     assert.equal(
@@ -1601,14 +1474,12 @@ describe('editor runtime/view contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -1627,10 +1498,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
   })
@@ -1638,11 +1507,8 @@ describe('editor runtime/view contract', () => {
   it('preserves nested non-main root replay operations inside another root update', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          footer: [paragraph('footer')],
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { footer: [paragraph('footer')], header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1662,10 +1528,10 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
+        children: [paragraph('body')],
         roots: {
           footer: [paragraph('footer!')],
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       }
     )
@@ -1681,11 +1547,8 @@ describe('editor runtime/view contract', () => {
   it('reports replay dirtiness from the operation root inside sibling view updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          footer: [paragraph('footer')],
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { footer: [paragraph('footer')], header: [paragraph('header')] },
       },
     })
     const footerEditor = createEditorView(runtime, { root: 'footer' })
@@ -1724,11 +1587,8 @@ describe('editor runtime/view contract', () => {
   it('uses unknown runtime impact for mixed-root replay commits', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          footer: [paragraph('footer')],
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { footer: [paragraph('footer')], header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1763,14 +1623,12 @@ describe('editor runtime/view contract', () => {
   it('reads selection changes made inside a root-bound view transaction', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     let selectionAfterSet: unknown = null
 
     mainEditor.update((tx) => {
@@ -1798,14 +1656,12 @@ describe('editor runtime/view contract', () => {
   it('switches selection roots when rootless view selection matches main coordinates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -1825,10 +1681,8 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('!header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('!header')] },
       }
     )
     assert.deepEqual(
@@ -1843,14 +1697,12 @@ describe('editor runtime/view contract', () => {
   it('returns view-scoped snapshots from root-bound subscriptions', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     let listenerText: string | undefined
     const unsubscribe = headerEditor.subscribe((snapshot) => {
       listenerText = (
@@ -1878,10 +1730,8 @@ describe('editor runtime/view contract', () => {
   it('keeps base snapshots stable when implicit insert targets the selection root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1907,7 +1757,7 @@ describe('editor runtime/view contract', () => {
 
     assert.equal(listenerText, 'body')
     assert.deepEqual(
-      runtime.read((state) => state.value.get().roots.header),
+      runtime.read((state) => state.value.root('header')),
       [paragraph('header!')]
     )
   })
@@ -1915,10 +1765,8 @@ describe('editor runtime/view contract', () => {
   it('keeps base snapshots stable when implicit delete targets the selection root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1944,7 +1792,7 @@ describe('editor runtime/view contract', () => {
 
     assert.equal(listenerText, 'body')
     assert.deepEqual(
-      runtime.read((state) => state.value.get().roots.header),
+      runtime.read((state) => state.value.root('header')),
       [paragraph('heade')]
     )
   })
@@ -1952,10 +1800,8 @@ describe('editor runtime/view contract', () => {
   it('keeps base snapshots stable when update-scoped delete targets the selection root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -1983,7 +1829,7 @@ describe('editor runtime/view contract', () => {
 
     assert.equal(listenerText, 'body')
     assert.deepEqual(
-      runtime.read((state) => state.value.get().roots.header),
+      runtime.read((state) => state.value.root('header')),
       [paragraph('heade')]
     )
   })
@@ -1991,10 +1837,8 @@ describe('editor runtime/view contract', () => {
   it('keeps root-local collapsed delete ranges in the view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('h')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('h')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -2015,7 +1859,7 @@ describe('editor runtime/view contract', () => {
     })
 
     assert.deepEqual(
-      runtime.read((state) => state.value.get().roots.header),
+      runtime.read((state) => state.value.root('header')),
       [paragraph('')]
     )
     assert.deepEqual(
@@ -2037,14 +1881,12 @@ describe('editor runtime/view contract', () => {
   it('keeps sibling root reads isolated inside active root updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     let mainTextDuringHeaderUpdate = ''
     let mainSnapshotTextDuringHeaderUpdate = ''
@@ -2065,10 +1907,8 @@ describe('editor runtime/view contract', () => {
   it('keeps root-bound node generators lazy', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('one'), paragraph('two')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('one'), paragraph('two')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -2100,10 +1940,8 @@ describe('editor runtime/view contract', () => {
   it('restores runtime root reads while a root-bound generator stays open', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -2138,10 +1976,8 @@ describe('editor runtime/view contract', () => {
   it('forwards root view target runtimes into implicit updates', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('head')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('head')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -2164,11 +2000,11 @@ describe('editor runtime/view contract', () => {
 
     assert.equal(calls, 1)
     assert.equal(
-      runtime.read((state) => state.value.get().roots.main[0]?.type),
+      runtime.read((state) => state.value.root()[0]?.type),
       'paragraph'
     )
     assert.equal(
-      runtime.read((state) => state.value.get().roots.header[0]?.type),
+      runtime.read((state) => state.value.root('header')[0]?.type),
       'heading-one'
     )
   })

@@ -8,11 +8,11 @@ Read the full persisted document through `state.value.get()`.
 
 ```ts
 const documentValue = editor.read((state) => state.value.get())
-const main = documentValue.roots.main
+const children = documentValue.children
 ```
 
 For single-root editors, `<Slate onChange>` gives the current provider root
-value. Use `state.value.get()` when you need named roots or persistent state
+value. Use `state.value.get()` when you need extra roots or persistent state
 fields. See [Document State](14-document-state.md).
 
 ## Plain Text
@@ -72,7 +72,7 @@ const serializeHtml = (node: Descendant): string => {
 }
 
 const html = editor
-  .read((state) => state.value.get().roots.main)
+  .read((state) => state.value.root())
   .map(serializeHtml)
   .join('')
 ```

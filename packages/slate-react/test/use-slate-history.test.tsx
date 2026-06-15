@@ -51,7 +51,7 @@ describe('useSlateHistory', () => {
 
     expect(result.current.canUndo).toBe(false)
     expect(result.current.canRedo).toBe(false)
-    expect(result.current.root).toBe('main')
+    expect(result.current.root).toBeUndefined()
 
     await act(async () => {
       editor.update((tx) => {
@@ -154,10 +154,8 @@ describe('useSlateHistory', () => {
   test('fixed-root external shortcut preserves the input focus', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
 
@@ -200,10 +198,8 @@ describe('useSlateHistory', () => {
   test('restore-root focuses the active mounted copy of a shared root', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          main: [paragraph('body')],
-          shared: [paragraph('shared')],
-        },
+        children: [paragraph('body')],
+        roots: { shared: [paragraph('shared')] },
       },
     })
     let sharedEditor!: ReturnType<typeof useSlateRootEditor>
@@ -257,10 +253,8 @@ describe('useSlateHistory', () => {
   test('fixed-root availability follows sibling root history changes', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
@@ -277,7 +271,7 @@ describe('useSlateHistory', () => {
       </Slate>
     )
 
-    const { result } = renderHook(() => useSlateHistory({ root: 'main' }), {
+    const { result } = renderHook(() => useSlateHistory(), {
       wrapper,
     })
 

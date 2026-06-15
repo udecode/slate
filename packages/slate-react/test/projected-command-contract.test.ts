@@ -108,15 +108,11 @@ const createFixture = (extensions: EditorExtension[] = []) => {
   const runtime = createEditorRuntime({
     extensions: [history(), dom(), contentRootExtension, ...extensions],
     initialValue: {
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     },
   })
-  const editor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const graph = createSlateProjectionGraph([
     { path: [0], root: 'main' },
     { owner: sharedOwner, path: [0], root: SHARED_ROOT },
@@ -131,21 +127,17 @@ const createRepeatedRootFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [history(), dom(), contentRootExtension],
     initialValue: {
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside')],
-        main: [
-          paragraph('Before'),
-          contentCard(),
-          paragraph('Between'),
-          contentCard(),
-          paragraph('After'),
-        ],
-      },
+      children: [
+        paragraph('Before'),
+        contentCard(),
+        paragraph('Between'),
+        contentCard(),
+        paragraph('After'),
+      ],
+      roots: { [SHARED_ROOT]: [paragraph('Inside')] },
     },
   })
-  const editor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const graph = createSlateProjectionGraph([
     { path: [0], root: 'main' },
     { owner: sharedOwner, path: [0], root: SHARED_ROOT },
@@ -221,10 +213,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefX'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefX'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 'BefX'.length },
@@ -282,10 +272,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefZ'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefZ'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 'BefZ'.length },
@@ -324,10 +312,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('InZ')],
-        main: [paragraph('Before'), contentCard(), paragraph('ter')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('ter')],
+      roots: { [SHARED_ROOT]: [paragraph('InZ')] },
     })
     expect(Editor.getSelection(getCanonicalRuntimeEditor(editor))).toEqual({
       anchor: { path: [0, 0], offset: 'InZ'.length, root: SHARED_ROOT },
@@ -351,10 +337,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).not.toBe(null)
   })
@@ -388,10 +372,8 @@ describe('projected editable commands', () => {
 
     expect(insertCount).toBe(1)
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toEqual(beforeViewSelection)
   })
@@ -414,10 +396,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefZ'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefZ'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -437,10 +417,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).not.toBe(null)
 
@@ -452,10 +430,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefZ'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefZ'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -476,10 +452,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefZ'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefZ'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 'BefZ'.length },
@@ -519,10 +493,8 @@ describe('projected editable commands', () => {
 
     expect(insertCount).toBe(1)
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefH'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefH'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -555,10 +527,8 @@ describe('projected editable commands', () => {
 
     expect(insertCount).toBe(1)
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefH'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefH'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -609,10 +579,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).not.toBe(null)
   })
@@ -636,10 +604,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).not.toBe(null)
   })
@@ -657,10 +623,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('Bef'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Bef'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 'Bef'.length },
@@ -697,10 +661,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('In')],
-        main: [paragraph('Before'), contentCard(), paragraph('ter')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('ter')],
+      roots: { [SHARED_ROOT]: [paragraph('In')] },
     })
     expect(Editor.getSelection(getCanonicalRuntimeEditor(editor))).toEqual({
       anchor: { path: [0, 0], offset: 'In'.length, root: SHARED_ROOT },
@@ -722,15 +684,13 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [
-          paragraph('Bef'),
-          paragraph(''),
-          contentCard(),
-          paragraph('After'),
-        ],
-      },
+      children: [
+        paragraph('Bef'),
+        paragraph(''),
+        contentCard(),
+        paragraph('After'),
+      ],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(Editor.getSelection(getCanonicalRuntimeEditor(editor))).toEqual({
       anchor: { path: [1, 0], offset: 0 },
@@ -767,10 +727,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('In'), paragraph('')],
-        main: [paragraph('Before'), contentCard(), paragraph('ter')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('ter')],
+      roots: { [SHARED_ROOT]: [paragraph('In'), paragraph('')] },
     })
     expect(Editor.getSelection(getCanonicalRuntimeEditor(editor))).toEqual({
       anchor: { path: [1, 0], offset: 0, root: SHARED_ROOT },
@@ -807,10 +765,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph(''), paragraph('In')],
-        main: [paragraph('Before'), contentCard(), paragraph('ter')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('ter')],
+      roots: { [SHARED_ROOT]: [paragraph(''), paragraph('In')] },
     })
     expect(Editor.getSelection(getCanonicalRuntimeEditor(editor))).toEqual({
       anchor: { path: [0, 0], offset: 0, root: SHARED_ROOT },
@@ -914,9 +870,7 @@ describe('projected editable commands', () => {
       })
     ).toBe(true)
 
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
-      paragraph(''),
-    ])
+    expect(editor.read((state) => state.value.root())).toEqual([paragraph('')])
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -942,7 +896,7 @@ describe('projected editable commands', () => {
       })
     ).toBe(true)
 
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+    expect(editor.read((state) => state.value.root())).toEqual([
       paragraph('alpha'),
     ])
   })
@@ -973,9 +927,7 @@ describe('projected editable commands', () => {
       })
     ).toBe(true)
 
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
-      paragraph(''),
-    ])
+    expect(editor.read((state) => state.value.root())).toEqual([paragraph('')])
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -1013,9 +965,7 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.marks.get())).toEqual({})
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
-      paragraph(''),
-    ])
+    expect(editor.read((state) => state.value.root())).toEqual([paragraph('')])
   })
 
   it('insert-text over a whole text block with inline children preserves the block', () => {
@@ -1056,7 +1006,7 @@ describe('projected editable commands', () => {
       },
     })
 
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+    expect(editor.read((state) => state.value.root())).toEqual([
       {
         type: 'heading-one',
         id: 'stable-heading',
@@ -1098,9 +1048,7 @@ describe('projected editable commands', () => {
       },
     })
 
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
-      paragraph('Z'),
-    ])
+    expect(editor.read((state) => state.value.root())).toEqual([paragraph('Z')])
     expect(editor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [0, 0], offset: 1 },
@@ -1124,10 +1072,8 @@ describe('projected editable commands', () => {
       true
     )
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toEqual(projectedSelection)
 
@@ -1135,10 +1081,8 @@ describe('projected editable commands', () => {
       true
     )
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('side'), paragraph('More')],
-        main: [paragraph('BefX'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('BefX'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('side'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -1220,9 +1164,7 @@ describe('projected editable commands', () => {
     expect(events.map((event) => event.id)).not.toContain(
       'transaction-normalize'
     )
-    expect(editor.read((state) => state.value.get().roots.main)).toEqual(
-      initialValue
-    )
+    expect(editor.read((state) => state.value.root())).toEqual(initialValue)
   })
 
   it('does not type into ambiguous projected selections across repeated content-root owners', () => {
@@ -1306,10 +1248,8 @@ describe('projected editable commands', () => {
     ).toBe(true)
 
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [],
-        main: [paragraph('Before'), contentCard(), paragraph('XAfter')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('XAfter')],
+      roots: { [SHARED_ROOT]: [] },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
   })
@@ -1423,10 +1363,8 @@ describe('projected editable commands', () => {
       })
     ).toBe(true)
     expect(editor.read((state) => state.value.get())).toEqual({
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     })
     expect(readSlateViewSelection(editor)).not.toBe(null)
   })

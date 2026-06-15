@@ -40,7 +40,7 @@ describe('document state contract', () => {
     assert.deepEqual(
       explicit.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [documentTitle.key]: 'Q2 Plan' },
       }
     )
@@ -51,7 +51,7 @@ describe('document state contract', () => {
     assert.deepEqual(
       defaulted.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [documentTitle.key]: 'Untitled' },
       }
     )
@@ -85,7 +85,7 @@ describe('document state contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [documentTitle.key]: 'Q2 Plan' },
       }
     )

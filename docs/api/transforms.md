@@ -324,7 +324,7 @@ Replace an existing named root.
 
 #### `tx.roots.delete(root: RootKey)`
 
-Delete a named root. The main root is not deleted through `tx.roots`.
+Delete an extra root. The primary document is not deleted through `tx.roots`.
 
 ## State field methods
 

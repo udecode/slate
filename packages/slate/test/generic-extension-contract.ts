@@ -29,9 +29,8 @@ const extension = defineEditorExtension<CustomEditor>()({
   operations: {
     apply(context) {
       const operation: Operation<CustomValue> = context.operation
-      const value: ValueOf<typeof context.editor> = context.editor.read(
-        (state) => state.value.get().roots.main
-      )
+      const value: Readonly<ValueOf<typeof context.editor>> =
+        context.editor.read((state) => state.value.root())
 
       context.next(operation)
       void value
@@ -65,6 +64,6 @@ defineEditorExtension<CustomEditor>()({
 })
 
 const editor = createEditor({ extensions: [extension], initialValue })
-const value: CustomValue = editor.read((state) => state.value.get().roots.main)
+const value: Readonly<CustomValue> = editor.read((state) => state.value.root())
 
 void value

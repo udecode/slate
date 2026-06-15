@@ -80,7 +80,7 @@ describe('slate-react provider hooks contract', () => {
     )
 
     expect(result.current.read((state) => state.value.get())).toEqual({
-      roots: { main: initialValue },
+      children: initialValue,
     })
     expect(result.current.read((state) => state.value.operations())).toEqual([])
     expect(result.current.read((state) => state.value.lastCommit())).toBe(null)

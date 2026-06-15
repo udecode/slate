@@ -42,15 +42,13 @@ const remoteCollabOptions = {
 } satisfies EditorUpdateOptions
 
 const initialValue = {
-  roots: {
-    [SHARED_ROOT]: [paragraph('Shared mission statement')],
-    main: [
-      paragraph('p1'),
-      syncedBlock(SHARED_ROOT, 'original'),
-      syncedBlock(SHARED_ROOT, 'copy'),
-      paragraph('p2'),
-    ],
-  },
+  children: [
+    paragraph('p1'),
+    syncedBlock(SHARED_ROOT, 'original'),
+    syncedBlock(SHARED_ROOT, 'copy'),
+    paragraph('p2'),
+  ],
+  roots: { [SHARED_ROOT]: [paragraph('Shared mission statement')] },
 }
 
 const createProjectedEditor = () =>
@@ -102,7 +100,7 @@ describe('projected root lifecycle collaboration substrate', () => {
     source.update((tx) => {
       tx.roots.create(
         UNSYNCED_ROOT,
-        clone(readValue(source).roots[SHARED_ROOT]!)
+        clone(readValue(source).roots?.[SHARED_ROOT] ?? [])
       )
       tx.nodes.set(
         {
@@ -125,10 +123,10 @@ describe('projected root lifecycle collaboration substrate', () => {
     replayRemote(remote, operations)
 
     expect(readValue(remote)).toEqual(readValue(source))
-    expect(readValue(remote).roots[SHARED_ROOT]).toEqual([
+    expect(readValue(remote).roots?.[SHARED_ROOT]).toEqual([
       paragraph('Shared mission statement'),
     ])
-    expect(readValue(remote).roots[UNSYNCED_ROOT]).toEqual([
+    expect(readValue(remote).roots?.[UNSYNCED_ROOT]).toEqual([
       paragraph('Shared mission statement'),
     ])
     expect(remote.read((state) => state.history.undos().length)).toBe(0)
@@ -143,7 +141,7 @@ describe('projected root lifecycle collaboration substrate', () => {
     })
     replayRemote(remote, lastOperations(source))
 
-    expect(readValue(remote).roots[SHARED_ROOT]).toEqual([
+    expect(readValue(remote).roots?.[SHARED_ROOT]).toEqual([
       paragraph('Shared mission statement'),
     ])
 
@@ -153,7 +151,9 @@ describe('projected root lifecycle collaboration substrate', () => {
     replayRemote(remote, lastOperations(source))
 
     expect(readValue(remote)).toEqual(readValue(source))
-    expect(Object.hasOwn(readValue(remote).roots, SHARED_ROOT)).toBe(false)
+    expect(Object.hasOwn(readValue(remote).roots ?? {}, SHARED_ROOT)).toBe(
+      false
+    )
   })
 
   it('keeps remote selections root-qualified while projection paint stays local policy', () => {

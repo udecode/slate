@@ -1,11 +1,11 @@
 # Locations
 
-Locations tell Slate where to read or write inside an editor root. The main
+Locations tell Slate where to read or write inside an editor root. The core
 location types are `Path`, `Point`, and `Range`.
 
 Rootless locations resolve against the current editor or view root. The base
-editor uses `main`; root-bound views use their own root. Locations in named
-roots carry the root key on their points.
+editor uses the primary document; root-bound views use their own root.
+Locations in extra roots carry the root key on their points.
 
 ## Path
 
@@ -19,7 +19,7 @@ In this root value, the paragraph has path `[0]` and the text node has path
 `[0, 0]`.
 
 ```ts
-const main = [
+const children = [
   {
     type: 'paragraph',
     children: [{ text: 'A line of text!' }],

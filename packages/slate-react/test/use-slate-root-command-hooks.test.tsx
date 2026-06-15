@@ -188,10 +188,8 @@ describe('slate-react root and command hooks', () => {
   test('useSlateCommandCallback keeps a stable handler while calling the latest callback with the target root editor', () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          header: [{ type: 'block', children: [{ text: 'head' }] }],
-          main: initialValue,
-        },
+        children: initialValue,
+        roots: { header: [{ type: 'block', children: [{ text: 'head' }] }] },
       },
     })
     const calls: { label: string; root: string }[] = []

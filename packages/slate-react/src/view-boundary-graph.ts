@@ -40,6 +40,14 @@ export const createSlateViewBoundaryGraph = createSlateProjectionGraph
 export const getSlateViewBoundaryOwnerKey = getSlateProjectionOwnerKey
 export const SlateViewBoundaryGraph = SlateProjectionGraph
 
+export const createSlateViewBoundaryRootMap = (value: {
+  children: readonly Descendant[]
+  roots?: Readonly<Record<string, readonly Descendant[]>>
+}): Readonly<Record<string, readonly Descendant[]>> => ({
+  [MAIN_ROOT_KEY]: value.children,
+  ...(value.roots ?? {}),
+})
+
 export const cloneSlateViewBoundaryPath = (path: Path): Path =>
   [...path] as Path
 

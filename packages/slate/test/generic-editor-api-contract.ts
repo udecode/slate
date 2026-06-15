@@ -35,8 +35,8 @@ editor.update((tx) => {
 
 const leaf: TextOf<typeof editor> = { text: 'typed', bold: true }
 const marks: EditorMarksOf<typeof editor> = { code: true }
-const staticChildren: CustomValue = editor.read(
-  (state) => state.value.get().roots.main
+const staticChildren: Readonly<CustomValue> = editor.read((state) =>
+  state.value.root()
 )
 const operations: readonly Operation<CustomValue>[] = editor.read((state) =>
   state.value.operations()
@@ -46,7 +46,7 @@ const commit: EditorCommit<CustomValue> | null = editor.read((state) =>
 )
 
 editor.update((tx) => {
-  tx.value.replace({ children: staticChildren, selection: null, marks })
+  tx.value.replace({ children: [...staticChildren], selection: null, marks })
 })
 
 void leaf

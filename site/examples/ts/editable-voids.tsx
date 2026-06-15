@@ -68,27 +68,27 @@ const EditableVoidsExample = () => {
   const editor = useSlateEditor({
     extensions: [editableVoid()],
     initialValue: {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.',
+            },
+          ],
+        },
+        createEditableVoid('editable-void:initial:body'),
+        {
+          type: 'paragraph',
+          children: [
+            {
+              text: 'The editable void above stores its body in an extra root.',
+            },
+          ],
+        },
+      ],
       roots: {
         'editable-void:initial:body': createEditableVoidBody(),
-        main: [
-          {
-            type: 'paragraph',
-            children: [
-              {
-                text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.',
-              },
-            ],
-          },
-          createEditableVoid('editable-void:initial:body'),
-          {
-            type: 'paragraph',
-            children: [
-              {
-                text: '',
-              },
-            ],
-          },
-        ],
       },
     },
   })

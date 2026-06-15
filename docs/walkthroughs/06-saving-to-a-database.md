@@ -1,8 +1,8 @@
 # Saving to a Database
 
 Slate documents are JSON. Save the full document value when you need more than
-the main editor body, such as named roots, content roots, document titles, page
-settings, or other persistent state fields.
+the primary editor body, such as extra roots, content roots, document titles,
+page settings, or other persistent state fields.
 
 This walkthrough uses Local Storage, but the same shape is what you send to
 your database.
@@ -26,14 +26,12 @@ const documentTitle = defineStateField({
 })
 
 const fallbackValue = {
-  roots: {
-    main: [
-      {
-        type: 'paragraph',
-        children: [{ text: 'A line of text in a paragraph.' }],
-      },
-    ],
-  },
+  children: [
+    {
+      type: 'paragraph',
+      children: [{ text: 'A line of text in a paragraph.' }],
+    },
+  ],
   state: {
     [documentTitle.key]: 'Untitled',
   },
@@ -76,19 +74,20 @@ const App = () => {
 
 ```ts
 type EditorDocumentValue = {
-  roots: Record<string, Descendant[]>
+  children: Descendant[]
+  roots?: Record<string, Descendant[]>
   state?: Record<string, unknown>
 }
 ```
 
-That shape includes `roots.main`, every named root, and persistent state fields.
-It omits state fields declared with `persist: false`.
+That shape includes the primary document, every extra root, and persistent state
+fields. It omits state fields declared with `persist: false`.
 
 ## Single-Root Shortcut
 
 The first argument to `<Slate onChange>` is the provider root's block array.
-For `<Slate editor={editor}>`, that is `main`. You can save that value directly
-for a tiny single-root editor with no persistent state fields.
+You can save that value directly for a tiny single-root editor with no
+persistent state fields.
 
 ```tsx
 <Slate
@@ -103,19 +102,20 @@ for a tiny single-root editor with no persistent state fields.
 </Slate>
 ```
 
-Use the full document value once the editor owns named roots, content roots, or
+Use the full document value once the editor owns extra roots, content roots, or
 state fields.
 
-## Load Named Roots
+## Load Extra Roots
 
-Pass `initialValue.roots` when the saved document owns more than `main`.
+Pass `initialValue.children` plus `initialValue.roots` when the saved document
+owns extra roots.
 
 ```tsx
 const editor = useSlateEditor({
   initialValue: {
+    children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
     roots: {
       header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
-      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
       footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
     },
   },
@@ -146,7 +146,7 @@ schema and can reconcile every root and every persistent state field.
 ```tsx
 editor.update((tx) => {
   tx.value.replace({
-    children: nextDocument.roots.main,
+    children: nextDocument.children,
     marks: null,
     selection: null,
   })
@@ -154,31 +154,29 @@ editor.update((tx) => {
 ```
 
 `tx.value.replace` replaces the active root snapshot. For an in-place multi-root
-replacement, create, replace, or delete named roots with `tx.roots`, and set or
+replacement, create, replace, or delete extra roots with `tx.roots`, and set or
 reset every persistent state field your app registered with `tx.setField`. This
 example assumes your app registered `documentTitle` and `pageSettings` fields.
 
 ```tsx
 editor.update((tx) => {
-  const nextRoots = nextDocument.roots
+  const nextRoots = nextDocument.roots ?? {}
 
   tx.value.replace({
-    children: nextRoots.main ?? [],
+    children: nextDocument.children,
     marks: null,
     selection: null,
   })
 
-  const currentRoots = tx.value.get().roots
+  const currentRoots = tx.value.get().roots ?? {}
 
   for (const root of Object.keys(currentRoots)) {
-    if (root !== 'main' && !Object.hasOwn(nextRoots, root)) {
+    if (!Object.hasOwn(nextRoots, root)) {
       tx.roots.delete(root)
     }
   }
 
   for (const [root, children] of Object.entries(nextRoots)) {
-    if (root === 'main') continue
-
     if (Object.hasOwn(currentRoots, root)) {
       tx.roots.replace(root, children)
     } else {

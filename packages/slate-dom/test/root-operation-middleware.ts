@@ -19,14 +19,12 @@ describe('root operation middleware', () => {
     const runtime = createEditorRuntime({
       extensions: [history(), dom()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('first'), paragraph('second')],
-        },
+        children: [paragraph('first'), paragraph('second')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
 
     mainEditor.update((tx) => {
       tx.selection.set({
@@ -43,10 +41,8 @@ describe('root operation middleware', () => {
     }).not.toThrow()
 
     expect(runtime.read((state) => state.value.get())).toEqual({
-      roots: {
-        header: [paragraph('header')],
-        main: [paragraph('first'), paragraph('second')],
-      },
+      children: [paragraph('first'), paragraph('second')],
+      roots: { header: [paragraph('header')] },
     })
   })
 
@@ -54,10 +50,8 @@ describe('root operation middleware', () => {
     const runtime = createEditorRuntime({
       extensions: [dom()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

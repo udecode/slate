@@ -123,9 +123,8 @@ changes.
 ### Saving Provider Root Changes
 
 Use `onChange` and `change.valueChanged` when you only need committed changes
-for the provider root's block array. For `<Slate editor={editor}>`, that is
-`main`. This is the single-root shortcut, not the full document persistence
-path.
+for the provider root's block array. This is the single-root shortcut, not the
+full document persistence path.
 
 ```tsx
 <Slate

@@ -1391,10 +1391,8 @@ describe('slate-react projections and selection contract', () => {
   test('projection stores created from roots receive runtime source changes', async () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [{ children: [{ text: 'Header' }] }],
-          main: [{ children: [{ text: 'Body' }] }],
-        },
+        children: [{ children: [{ text: 'Body' }] }],
+        roots: { header: [{ children: [{ text: 'Header' }] }] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

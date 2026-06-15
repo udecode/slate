@@ -318,10 +318,8 @@ describe('slate-history contract', () => {
     const editor = createEditor({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('')],
-          main: [paragraph('x')],
-        },
+        children: [paragraph('x')],
+        roots: { header: [paragraph('')] },
       },
     })
 
@@ -332,7 +330,7 @@ describe('slate-history contract', () => {
     })
     write(editor, (tx) => {
       tx.text.insert('b', {
-        at: { offset: 1, path: [0, 0], root: 'main' },
+        at: { offset: 1, path: [0, 0] },
       })
     })
 
@@ -341,23 +339,13 @@ describe('slate-history contract', () => {
     undo(editor)
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: {
-          header: [paragraph('a')],
-          main: [paragraph('x')],
-        },
-      }
+      { children: [paragraph('x')], roots: { header: [paragraph('a')] } }
     )
 
     undo(editor)
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: {
-          header: [paragraph('')],
-          main: [paragraph('x')],
-        },
-      }
+      { children: [paragraph('x')], roots: { header: [paragraph('')] } }
     )
   })
 
@@ -365,15 +353,12 @@ describe('slate-history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          footer: [paragraph('f')],
-          header: [paragraph('h')],
-          main: [paragraph('m')],
-        },
+        children: [paragraph('m')],
+        roots: { footer: [paragraph('f')], header: [paragraph('h')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const footerEditor = createEditorView(runtime, { root: 'footer' })
 
     write(headerEditor, (tx) => {
@@ -418,11 +403,8 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          footer: [paragraph('f1')],
-          header: [paragraph('h12')],
-          main: [paragraph('m1')],
-        },
+        children: [paragraph('m1')],
+        roots: { footer: [paragraph('f1')], header: [paragraph('h12')] },
       }
     )
   })
@@ -431,11 +413,8 @@ describe('slate-history contract', () => {
     const editor = createEditor({
       extensions: [history()],
       initialValue: {
-        roots: {
-          footer: [paragraph('f')],
-          header: [paragraph('h')],
-          main: [paragraph('m')],
-        },
+        children: [paragraph('m')],
+        roots: { footer: [paragraph('f')], header: [paragraph('h')] },
       },
     })
 
@@ -521,17 +500,15 @@ describe('slate-history contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('aXbcd')])
   })
 
-  it('does not restore a main selection into a non-main root undo batch', () => {
+  it('does not restore a primary selection into a sibling root undo batch', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const headerEditor = createEditorView(runtime, { root: 'header' })
 
     write(mainEditor, (tx) => {
@@ -550,10 +527,8 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
     assert.deepEqual(
@@ -578,11 +553,7 @@ describe('slate-history contract', () => {
     } as Descendant
     const editor = createEditor({
       extensions: [history()],
-      initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
-      },
+      initialValue: { children: [paragraph('body')] },
     })
 
     write(editor, (tx) => {
@@ -604,10 +575,8 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          [childRoot]: [paragraph('child')],
-          main: [paragraph('body'), island],
-        },
+        children: [paragraph('body'), island],
+        roots: { [childRoot]: [paragraph('child')] },
       }
     )
 
@@ -615,11 +584,7 @@ describe('slate-history contract', () => {
 
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: {
-          main: [paragraph('body')],
-        },
-      }
+      { children: [paragraph('body')] }
     )
 
     redo(editor)
@@ -627,10 +592,8 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          [childRoot]: [paragraph('child')],
-          main: [paragraph('body'), island],
-        },
+        children: [paragraph('body'), island],
+        roots: { [childRoot]: [paragraph('child')] },
       }
     )
   })
@@ -769,10 +732,8 @@ describe('slate-history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [oldChild, paragraph('tail')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [oldChild, paragraph('tail')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -832,10 +793,8 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('remote'), oldChild, paragraph('tail')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('remote'), oldChild, paragraph('tail')] },
       }
     )
     assert.deepEqual(
@@ -918,10 +877,8 @@ describe('slate-history contract', () => {
     const editor = createEditor({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('abcdef')],
-          main: [paragraph('main')],
-        },
+        children: [paragraph('main')],
+        roots: { header: [paragraph('abcdef')] },
       },
     })
 
@@ -951,6 +908,7 @@ describe('slate-history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('main')],
         roots: {
           header: [
             {
@@ -958,7 +916,6 @@ describe('slate-history contract', () => {
               children: [{ text: 'Yabc' }, { text: 'def' }],
             },
           ],
-          main: [paragraph('main')],
         },
       }
     )

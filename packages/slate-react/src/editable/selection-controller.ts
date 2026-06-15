@@ -330,7 +330,7 @@ const getRootEdgePoint = (
   { edge }: { edge: 'end' | 'start' }
 ): Point | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[root] ?? []
+    const children = state.value.root(root === MAIN_ROOT_KEY ? undefined : root)
     const point = getDescendantEdgePoint(children, { edge })
 
     return point ? { ...point, root } : null

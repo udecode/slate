@@ -21,10 +21,8 @@ const paragraph = (text: string): Descendant => ({
 })
 
 const initialValue = () => ({
-  roots: {
-    header: [paragraph('header')],
-    main: [paragraph('body')],
-  },
+  children: [paragraph('body')],
+  roots: { header: [paragraph('header')] },
 })
 
 const flushRootChromeFocus = () =>
@@ -252,7 +250,7 @@ describe('useSlateRootChrome', () => {
     const HeaderChrome = () => {
       const chrome = useSlateRootChrome('header')
       headerEditor = useSlateRootEditor('header')
-      mainEditor = useSlateRootEditor('main')
+      mainEditor = useSlateRootEditor()
 
       return (
         <section data-testid="header-chrome" {...chrome.props}>
@@ -298,7 +296,7 @@ describe('useSlateRootChrome', () => {
     const HeaderChrome = () => {
       const chrome = useSlateRootChrome('header')
       headerEditor = useSlateRootEditor('header')
-      mainEditor = useSlateRootEditor('main')
+      mainEditor = useSlateRootEditor()
 
       return (
         <section data-testid="header-chrome" {...chrome.props}>

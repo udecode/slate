@@ -24,6 +24,17 @@ import {
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
+const assertPublicRootKey = (root: RootKey | undefined) => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+}
+
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
+
 export type SlatePagePreset = 'a4' | 'letter'
 
 export type SlatePageMargins =
@@ -1636,7 +1647,9 @@ const extractLayoutBlocks = (
   typography: SlatePageLayoutTypography | undefined,
   nodeLayout: SlateNodeLayoutProvider | undefined
 ): SlatePageLayoutBlock[] => {
-  const children = editor.read((state) => state.value.root(root))
+  const children = editor.read((state) =>
+    state.value.root(toPublicRootOption(root))
+  )
 
   return children.flatMap((node: Descendant, index: number) => {
     if (!isElement(node)) {
@@ -1882,13 +1895,21 @@ export const getSlatePageLayoutFragments = (
 const readLayoutRoot = <TSettings extends SlatePageSettings>(
   editor: SlateEditor<Value>,
   options: SlatePageLayoutOptions<TSettings>
-): RootKey => options.root ?? editor.read((state) => state.view.root())
+): RootKey => {
+  assertPublicRootKey(options.root)
+
+  return options.root ?? editor.read((state) => state.view.root())
+}
 
 const resolveProjectionRoot = (
   range: Range,
   layoutRoot: RootKey,
   options: SlatePageLayoutProjectRangeOptions | undefined
 ): RootKey | null => {
+  assertPublicRootKey(options?.root)
+  assertPublicRootKey(range.anchor.root)
+  assertPublicRootKey(range.focus.root)
+
   const fallbackRoot = options?.root ?? layoutRoot
   const anchorRoot = range.anchor.root ?? fallbackRoot
   const focusRoot = range.focus.root ?? fallbackRoot

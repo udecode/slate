@@ -10,7 +10,7 @@ const paragraph = (text: string) =>
   }) satisfies Descendant
 
 describe('createEditor value contract', () => {
-  it('normalizes every supported initialValue shape to canonical rooted value', () => {
+  it('normalizes every supported initialValue shape to canonical document value', () => {
     const children = [paragraph('body')]
     const state = { 'document.title': 'Q2 Plan' }
     const header = [paragraph('header')]
@@ -20,13 +20,13 @@ describe('createEditor value contract', () => {
       initialValue: { children, state },
     })
     const fromRoots = createEditor({
-      initialValue: { roots: { header, main: children }, state },
+      initialValue: { children, roots: { header }, state },
     })
 
     assert.deepEqual(
       fromChildren.read((state) => state.value.get()),
       {
-        roots: { main: children },
+        children,
       }
     )
     assert.deepEqual(
@@ -36,16 +36,36 @@ describe('createEditor value contract', () => {
     assert.deepEqual(
       fromDocument.read((state) => state.value.get()),
       {
-        roots: { main: children },
+        children,
         state,
       }
     )
     assert.deepEqual(
       fromRoots.read((state) => state.value.get()),
       {
-        roots: { header, main: children },
+        children,
+        roots: { header },
         state,
       }
+    )
+  })
+
+  it('rejects public main roots in document values', () => {
+    const children = [paragraph('body')]
+
+    assert.throws(
+      () =>
+        createEditor({
+          initialValue: { children, roots: { main: children } },
+        }),
+      /initialValue\.roots\.main is invalid/
+    )
+    assert.throws(
+      () =>
+        createEditor({
+          initialValue: { roots: { main: children } } as never,
+        }),
+      /document value with children/
     )
   })
 })

@@ -60,7 +60,12 @@ import { syncTextOperationsToDOM } from './use-slate-node-ref'
 const MAIN_ROOT_KEY: RootKey = 'main'
 
 const refEquality = <T,>(a: T | null, b: T) => a === b
-const rootKeyEquality = (a: RootKey | null, b: RootKey) => a === b
+const rootKeyEquality = (
+  a: RootKey | null | undefined,
+  b: RootKey | undefined
+) => a === b
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
 const selectionChanged = (change?: EditorCommit) =>
   Boolean(change?.selectionChanged)
 
@@ -69,6 +74,9 @@ const selectActiveRoot = (state: EditorStateView): RootKey => {
 
   return getSelectionRoot(selection) ?? MAIN_ROOT_KEY
 }
+
+const selectPublicActiveRoot = (state: EditorStateView): RootKey | undefined =>
+  toPublicRootOption(selectActiveRoot(state))
 
 type ExtensionLike = {
   api?: Record<string, unknown>
@@ -777,7 +785,7 @@ export function useSlateRootState<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
 >(
-  root: RootKey,
+  root: RootKey | undefined,
   selector: (state: EditorStateView<ValueOf<TRuntime['editor']>>) => T,
   {
     deferred,
@@ -786,7 +794,14 @@ export function useSlateRootState<
     shouldUpdate,
   }: SlateRuntimeStateSelectorOptions<T, TRuntime> = {}
 ): T {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to read the primary document root state. `main` is an internal root key.'
+    )
+  }
+
   const { getView, selectorContext } = useRequiredSlateRuntimeContext()
+  const internalRoot = root ?? MAIN_ROOT_KEY
   const selectorDeps = deps ?? [selector]
   const stateSelector = useCallback(
     () => getView({ root }).read((state) => selector(state)),
@@ -797,7 +812,7 @@ export function useSlateRootState<
   const [selectedState, update] = useGenericSelector(stateSelector, equalityFn)
   const shouldUpdateView = useCallback(
     (operations?: readonly Operation[], change?: EditorCommit) => {
-      if (!isRootAffected(root, operations, change)) {
+      if (!isRootAffected(internalRoot, operations, change)) {
         return false
       }
 
@@ -810,7 +825,7 @@ export function useSlateRootState<
           )
         : true
     },
-    [root, shouldUpdate]
+    [internalRoot, shouldUpdate]
   )
 
   useIsomorphicLayoutEffect(() => {
@@ -827,9 +842,16 @@ export function useSlateRootState<
   return selectedState
 }
 
+const useSlateInternalActiveRoot = (): RootKey =>
+  useSlateRuntimeState(selectActiveRoot, {
+    deps: [],
+    equalityFn: rootKeyEquality,
+    shouldUpdate: selectionChanged,
+  })
+
 /** Read the root key that currently owns the editor selection. */
-export function useSlateActiveRoot(): RootKey {
-  return useSlateRuntimeState(selectActiveRoot, {
+export function useSlateActiveRoot(): RootKey | undefined {
+  return useSlateRuntimeState(selectPublicActiveRoot, {
     deps: [],
     equalityFn: rootKeyEquality,
     shouldUpdate: selectionChanged,
@@ -860,9 +882,15 @@ export function useSlateRootEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(
-  root: RootKey = MAIN_ROOT_KEY,
+  root?: RootKey,
   options: UseSlateRootEditorOptions = {}
 ): SlateRootEditor<V, TExtensions> {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to create an editor for the primary document. `main` is an internal root key.'
+    )
+  }
+
   const { getView, runtime } = useRequiredSlateRuntimeContext()
 
   return useMemo(() => {
@@ -888,7 +916,9 @@ export function useSlateActiveEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(): SlateRootEditor<V, TExtensions> {
-  return useSlateRootEditor<V, TExtensions>(useSlateActiveRoot())
+  return useSlateRootEditor<V, TExtensions>(
+    toPublicRootOption(useSlateInternalActiveRoot())
+  )
 }
 
 /** Options for effects that run with a mounted root editor. */
@@ -907,8 +937,14 @@ export type UseSlateCommandCallbackOptions = {
 }
 
 const useSlateResolvedRoot = (root: RootKey | undefined): RootKey => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+
   const editableRoot = useContext(SlateEditableRootContext)
-  const activeRoot = useSlateActiveRoot()
+  const activeRoot = useSlateInternalActiveRoot()
 
   return root ?? editableRoot ?? activeRoot
 }
@@ -942,9 +978,10 @@ export function useSlateRootEffect<
 ) {
   const { deps, root } = options
   const resolvedRoot = useSlateResolvedRoot(root)
+  const publicRoot = toPublicRootOption(resolvedRoot)
   const { getMountedViewEditor, registerViewEffect } =
     useRequiredSlateRuntimeContext()
-  const fallbackEditor = useSlateRootEditor<V, TExtensions>(resolvedRoot)
+  const fallbackEditor = useSlateRootEditor<V, TExtensions>(publicRoot)
   const effectCell = useLatestCallbackCell(effect)
   const [cleanupCell] = useState<{
     current: void | (() => void)
@@ -1011,8 +1048,9 @@ export function useSlateCommandCallback<
 ): (...args: TArgs) => TResult {
   const { focus = 'preserve', root } = options
   const resolvedRoot = useSlateResolvedRoot(root)
+  const publicRoot = toPublicRootOption(resolvedRoot)
   const context = useRequiredSlateRuntimeContext()
-  const fallbackEditor = useSlateRootEditor<V, TExtensions>(resolvedRoot)
+  const fallbackEditor = useSlateRootEditor<V, TExtensions>(publicRoot)
   const callbackCell = useLatestCallbackCell(callback)
 
   return useCallback(

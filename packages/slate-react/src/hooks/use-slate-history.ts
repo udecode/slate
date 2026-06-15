@@ -20,6 +20,9 @@ import {
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
+
 const getOperationRoot = (operation: Operation): RootKey =>
   ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
@@ -38,7 +41,7 @@ export type SlateHistoryController = {
   canUndo: boolean
   onKeyDown: (event: KeyboardEvent) => void
   redo: () => void
-  root: RootKey
+  root: RootKey | undefined
   undo: () => void
 }
 
@@ -181,6 +184,12 @@ export function useSlateHistory({
   focusPolicy = 'restore-root',
   root: fixedRoot,
 }: UseSlateHistoryOptions = {}): SlateHistoryController {
+  if (fixedRoot === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to bind history to the primary document. `main` is an internal root key.'
+    )
+  }
+
   const historyRootSelector = useMemo(() => createHistoryRootSelector(), [])
   const historyRoot = useSlateRuntimeState(historyRootSelector, {
     deps: [historyRootSelector],
@@ -188,7 +197,8 @@ export function useSlateHistory({
     shouldUpdate: (change) => Boolean(change?.selectionChanged),
   })
   const root = fixedRoot ?? historyRoot
-  const editor = useSlateRootEditor(root)
+  const publicRoot = toPublicRootOption(root)
+  const editor = useSlateRootEditor(publicRoot)
   const {
     getActiveContentRootOwner,
     getContentRootOwnerViewEditor,
@@ -302,9 +312,16 @@ export function useSlateHistory({
       canUndo: availability.canUndo,
       onKeyDown,
       redo,
-      root,
+      root: publicRoot,
       undo,
     }),
-    [availability.canRedo, availability.canUndo, onKeyDown, redo, root, undo]
+    [
+      availability.canRedo,
+      availability.canUndo,
+      onKeyDown,
+      publicRoot,
+      redo,
+      undo,
+    ]
   )
 }

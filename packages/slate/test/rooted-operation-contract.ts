@@ -25,16 +25,16 @@ const voidBlock = defineEditorExtension({
 })
 
 describe('rooted operation contract', () => {
-  it('publishes root-explicit content operations without putting root keys in Path', () => {
+  it('publishes primary content operations without putting root keys in Path', () => {
     const header = [paragraph('header')]
     const main = [paragraph('body')]
     const editor = createEditor({
-      initialValue: { roots: { header, main } },
+      initialValue: { children: main, roots: { header } },
     })
 
     editor.update((tx) => {
       tx.text.insert('!', {
-        at: { path: [0, 0], offset: 4, root: 'main' },
+        at: { path: [0, 0], offset: 4 },
       })
     })
 
@@ -52,10 +52,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header,
-          main: [paragraph('body!')],
-        },
+        children: [paragraph('body!')],
+        roots: { header },
       }
     )
   })
@@ -80,13 +78,13 @@ describe('rooted operation contract', () => {
   it('keeps PathRef root metadata internal and root-local', () => {
     const runtime = createEditorRuntime({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       },
     })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const headerEditor = createEditorView(runtime, { root: 'header' })
     const ref = Editor.pathRef(headerEditor, [0])
 
@@ -113,9 +111,9 @@ describe('rooted operation contract', () => {
     }
     const mergeEditor = createEditor({
       initialValue: {
+        children: [paragraph('main')],
         roots: {
           header: [paragraph('a'), paragraph('b')],
-          main: [paragraph('main')],
         },
       },
     })
@@ -142,9 +140,9 @@ describe('rooted operation contract', () => {
 
     const splitEditor = createEditor({
       initialValue: {
+        children: [paragraph('main')],
         roots: {
           header: [paragraph('ab')],
-          main: [paragraph('main')],
         },
       },
     })
@@ -173,9 +171,9 @@ describe('rooted operation contract', () => {
   it('deletes explicit non-main ranges in their own root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -192,10 +190,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('hder')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('hder')] },
       }
     )
     assert.equal(
@@ -209,9 +205,9 @@ describe('rooted operation contract', () => {
   it('replaces explicit non-main ranges in their own root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -228,10 +224,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('hXder')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('hXder')] },
       }
     )
     assert.equal(
@@ -245,9 +239,9 @@ describe('rooted operation contract', () => {
   it('routes explicit full-root text replacements through their own root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -264,10 +258,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('X')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('X')] },
       }
     )
     assert.equal(Editor.getLastCommit(editor)?.operations[0]?.root, 'header')
@@ -277,9 +269,9 @@ describe('rooted operation contract', () => {
     const editor = createEditor({
       extensions: [voidBlock],
       initialValue: {
+        children: [{ type: 'void-block', children: [{ text: '' }] }],
         roots: {
           header: [paragraph('head')],
-          main: [{ type: 'void-block', children: [{ text: '' }] }],
         },
       },
     })
@@ -293,10 +285,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('heXad')],
-          main: [{ type: 'void-block', children: [{ text: '' }] }],
-        },
+        children: [{ type: 'void-block', children: [{ text: '' }] }],
+        roots: { header: [paragraph('heXad')] },
       }
     )
     assert.equal(Editor.getLastCommit(editor)?.operations[0]?.root, 'header')
@@ -305,9 +295,9 @@ describe('rooted operation contract', () => {
   it('normalizes repairs inside the operation root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -326,12 +316,12 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('body')],
         roots: {
           header: [
             paragraph('head'),
             { type: 'block', children: [{ text: '' }] },
           ],
-          main: [paragraph('body')],
         },
       }
     )
@@ -346,9 +336,9 @@ describe('rooted operation contract', () => {
   it('normalizes every root touched by a transaction', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -374,12 +364,12 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('body!')],
         roots: {
           header: [
             paragraph('head'),
             { type: 'block', children: [{ text: '' }] },
           ],
-          main: [paragraph('body!')],
         },
       }
     )
@@ -395,9 +385,7 @@ describe('rooted operation contract', () => {
     const childRoot = 'island:body'
     const editor = createEditor({
       initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
       },
     })
 
@@ -419,9 +407,9 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('body')],
         roots: {
           [childRoot]: [paragraph('child')],
-          main: [paragraph('body')],
         },
       }
     )
@@ -445,9 +433,7 @@ describe('rooted operation contract', () => {
     const childRoot = 'island:body'
     const editor = createEditor({
       initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
       },
     })
 
@@ -458,9 +444,9 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('body')],
         roots: {
           [childRoot]: [paragraph('child')],
-          main: [paragraph('body')],
         },
       }
     )
@@ -486,9 +472,9 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
+        children: [paragraph('body')],
         roots: {
           [childRoot]: [paragraph('updated')],
-          main: [paragraph('body')],
         },
       }
     )
@@ -514,9 +500,7 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
       }
     )
     assert.deepEqual(Editor.getLastCommit(editor)?.operations, [
@@ -539,9 +523,9 @@ describe('rooted operation contract', () => {
     const childRoot = 'island:body'
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           [childRoot]: [paragraph('child')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -565,16 +549,16 @@ describe('rooted operation contract', () => {
         editor.update((tx) => {
           tx.roots.delete('main')
         }),
-      /Cannot mutate the main editor root/
+      /Cannot mutate the primary editor root/
     )
   })
 
   it('routes explicit point node inserts through their own root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -588,10 +572,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('he'), paragraph('new'), paragraph('ad')] },
       }
     )
     assert.equal(
@@ -605,9 +587,9 @@ describe('rooted operation contract', () => {
   it('routes implicit node inserts through the current transaction selection root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -620,10 +602,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('he'), paragraph('new'), paragraph('ad')] },
       }
     )
     assert.equal(
@@ -637,9 +617,9 @@ describe('rooted operation contract', () => {
   it('routes static point node inserts through their explicit root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -651,10 +631,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('he'), paragraph('new'), paragraph('ad')] },
       }
     )
     assert.equal(
@@ -691,9 +669,9 @@ describe('rooted operation contract', () => {
   it('rejects replayed operations with non-string roots', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('head')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -715,10 +693,8 @@ describe('rooted operation contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('head')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('head')] },
       }
     )
   })
@@ -726,9 +702,9 @@ describe('rooted operation contract', () => {
   it('infers set_selection roots from explicit range points', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       },
     })
@@ -751,9 +727,9 @@ describe('rooted operation contract', () => {
   it('replays inverted selection operations through the restored root', () => {
     const editor = createEditor({
       initialValue: {
+        children: [paragraph('body')],
         roots: {
           header: [paragraph('header')],
-          main: [paragraph('body')],
         },
       },
     })

@@ -251,11 +251,7 @@ describe('root interaction controller', () => {
 
   test('prevents native fallback on focused blank editable-root clicks', async () => {
     const editor = createReactEditor({
-      initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
-      },
+      initialValue: { children: [paragraph('body')] },
     })
 
     render(
@@ -276,11 +272,7 @@ describe('root interaction controller', () => {
 
   test('owns focused native-editable coordinate placements in DOM strategy layout mode', async () => {
     const editor = createReactEditor({
-      initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
-      },
+      initialValue: { children: [paragraph('body')] },
     })
 
     render(
@@ -361,11 +353,7 @@ describe('root interaction controller', () => {
             get: () => null,
           },
           value: {
-            get: () => ({
-              roots: {
-                main: [paragraph('body')],
-              },
-            }),
+            get: () => ({ children: [paragraph('body')] }),
           },
         }),
       update,
@@ -459,11 +447,7 @@ describe('root interaction controller', () => {
             get: () => null,
           },
           value: {
-            get: () => ({
-              roots: {
-                main: [paragraph('body')],
-              },
-            }),
+            get: () => ({ children: [paragraph('body')] }),
           },
         }),
       update,
@@ -556,11 +540,7 @@ describe('root interaction controller', () => {
 
   test('leaves native double-click word selection to the browser in DOM strategy layout mode', async () => {
     const editor = createReactEditor({
-      initialValue: {
-        roots: {
-          main: [paragraph('body')],
-        },
-      },
+      initialValue: { children: [paragraph('body')] },
     })
 
     render(
@@ -635,9 +615,7 @@ describe('root interaction controller', () => {
           },
           value: {
             get: () => ({
-              roots: {
-                main: [paragraph('first'), paragraph('second')],
-              },
+              children: [paragraph('first'), paragraph('second')],
             }),
           },
         }),
@@ -753,14 +731,12 @@ describe('root interaction controller', () => {
           },
           value: {
             get: () => ({
-              roots: {
-                main: [
-                  paragraph('heading'),
-                  paragraph('intro'),
-                  paragraph('first'),
-                  paragraph('second'),
-                ],
-              },
+              children: [
+                paragraph('heading'),
+                paragraph('intro'),
+                paragraph('first'),
+                paragraph('second'),
+              ],
             }),
           },
         }),

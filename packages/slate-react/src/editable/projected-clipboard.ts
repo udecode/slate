@@ -1,7 +1,10 @@
 import { type Descendant, NodeApi, type Range, RangeApi } from 'slate'
 import { getDOMClipboardFormatKey } from 'slate-dom/internal'
 
-import { resolveSlateViewBoundarySegmentEndpoint } from '../view-boundary-graph'
+import {
+  createSlateViewBoundaryRootMap,
+  resolveSlateViewBoundarySegmentEndpoint,
+} from '../view-boundary-graph'
 import {
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
@@ -41,7 +44,7 @@ const getProjectedViewSelectionClipboardRanges = (
   viewSelection: SlateViewSelection
 ): Range[] | null =>
   editor.read((state) => {
-    const roots = state.value.get().roots
+    const roots = createSlateViewBoundaryRootMap(state.value.get())
     const ranges: Range[] = []
 
     for (const segment of viewSelection.segments.parts) {

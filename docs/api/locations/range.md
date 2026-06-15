@@ -9,8 +9,8 @@ interface Range {
 }
 ```
 
-Both points must resolve inside the same root. The `main` root is implicit; named
-roots are stored on each point with `root`.
+Both points must resolve inside the same root. The primary document is
+implicit; extra roots are stored on each point with `root`.
 
 - [Static methods](range.md#static-methods)
   - [Retrieval methods](range.md#retrieval-methods)

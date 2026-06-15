@@ -30,9 +30,16 @@ export type SlateRootChromeController = {
  * Create props for root-level mouse interaction outside editable content.
  */
 export function useSlateRootChrome(
-  root: RootKey = MAIN_ROOT_KEY,
+  root?: RootKey,
   { disabled = false, selection = 'restore' }: UseSlateRootChromeOptions = {}
 ): SlateRootChromeController {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to create chrome for the primary document. `main` is an internal root key.'
+    )
+  }
+
+  const internalRoot = root ?? MAIN_ROOT_KEY
   const editor = useSlateRootEditor(root)
   const { getLastSelectionForRoot, getMountedViewEditor } =
     useRequiredSlateRuntimeContext()
@@ -42,20 +49,20 @@ export function useSlateRootChrome(
       editor,
       getLastSelectionForRoot,
       getMountedViewEditor,
-      root,
+      root: internalRoot,
       selection,
     })
 
   return useMemo(
     () => ({
       props: {
-        'data-slate-root-chrome': root,
+        'data-slate-root-chrome': internalRoot,
         onMouseDownCapture,
         onMouseMoveCapture,
         onMouseUpCapture,
       },
-      root,
+      root: internalRoot,
     }),
-    [onMouseDownCapture, onMouseMoveCapture, onMouseUpCapture, root]
+    [internalRoot, onMouseDownCapture, onMouseMoveCapture, onMouseUpCapture]
   )
 }

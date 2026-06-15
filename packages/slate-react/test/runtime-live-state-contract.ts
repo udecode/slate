@@ -24,10 +24,8 @@ describe('slate-react runtime live state facade', () => {
   test('resolves live nodes and text through root view editors', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [{ type: 'block', children: [{ text: 'header' }] }],
-          main: [{ type: 'block', children: [{ text: 'body' }] }],
-        },
+        children: [{ type: 'block', children: [{ text: 'body' }] }],
+        roots: { header: [{ type: 'block', children: [{ text: 'header' }] }] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

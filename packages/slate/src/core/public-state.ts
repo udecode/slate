@@ -246,9 +246,37 @@ const cloneValue = <T>(value: T): T => structuredClone(value)
 const cloneFrozen = <T>(value: T): T => deepFreeze(cloneValue(value))
 const MAIN_ROOT_KEY = 'main'
 
+const assertPublicRootKey = (root: string | undefined) => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+}
+
+const assertPublicLocationRoot = (location: Location | Span | undefined) => {
+  if (!location || Array.isArray(location)) {
+    return
+  }
+
+  if ('path' in location && 'offset' in location) {
+    assertPublicRootKey(location.root)
+    return
+  }
+
+  if ('anchor' in location && 'focus' in location) {
+    assertPublicRootKey(location.anchor.root)
+    assertPublicRootKey(location.focus.root)
+  }
+}
+
 const getReadLocationRoot = (
   ...locations: Array<Location | Span | undefined>
 ) => {
+  for (const location of locations) {
+    assertPublicLocationRoot(location)
+  }
+
   const root = getCommonLocationRoot(...locations)
 
   if (root === null) {
@@ -342,6 +370,40 @@ const cloneDocumentState = (
   }
 
   return cloneValue(state)
+}
+
+const cloneInitialExtraRoots = (
+  rootsInput: unknown
+): Record<string, Descendant[]> => {
+  if (rootsInput === undefined) {
+    return {}
+  }
+
+  if (!isRecord(rootsInput)) {
+    throw new Error(
+      '[Slate] initialValue.roots is invalid! Expected an object.'
+    )
+  }
+
+  const roots: Record<string, Descendant[]> = {}
+
+  for (const [key, value] of Object.entries(rootsInput)) {
+    if (key === MAIN_ROOT_KEY) {
+      throw new Error(
+        '[Slate] initialValue.roots.main is invalid. Use initialValue.children for the primary document.'
+      )
+    }
+
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `[Slate] initialValue.roots.${key} is invalid! Expected a list of elements.`
+      )
+    }
+
+    roots[key] = cloneValue([...value]) as Descendant[]
+  }
+
+  return roots
 }
 
 const resolveStateFieldInitial = <TValue>(
@@ -624,52 +686,24 @@ const normalizeInitialValue = (input: unknown) => {
 
   if (!isRecord(input)) {
     throw new Error(
-      '[Slate] initialValue is invalid! Expected a list of elements or a document value.'
+      '[Slate] initialValue is invalid! Expected a list of elements or a document value with children.'
     )
   }
 
   if (Array.isArray(input.children)) {
     const children = cloneValue([...input.children]) as Descendant[]
+    const roots = cloneInitialExtraRoots(input.roots)
 
     return {
       children,
       explicit: true,
-      roots: { [MAIN_ROOT_KEY]: children },
-      state: cloneDocumentState(input.state),
-    }
-  }
-
-  if (isRecord(input.roots)) {
-    const roots: Record<string, Descendant[]> = {}
-
-    for (const [key, value] of Object.entries(input.roots)) {
-      if (!Array.isArray(value)) {
-        throw new Error(
-          `[Slate] initialValue.roots.${key} is invalid! Expected a list of elements.`
-        )
-      }
-
-      roots[key] = cloneValue([...value]) as Descendant[]
-    }
-
-    const children = roots[MAIN_ROOT_KEY]
-
-    if (!children) {
-      throw new Error(
-        '[Slate] initialValue.roots is invalid! Expected a "main" root.'
-      )
-    }
-
-    return {
-      children,
-      explicit: true,
-      roots,
+      roots: { [MAIN_ROOT_KEY]: children, ...roots },
       state: cloneDocumentState(input.state),
     }
   }
 
   throw new Error(
-    '[Slate] initialValue is invalid! Expected a list of elements or a document value.'
+    '[Slate] initialValue is invalid! Expected a list of elements or a document value with children.'
   )
 }
 
@@ -690,7 +724,27 @@ const getExplicitRangeRoot = (value: unknown): string | undefined => {
   return anchorRoot ?? focusRoot
 }
 
-const getExplicitLocationRoot = (
+const getPublicExplicitRangeRoot = (value: unknown): string | undefined => {
+  if (!RangeApi.isRange(value)) {
+    return undefined
+  }
+
+  const anchorRoot = value.anchor.root
+  const focusRoot = value.focus.root
+
+  assertPublicRootKey(anchorRoot)
+  assertPublicRootKey(focusRoot)
+
+  if (anchorRoot && focusRoot && anchorRoot !== focusRoot) {
+    throw new Error('Cannot target multiple editor roots in one range.')
+  }
+
+  const root = anchorRoot ?? focusRoot
+
+  return root
+}
+
+const getPublicExplicitLocationRoot = (
   location: Location | undefined
 ): string | undefined => {
   if (!location || Array.isArray(location)) {
@@ -698,10 +752,13 @@ const getExplicitLocationRoot = (
   }
 
   if ('path' in location && 'offset' in location) {
-    return typeof location.root === 'string' ? location.root : undefined
+    const root = typeof location.root === 'string' ? location.root : undefined
+    assertPublicRootKey(root)
+
+    return root
   }
 
-  return getExplicitRangeRoot(location)
+  return getPublicExplicitRangeRoot(location)
 }
 
 const getImplicitSelectionRoot = (editor: Editor): string | undefined =>
@@ -715,7 +772,7 @@ const getMutationRoot = (
   options?: { at?: Location }
 ): string | undefined => {
   if (options?.at !== undefined) {
-    return getExplicitLocationRoot(options.at)
+    return getPublicExplicitLocationRoot(options.at)
   }
 
   const activeRoot = getActiveMutationRoot(editor)
@@ -741,7 +798,7 @@ const getLocationMutationRoot = (
   editor: Editor,
   location: Location
 ): string | undefined =>
-  getExplicitLocationRoot(location) ??
+  getPublicExplicitLocationRoot(location) ??
   getActiveMutationRoot(editor) ??
   MAIN_ROOT_KEY
 
@@ -842,8 +899,16 @@ const createRootReplaceChildrenOperation = <V extends Value>(
 
 const requireMutableRoot = (root: RootKey) => {
   if (root === MAIN_ROOT_KEY) {
-    throw new Error('Cannot mutate the main editor root through tx.roots.')
+    throw new Error('Cannot mutate the primary editor root through tx.roots.')
   }
+}
+
+const getPublicRootReadKey = (root: RootKey | undefined): RootKey => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error('Cannot read the primary editor root by key. Omit root.')
+  }
+
+  return root ?? MAIN_ROOT_KEY
 }
 
 const withRootLifecycleDefaults = (
@@ -1681,6 +1746,10 @@ const getEditorDocumentValue = <V extends Value>(
   editor: Editor<V>
 ): EditorDocumentValue<V> => {
   const roots = getEditorDocumentRoots(editor) as Record<string, V>
+  const children = (roots[MAIN_ROOT_KEY] ?? getChildren(editor)) as V
+  const extraRoots = Object.fromEntries(
+    Object.entries(roots).filter(([key]) => key !== MAIN_ROOT_KEY)
+  ) as Record<string, V>
   const state = DOCUMENT_STATE.get(editor)
   const fields = getStateFieldMap(editor)
   const persistentState =
@@ -1691,13 +1760,14 @@ const getEditorDocumentValue = <V extends Value>(
             ([key]) => fields.get(key)?.persist !== false
           )
         )
-  const value =
-    persistentState === undefined || Object.keys(persistentState).length === 0
-      ? { roots: cloneFrozen(roots) }
-      : {
-          roots: cloneFrozen(roots),
-          state: cloneFrozen(persistentState),
-        }
+  const hasExtraRoots = Object.keys(extraRoots).length > 0
+  const hasPersistentState =
+    persistentState !== undefined && Object.keys(persistentState).length > 0
+  const value = {
+    children: cloneFrozen(children),
+    ...(hasExtraRoots ? { roots: cloneFrozen(extraRoots) } : {}),
+    ...(hasPersistentState ? { state: cloneFrozen(persistentState) } : {}),
+  }
 
   return Object.freeze(value) as EditorDocumentValue<V>
 }
@@ -2596,7 +2666,8 @@ const getStateView = <
       lastCommit: () => getLastCommit(editor) as EditorCommit<V> | null,
       operations: (startIndex?: number) =>
         getOperations(editor, startIndex) as readonly Operation<V>[],
-      root: (root: RootKey) => getEditorDocumentRoots(editor)[root] ?? [],
+      root: (root?: RootKey) =>
+        (getEditorDocumentRoots(editor)[getPublicRootReadKey(root)] ?? []) as V,
     }),
     view: Object.freeze({
       isFocused: () => false,
@@ -5808,7 +5879,7 @@ export const initializePublicState = <
   DOCUMENT_STATE.set(editor, initialValue.state)
   seedRuntimeIds(initialChildren, editor)
   const initialSelectionRoot =
-    getExplicitRangeRoot(options.initialSelection) ?? MAIN_ROOT_KEY
+    getPublicExplicitRangeRoot(options.initialSelection) ?? MAIN_ROOT_KEY
   CURRENT_SELECTION.set(
     editor,
     normalizeSelectionRoot(

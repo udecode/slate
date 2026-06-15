@@ -753,10 +753,7 @@ const resolveContentRootOwnerChromeEndpoint = ({
 
   const edge = resolveContentRootOwnerChromeEdge({ event, owner })
   const childPoint = editor.read((state) =>
-    getSlateRootBoundaryPoint(
-      state.value.get().roots[owner.childRoot] ?? [],
-      edge
-    )
+    getSlateRootBoundaryPoint(state.value.root(owner.childRoot), edge)
   )
 
   return childPoint

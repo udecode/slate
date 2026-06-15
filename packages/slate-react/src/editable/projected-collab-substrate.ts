@@ -38,11 +38,12 @@ const cloneRange = (range: Range): Range => ({
 })
 
 export const getRootKeyedCollabTargets = (value: {
-  roots: Readonly<Record<string, readonly Descendant[]>>
+  children: readonly Descendant[]
+  roots?: Readonly<Record<string, readonly Descendant[]>>
 }): readonly RootKeyedCollabTarget[] =>
-  Object.keys(value.roots)
-    .sort()
-    .map((root) => Object.freeze({ root }) as RootKeyedCollabTarget)
+  [MAIN_ROOT_KEY, ...Object.keys(value.roots ?? {}).sort()].map(
+    (root) => Object.freeze({ root }) as RootKeyedCollabTarget
+  )
 
 export const getProjectedRemoteSelectionPaintTargets = ({
   activeOwner,

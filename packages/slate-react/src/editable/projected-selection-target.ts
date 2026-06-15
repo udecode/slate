@@ -1,5 +1,6 @@
 import type { Point, Range } from 'slate'
 import {
+  createSlateViewBoundaryRootMap,
   createSlateViewBoundarySelectionTarget,
   hasAmbiguousSlateViewBoundarySegments,
 } from '../view-boundary-graph'
@@ -19,7 +20,9 @@ export const resolveProjectedSelectionTarget = (
     return { kind: 'ambiguous' }
   }
 
-  const roots = editor.read((state) => state.value.get().roots)
+  const roots = editor.read((state) =>
+    createSlateViewBoundaryRootMap(state.value.get())
+  )
   const target = createSlateViewBoundarySelectionTarget(roots, viewSelection)
 
   return target ? { kind: 'target', target } : { kind: 'stale' }

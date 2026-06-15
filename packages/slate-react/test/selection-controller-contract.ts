@@ -333,13 +333,11 @@ test('view selection export clears stale native selection ranges', () => {
 test('model selection export is owned by the matching root view only', () => {
   const runtime = createEditorRuntime({
     initialValue: {
-      roots: {
-        child: [{ type: 'paragraph', children: [{ text: 'child' }] }],
-        main: [{ type: 'paragraph', children: [{ text: 'main' }] }],
-      },
+      children: [{ type: 'paragraph', children: [{ text: 'main' }] }],
+      roots: { child: [{ type: 'paragraph', children: [{ text: 'child' }] }] },
     },
   })
-  const mainEditor = createEditorView(runtime, { root: 'main' }) as any
+  const mainEditor = createEditorView(runtime) as any
   const childEditor = createEditorView(runtime, { root: 'child' }) as any
 
   childEditor.update((tx: any) => {

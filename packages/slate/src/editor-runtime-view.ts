@@ -55,6 +55,16 @@ type ViewState = {
 
 const MAIN_ROOT_KEY = 'main'
 
+const resolvePublicViewRoot = (root: RootKey | undefined): RootKey => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+
+  return root ?? MAIN_ROOT_KEY
+}
+
 const createViewApi = (state: ViewState): EditorStateViewApi =>
   Object.freeze({
     isFocused: () => state.focused,
@@ -819,7 +829,7 @@ export const createEditorView = <
   const viewState: ViewState = {
     focused: false,
     readOnly: options.readOnly ?? false,
-    root: options.root ?? MAIN_ROOT_KEY,
+    root: resolvePublicViewRoot(options.root),
   }
   const baseRuntime = getEditorRuntime(runtime.editor)
   let viewEditor: Editor<V> | null = null
@@ -836,8 +846,10 @@ export const createEditorView = <
       viewState.focused = false
     },
     get children() {
-      return runtime.editor.read(
-        (state) => state.value.get().roots[viewState.root] ?? []
+      return runtime.editor.read((state) =>
+        state.value.root(
+          viewState.root === MAIN_ROOT_KEY ? undefined : viewState.root
+        )
       )
     },
     extend: runtime.editor.extend,

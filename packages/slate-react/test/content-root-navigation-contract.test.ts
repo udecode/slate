@@ -50,15 +50,11 @@ const createFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        'card:body': [paragraph('Inside')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { 'card:body': [paragraph('Inside')] },
     },
   })
-  const mainEditor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const mainEditor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const bodyEditor = createEditorView(runtime, {
     root: 'card:body',
   }) as unknown as ReactRuntimeEditor
@@ -70,21 +66,17 @@ const createRepeatedProjectionFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        'card:body': [paragraph('Inside')],
-        main: [
-          paragraph('Before'),
-          contentCard(),
-          paragraph('Between'),
-          contentCard(),
-          paragraph('After'),
-        ],
-      },
+      children: [
+        paragraph('Before'),
+        contentCard(),
+        paragraph('Between'),
+        contentCard(),
+        paragraph('After'),
+      ],
+      roots: { 'card:body': [paragraph('Inside')] },
     },
   })
-  const mainEditor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const mainEditor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const bodyEditor = createEditorView(runtime, {
     root: 'card:body',
   }) as unknown as ReactRuntimeEditor
@@ -147,15 +139,11 @@ describe('content root navigation', () => {
 
   it('does not resolve mounted roots for vertical keys when schema has no content roots', () => {
     const runtime = createEditorRuntime({
-      initialValue: {
-        roots: {
-          main: [paragraph('Plain')],
-        },
-      },
+      initialValue: { children: [paragraph('Plain')] },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const getMountedViewEditor = vi.fn()
     const event = keyEvent('ArrowDown')
 
@@ -177,16 +165,14 @@ describe('content root navigation', () => {
   it('does not scan plain documents when looking for content-root owners', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          main: Array.from({ length: 5000 }, (_, index) =>
-            paragraph(`Plain ${index}`)
-          ),
-        },
+        children: Array.from({ length: 5000 }, (_, index) =>
+          paragraph(`Plain ${index}`)
+        ),
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const read = vi.fn(() => {
       throw new Error('plain documents should not be scanned')
     })
@@ -204,15 +190,13 @@ describe('content root navigation', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          'card:body': [paragraph('First'), paragraph('Second')],
-          main: [paragraph('Before'), contentCard(), paragraph('After')],
-        },
+        children: [paragraph('Before'), contentCard(), paragraph('After')],
+        roots: { 'card:body': [paragraph('First'), paragraph('Second')] },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const bodyEditor = createEditorView(runtime, {
       root: 'card:body',
     }) as unknown as ReactRuntimeEditor
@@ -479,7 +463,7 @@ describe('content root navigation', () => {
       anchor: { path: [0, 0], offset: 'Before'.length },
       focus: { path: [0, 0], offset: 'Before'.length },
     })
-    expect(runtimeValue(mainEditor).roots['card:body']).toEqual([
+    expect(runtimeValue(mainEditor).roots?.['card:body']).toEqual([
       paragraph('Inside'),
     ])
   })
@@ -675,17 +659,15 @@ describe('content root navigation', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          'card:body': [paragraph('Inside')],
-          main: [
-            section([paragraph('Before'), contentCard(), paragraph('After')]),
-          ],
-        },
+        children: [
+          section([paragraph('Before'), contentCard(), paragraph('After')]),
+        ],
+        roots: { 'card:body': [paragraph('Inside')] },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const owner = {
       childRoot: 'card:body',
       ownerPath: [0, 1],
@@ -715,6 +697,7 @@ describe('content root navigation', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
+        children: [paragraph('Before'), contentCard(), paragraph('After')],
         roots: {
           'card:body': [
             section([
@@ -723,14 +706,13 @@ describe('content root navigation', () => {
               paragraph('Inside after'),
             ]),
           ],
-          main: [paragraph('Before'), contentCard(), paragraph('After')],
           'nested:body': [paragraph('Deep')],
         },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const owners = findContentRootOwners(mainEditor)
     const cardOwner = owners.find((owner) => owner.childRoot === 'card:body')!
     const nestedOwner = owners.find(

@@ -1,8 +1,9 @@
 # Document State
 
-Slate persists a document as roots plus optional state fields. Use roots for
-editable content and state fields for document metadata, settings, and other
-small model state that should share the editor runtime.
+Slate persists a document as primary children, optional extra roots, and
+optional state fields. Use roots for editable content outside the primary
+document and state fields for document metadata, settings, and other small model
+state that should share the editor runtime.
 
 Use external stores for comment bodies, permissions, and audit events; Slate can
 render their anchors through annotations.
@@ -13,12 +14,13 @@ The full persisted value is `EditorDocumentValue`.
 
 ```ts
 type EditorDocumentValue = {
-  roots: Record<string, Descendant[]>
+  children: Descendant[]
+  roots?: Record<string, Descendant[]>
   state?: Record<string, unknown>
 }
 ```
 
-`roots.main` is the default editable body. Named roots store headers, footers,
+`children` is the primary editable body. Extra roots store headers, footers,
 content roots, synced blocks, captions, and other editable regions owned by the
 same editor.
 
@@ -36,8 +38,8 @@ await saveDocument(JSON.stringify(documentValue))
 ```
 
 The first argument passed to `<Slate onChange>` is the provider root's block
-array. For `<Slate editor={editor}>`, that is `main`. That is enough for a
-simple single-root editor, but it drops named roots and persistent state fields.
+array. That is enough for a simple single-root editor, but it drops extra roots
+and persistent state fields.
 Use `editor.subscribe(...)` for full document persistence so state-field-only
 commits and edits in other roots are observed.
 
@@ -66,9 +68,7 @@ const saved = localStorage.getItem('slate.document')
 const initialValue = saved
   ? JSON.parse(saved)
   : {
-      roots: {
-        main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
-      },
+      children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
     }
 
 const editor = useSlateEditor({

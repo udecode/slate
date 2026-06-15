@@ -667,7 +667,7 @@ describe('keyboard input strategy', () => {
       expect(result.handled).toBe(true)
       expect(event.preventDefault).not.toHaveBeenCalled()
       expect(event.stopPropagation).toHaveBeenCalled()
-      expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      expect(editor.read((state) => state.value.root())).toEqual([
         paragraph('test'),
       ])
     } finally {
@@ -681,15 +681,11 @@ describe('keyboard input strategy', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          'card:body': [paragraph('Shared mission statement')],
-          main: [paragraph('p1'), contentCard(), paragraph('p2')],
-        },
+        children: [paragraph('p1'), contentCard(), paragraph('p2')],
+        roots: { 'card:body': [paragraph('Shared mission statement')] },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as ReactEditorType
+    const mainEditor = createEditorView(runtime) as ReactEditorType
     const bodyEditor = createEditorView(runtime, {
       root: 'card:body',
     }) as ReactEditorType
@@ -772,15 +768,11 @@ describe('keyboard input strategy', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          'card:body': [paragraph('Shared mission statement')],
-          main: [paragraph('p1'), contentCard(), paragraph('p2')],
-        },
+        children: [paragraph('p1'), contentCard(), paragraph('p2')],
+        roots: { 'card:body': [paragraph('Shared mission statement')] },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as ReactEditorType
+    const mainEditor = createEditorView(runtime) as ReactEditorType
     const bodyEditor = createEditorView(runtime, {
       root: 'card:body',
     }) as ReactEditorType
@@ -941,7 +933,7 @@ describe('keyboard input strategy', () => {
 
       expect(result.handled).toBe(true)
       expect(event.preventDefault).not.toHaveBeenCalled()
-      expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      expect(editor.read((state) => state.value.root())).toEqual([
         { children: [{ text: 'test' }] },
       ])
     } finally {
@@ -954,14 +946,12 @@ describe('keyboard input strategy', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const getMountedViewEditor = vi.fn(() => null)
     const hasEditableTarget = vi
       .spyOn(ReactEditor, 'hasEditableTarget')
@@ -1021,9 +1011,7 @@ describe('keyboard input strategy', () => {
       extensions: [history()],
       initialValue: [paragraph('Before'), paragraph('After')],
     })
-    const editor = createEditorView(runtime, {
-      root: 'main',
-    }) as ReactEditorType
+    const editor = createEditorView(runtime) as ReactEditorType
     const graph = createSlateProjectionGraph([
       { path: [0], root: 'main' },
       { path: [1], root: 'main' },

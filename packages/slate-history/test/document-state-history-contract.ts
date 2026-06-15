@@ -174,7 +174,7 @@ describe('document state history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [optionalSubtitle.key]: 'Draft subtitle' },
       }
     )
@@ -187,9 +187,7 @@ describe('document state history contract', () => {
     )
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
 
     redo(editor)
@@ -197,7 +195,7 @@ describe('document state history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [optionalSubtitle.key]: 'Draft subtitle' },
       }
     )
@@ -221,9 +219,7 @@ describe('document state history contract', () => {
 
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
     assert.equal(
       editor.read((state) => state.history.undos().length),
@@ -234,9 +230,7 @@ describe('document state history contract', () => {
 
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
   })
 
@@ -358,10 +352,8 @@ describe('document state history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -389,10 +381,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
     assert.deepEqual(
@@ -412,10 +402,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(ref!.current, {
@@ -428,10 +416,8 @@ describe('document state history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -454,10 +440,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header'), paragraph('new')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header'), paragraph('new')] },
       }
     )
     assert.deepEqual(

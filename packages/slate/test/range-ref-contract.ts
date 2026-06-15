@@ -284,10 +284,8 @@ describe('slate range ref contract', () => {
   it('keeps rootless non-main range refs public while rebasing in their view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: createChildren(),
-          main: createChildren(),
-        },
+        children: createChildren(),
+        roots: { header: createChildren() },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -316,10 +314,8 @@ describe('slate range ref contract', () => {
   it('keeps explicit non-main range ref roots visible after rebasing', () => {
     const editor = createEditor({
       initialValue: {
-        roots: {
-          header: createChildren(),
-          main: createChildren(),
-        },
+        children: createChildren(),
+        roots: { header: createChildren() },
       },
     })
     const ref = Editor.rangeRef(editor, {
@@ -348,14 +344,12 @@ describe('slate range ref contract', () => {
   it('removes range refs only when a matching-root operation deletes them', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: createChildren(),
-          main: createChildren(),
-        },
+        children: createChildren(),
+        roots: { header: createChildren() },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     let ref: ReturnType<typeof Editor.rangeRef>
 
     headerEditor.update(() => {

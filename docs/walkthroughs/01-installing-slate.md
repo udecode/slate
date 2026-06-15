@@ -30,8 +30,9 @@ const initialValue: CustomValue = [
 ]
 ```
 
-`CustomValue` is the TypeScript shape of this editor's main root. Passing it to
-`useSlateEditor` keeps element and text types attached to the editor API.
+`CustomValue` is the TypeScript shape of this editor's primary document.
+Passing it to `useSlateEditor` keeps element and text types attached to the
+editor API.
 
 Call `useSlateEditor` inside the component so React keeps the same editor
 object for the component lifetime.

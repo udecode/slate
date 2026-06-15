@@ -17,6 +17,7 @@ import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   createSlateViewBoundaryGraph,
+  createSlateViewBoundaryRootMap,
   getSlateBoundaryPoint,
   getSlateDescendantAtPath,
   getSlatePointRoot,
@@ -38,6 +39,8 @@ import {
 } from '../view-selection'
 import type { EditableCommand } from './editable-command-types'
 import { Editor, getEditorExtensionRegistry } from './runtime-editor-api'
+
+const MAIN_ROOT_KEY: RootKey = 'main'
 
 type ContentRootNavigationDirection = 'backward' | 'forward'
 type ContentRootNavigationAxis = 'horizontal' | 'line' | 'vertical' | 'word'
@@ -167,7 +170,7 @@ export const findContentRootOwners = (
 
   return editor.read((state) => {
     const owners: ContentRootOwner[] = []
-    const { roots } = state.value.get()
+    const roots = createSlateViewBoundaryRootMap(state.value.get())
 
     const visit = (node: Descendant, ownerRoot: RootKey, ownerPath: Path) => {
       if (!NodeApi.isElement(node)) {
@@ -298,7 +301,7 @@ export const createContentRootProjectionGraph = (
 ) =>
   editor.read((state) => {
     const nodes: SlateViewBoundaryGraphNodeInput[] = []
-    const { roots } = state.value.get()
+    const roots = createSlateViewBoundaryRootMap(state.value.get())
 
     const appendRoot = (
       root: RootKey,
@@ -484,7 +487,9 @@ const getOwnerBoundaryPoint = (
   direction: ContentRootNavigationDirection
 ): Point | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[owner.ownerRoot]
+    const children = state.value.root(
+      owner.ownerRoot === MAIN_ROOT_KEY ? undefined : owner.ownerRoot
+    )
     const ownerNode =
       children && getSlateDescendantAtPath(children, owner.ownerPath)
 
@@ -515,7 +520,9 @@ const getOwnerAdjacentBoundary = (
   direction: ContentRootNavigationDirection
 ): ContentRootAdjacentBoundary | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[owner.ownerRoot]
+    const children = state.value.root(
+      owner.ownerRoot === MAIN_ROOT_KEY ? undefined : owner.ownerRoot
+    )
 
     return children
       ? getSiblingBoundary({
@@ -532,7 +539,9 @@ const getOwnerSelfBoundaryPoint = (
   edge: 'end' | 'start'
 ): Point | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[owner.ownerRoot]
+    const children = state.value.root(
+      owner.ownerRoot === MAIN_ROOT_KEY ? undefined : owner.ownerRoot
+    )
     const ownerNode =
       children && getSlateDescendantAtPath(children, owner.ownerPath)
 
@@ -547,7 +556,9 @@ const getExitBoundaryPoint = (
   direction: ContentRootNavigationDirection
 ): Point | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[owner.ownerRoot]
+    const children = state.value.root(
+      owner.ownerRoot === MAIN_ROOT_KEY ? undefined : owner.ownerRoot
+    )
     const ownerNode =
       children && getSlateDescendantAtPath(children, owner.ownerPath)
 
@@ -583,7 +594,7 @@ const getRootBoundaryNavigationTarget = ({
 }): ContentRootNavigationTarget | null => {
   const point = editor.read((state) =>
     getSlateRootBoundaryPoint(
-      state.value.get().roots[owner.childRoot] ?? [],
+      state.value.root(owner.childRoot),
       direction === 'forward' ? 'start' : 'end'
     )
   )
@@ -726,7 +737,7 @@ const getDocumentBoundaryNavigationTarget = ({
   const targetRoot = ownerForCurrentRoot?.ownerRoot ?? currentRoot
   const point = editor.read((state) =>
     getSlateRootBoundaryPoint(
-      state.value.get().roots[targetRoot] ?? [],
+      state.value.root(targetRoot === MAIN_ROOT_KEY ? undefined : targetRoot),
       direction === 'forward' ? 'end' : 'start'
     )
   )
@@ -1150,7 +1161,9 @@ const getVerticalNavigationTarget = ({
     })
     const rootEdge = editor.read((state) =>
       getSlateRootBoundaryPoint(
-        state.value.get().roots[currentRoot] ?? [],
+        state.value.root(
+          currentRoot === MAIN_ROOT_KEY ? undefined : currentRoot
+        ),
         direction === 'forward' ? 'end' : 'start'
       )
     )
@@ -1306,7 +1319,9 @@ const getHorizontalNavigationTarget = ({
   if (ownerForCurrentRoot) {
     const rootEdge = editor.read((state) =>
       getSlateRootBoundaryPoint(
-        state.value.get().roots[currentRoot] ?? [],
+        state.value.root(
+          currentRoot === MAIN_ROOT_KEY ? undefined : currentRoot
+        ),
         direction === 'forward' ? 'end' : 'start'
       )
     )
@@ -1479,7 +1494,7 @@ const advanceVerticalBoundarySelectionTarget = ({
     ) => boolean
   ) =>
     editor.read((state) => {
-      const roots = state.value.get().roots
+      const roots = createSlateViewBoundaryRootMap(state.value.get())
 
       return anchorSelection.segments.parts.some((segment) => {
         if (!predicate(segment)) {
@@ -1615,7 +1630,7 @@ const getRootLocalVerticalModelSelectionTarget = ({
     const children = (
       state.view.root() === root
         ? state.nodes.children()
-        : (state.value.get().roots[root] ?? [])
+        : state.value.root(root === MAIN_ROOT_KEY ? undefined : root)
     ) as readonly Descendant[]
     const blockIndex = point.path[0]
 
@@ -1657,7 +1672,7 @@ const isPointInRootTerminalBlock = ({
   root: RootKey
 }) =>
   editor.read((state) => {
-    const children = state.value.get().roots[root] ?? []
+    const children = state.value.root(root === MAIN_ROOT_KEY ? undefined : root)
     const blockIndex = point.path[0]
 
     if (typeof blockIndex !== 'number' || children.length === 0) {
@@ -1756,7 +1771,9 @@ const getProjectedGraphVerticalSelectionTarget = ({
 
   const point = editor.read((state) => {
     const node = getSlateDescendantAtPath(
-      state.value.get().roots[targetNode.root] ?? [],
+      state.value.root(
+        targetNode.root === MAIN_ROOT_KEY ? undefined : targetNode.root
+      ),
       targetNode.path
     )
 
