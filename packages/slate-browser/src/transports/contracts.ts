@@ -1,17 +1,21 @@
 import type { BrowserMobileScenarioId, ProofEvidenceClass } from '../core/proof'
 
+/** Supported automation transport ids for mobile browser proof. */
 export type BrowserMobileTransportId =
   | 'agent-browser-ios'
   | 'appium-android'
   | 'appium-ios'
 
+/** Browser platform represented by a mobile transport. */
 export type BrowserMobileProofPlatform = 'android-chrome' | 'ios-safari'
 
+/** Claims a transport can support with its current proof channel. */
 export type BrowserMobileSupportedClaim =
   | 'debug-snapshot'
   | 'device-browser-ime-commit'
   | 'device-browser-text-input'
 
+/** Claims a transport explicitly cannot prove. */
 export type BrowserMobileUnsupportedClaim =
   | 'device-browser-ime-commit'
   | 'glide-typing'
@@ -19,6 +23,7 @@ export type BrowserMobileUnsupportedClaim =
   | 'native-mobile-clipboard'
   | 'voice-input'
 
+/** Proof capability matrix entry for one mobile browser transport. */
 export type BrowserMobileTransportProof = {
   evidenceClass: ProofEvidenceClass
   platform: BrowserMobileProofPlatform
@@ -41,6 +46,7 @@ const DIRECT_DEVICE_UNSUPPORTED_CLAIMS = [
   'voice-input',
 ] satisfies readonly BrowserMobileUnsupportedClaim[]
 
+/** Classify the proof strength and claim coverage of a mobile transport. */
 export const classifyBrowserMobileTransportProof = (
   transport: BrowserMobileTransportId
 ): BrowserMobileTransportProof => {
@@ -81,6 +87,7 @@ export const classifyBrowserMobileTransportProof = (
   }
 }
 
+/** Return the proof capability matrix for every known mobile transport. */
 export const getBrowserMobileTransportProofMatrix = () =>
   (
     [
@@ -90,18 +97,21 @@ export const getBrowserMobileTransportProofMatrix = () =>
     ] satisfies BrowserMobileTransportId[]
   ).map(classifyBrowserMobileTransportProof)
 
+/** Selectors and setup script needed to drive one mobile example surface. */
 export type BrowserMobileSurface = {
   debugJsonSelector: string
   editorSelector: string
   selectionPrepScript?: string
 }
 
+/** Example route target for mobile browser proof. */
 export type BrowserMobileTarget = {
   debugQuery?: string
   example: string
   port: number
 }
 
+/** Fully resolved mobile browser proof target. */
 export type BrowserMobileDescriptor = BrowserMobileTarget & {
   debugJsonSelector: string
   editorSelector: string
@@ -112,6 +122,7 @@ export type BrowserMobileDescriptor = BrowserMobileTarget & {
   url: string
 }
 
+/** Build the URL used by mobile browser transports for one example target. */
 export const createBrowserMobileUrl = (
   { debugQuery = 'debug=1', example, port }: BrowserMobileTarget,
   host = 'localhost'
@@ -146,6 +157,7 @@ const collapseToLeadingTextSelectionScript = `
 })()
 `.trim()
 
+/** Resolve selectors and setup script for a mobile browser example. */
 export const resolveBrowserMobileSurface = (
   example: string
 ): BrowserMobileSurface => {

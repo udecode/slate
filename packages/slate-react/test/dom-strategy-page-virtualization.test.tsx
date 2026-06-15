@@ -115,9 +115,9 @@ test('Editable domStrategy virtualized mode uses page layout items as the retain
         threshold: 1,
         type: 'virtualized',
       }}
+      domStrategyLayout={createPageVirtualizedLayout(6)}
       editor={editor}
       id="dom-strategy-page-virtualized"
-      layout={createPageVirtualizedLayout(6)}
       style={{ height: 100, overflowY: 'auto' }}
     />
   )
@@ -171,9 +171,11 @@ test('Editable domStrategy virtualized mode retains expanded selection endpoints
         threshold: 1,
         type: 'virtualized',
       }}
+      domStrategyLayout={createPageVirtualizedLayout(8, {
+        visiblePageIndexes: [1],
+      })}
       editor={editor}
       id="dom-strategy-expanded-selection-retention"
-      layout={createPageVirtualizedLayout(8, { visiblePageIndexes: [1] })}
       style={{ height: 100, overflowY: 'auto' }}
     />
   )
@@ -256,9 +258,11 @@ test('Editable domStrategy virtualized mode can share a layout-owned visible pag
         threshold: 1,
         type: 'virtualized',
       }}
+      domStrategyLayout={createPageVirtualizedLayout(6, {
+        visiblePageIndexes: [2],
+      })}
       editor={editor}
       id="dom-strategy-shared-page-window"
-      layout={createPageVirtualizedLayout(6, { visiblePageIndexes: [2] })}
       style={{ height: 100, overflowY: 'auto' }}
     />
   )
@@ -303,9 +307,9 @@ test('Editable domStrategy virtualized mode can use an outer scroll container', 
           threshold: 1,
           type: 'virtualized',
         }}
+        domStrategyLayout={createPageVirtualizedLayout(4)}
         editor={editor}
         id="dom-strategy-outer-scroll-virtualized"
-        layout={createPageVirtualizedLayout(4)}
       />
     </div>
   )
@@ -344,9 +348,9 @@ test('Editable domStrategy metrics do not re-emit unchanged virtualized metrics 
             threshold: 1,
             type: 'virtualized',
           }}
+          domStrategyLayout={createPageVirtualizedLayout(4)}
           editor={editor}
           id="dom-strategy-metrics-loop"
-          layout={createPageVirtualizedLayout(4)}
           onDOMStrategyMetrics={(nextMetrics) => {
             metrics.push(nextMetrics)
             setLatestMetrics(nextMetrics)

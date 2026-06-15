@@ -121,6 +121,7 @@ const isRootMarksChanged = (root: RootKey, commit: EditorCommit) =>
   (getSelectionRoot(commit.selectionBefore) === root ||
     getSelectionRoot(commit.selectionAfter) === root)
 
+/** Snapshot payload passed to Slate React change callbacks. */
 export type SlateChange<V extends Value = Value> = {
   commit: EditorCommit<V>
   marksChanged: boolean
@@ -133,6 +134,7 @@ export type SlateChange<V extends Value = Value> = {
   valueChanged: boolean
 }
 
+/** Props for the Slate React provider around editable roots and callbacks. */
 export type SlateProps<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly unknown[],
@@ -171,7 +173,7 @@ export const Slate = <
   if (!props.editor) {
     if (!runtimeContext) {
       if (props.root) {
-        throw new Error('[Slate] Slate root views require <SlateRuntime>.')
+        throw new Error('[Slate] Slate roots require <SlateRuntime>.')
       }
 
       throw new Error('[Slate] editor is invalid!')

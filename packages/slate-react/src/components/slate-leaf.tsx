@@ -3,6 +3,12 @@ import type { ReactNode } from 'react'
 import { recordSlateReactRender } from '../render-profiler'
 import { getSlateLeafShellAttributes } from '../shell-runtime'
 
+/**
+ * Render a Slate leaf shell for decorated text content.
+ *
+ * The shell carries Slate leaf attributes and render profiling metadata while
+ * leaving actual text children to the caller.
+ */
 export const SlateLeaf = ({
   attributes,
   children,

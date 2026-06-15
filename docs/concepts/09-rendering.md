@@ -9,8 +9,7 @@ them once with the editor, so React does not receive a fresh renderer on every
 render.
 
 ```tsx
-import { useState } from 'react'
-import { Slate, Editable, createReactEditor } from 'slate-react'
+import { Slate, Editable, useSlateEditor } from 'slate-react'
 
 const ParagraphElement = ({ attributes, children }) => {
   return <p {...attributes}>{children}</p>
@@ -40,9 +39,7 @@ const renderElement = props => {
 }
 
 const MyEditor = () => {
-  const [editor] = useState(() => {
-    return createReactEditor({ initialValue })
-  })
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -145,7 +142,8 @@ A common use case for this is rendering a toolbar with formatting buttons that a
 
 ```tsx
 const MyEditor = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
+
   return (
     <Slate editor={editor}>
       <Toolbar />
@@ -176,7 +174,8 @@ Custom styles can be applied to the editor itself by using the `style` prop on t
 
 ```tsx
 const MyEditor = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
+
   return (
     <Slate editor={editor}>
       <Editable style={{ minHeight: '200px', backgroundColor: 'lime' }} />

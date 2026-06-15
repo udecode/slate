@@ -77,7 +77,7 @@ Check if a `range` is expanded. This is the opposite of `RangeApi.isCollapsed` a
 
 Check if a `range` is forward. This is the opposite of `RangeApi.isBackward` and is provided for legibility.
 
-#### `RangeApi.isRange(value: any) => value is Range`
+#### `RangeApi.isRange(value: unknown) => value is Range`
 
 Check if a `value` implements the `Range` interface.
 

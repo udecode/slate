@@ -211,7 +211,6 @@ the comment store.
 Use [Annotations](../libraries/slate-react/annotations.md) to render comment
 anchors from that external store.
 
-You now have the persistence contract: save `state.value.get()` for the whole
-document, use `value` from `onChange` only for single-root shortcuts, and keep
-external app data outside the Slate document unless it is part of the document
-model.
+Persistence uses `state.value.get()` for the whole document. Use `value` from
+`onChange` only for single-root shortcuts, and keep external app data outside
+the Slate document unless it is part of the document model.

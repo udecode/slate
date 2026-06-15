@@ -20,7 +20,7 @@ type EditableProps = {
   disableDefaultStyles?: boolean
   id?: string
   domStrategy?: DOMStrategyOptions | null
-  layout?: EditableLayout | null
+  domStrategyLayout?: EditableDOMStrategyLayout | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: (
     event: InputEvent,
@@ -55,6 +55,10 @@ type EditableProps = {
 `{ type: 'auto' | 'staged' | 'full', textSync? }`, or the experimental object
 form `{ type: 'virtualized', estimatedBlockSize?, overscan?, threshold?,
 textSync? }`.
+
+`scrollSelectionIntoView` defaults to `defaultScrollSelectionIntoView`. Import
+the helper when custom scroll behavior should wrap Slate's default caret and
+selection scrolling instead of replacing it completely.
 
 ## Render Props
 
@@ -298,8 +302,9 @@ const markdown = defineEditorExtension({
 })
 ```
 
-Use `onDOMBeforeInput` only when you need the raw native `InputEvent`.
-Returning `true` or calling `event.preventDefault()` marks the event handled.
+`onBeforeInput` is the React form-event hook on the editable root. Use
+`onDOMBeforeInput` only when you need the raw native `InputEvent`. Returning
+`true` or calling `event.preventDefault()` marks the event handled.
 
 ## Projection Sources
 
@@ -363,8 +368,9 @@ mobile/desktop, IME state, and app version. Virtualized and partial-DOM
 metrics are bounded-surface rows. `staged-warmup` metrics are staged
 materialization rows. Do not mix either bucket with complete full-DOM rows.
 
-Pass `layout` only when the app owns a layout engine that can name virtualized
-top-level or page items. Normal editor surfaces should leave it unset.
+Pass `domStrategyLayout` only when the app owns a layout engine that can name
+virtualized top-level or page items. Normal editor surfaces should leave it
+unset.
 
 ## DOM Coverage Boundaries
 

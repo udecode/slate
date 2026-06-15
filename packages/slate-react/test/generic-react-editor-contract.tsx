@@ -1,9 +1,9 @@
 import {
   createEditor,
   defineEditorExtension,
+  type EditorCommit,
   type Operation,
   type Node as SlateNode,
-  type SnapshotChange,
   type ValueOf,
 } from 'slate'
 import { history } from 'slate-history'
@@ -179,7 +179,7 @@ const selectorOptions: EditorSelectorOptions<typeof historyReactEditor> = {
   shouldUpdate: (operations, change) => {
     const typedOperations: readonly Operation<CustomValue>[] | undefined =
       operations
-    const typedChange: SnapshotChange<CustomValue> | undefined = change
+    const typedChange: EditorCommit<CustomValue> | undefined = change
 
     void typedOperations
     void typedChange

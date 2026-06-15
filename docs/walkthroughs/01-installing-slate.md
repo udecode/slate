@@ -8,11 +8,11 @@ npm install slate slate-dom slate-react react react-dom
 
 Use the equivalent command for your package manager if your project uses pnpm, Yarn, or Bun.
 
-Once the packages are installed, import the editor factory from `slate` and the React pieces from `slate-react`.
+Once the packages are installed, import the React editor pieces from
+`slate-react`.
 
 ```tsx
-import { useState } from 'react'
-import { Editable, Slate, createReactEditor, type SlateChange } from 'slate-react'
+import { Editable, Slate, type SlateChange, useSlateEditor } from 'slate-react'
 ```
 
 Before we render anything, let's define the document shape for this editor.
@@ -30,17 +30,17 @@ const initialValue: CustomValue = [
 ]
 ```
 
-`CustomValue` is the TypeScript shape of this editor's main root. Passing it
-to `createReactEditor` keeps element and text types attached to the editor API.
+`CustomValue` is the TypeScript shape of this editor's main root. Passing it to
+`useSlateEditor` keeps element and text types attached to the editor API.
 
-Create the editor inside `useState` so React keeps the same editor object for
-the lifetime of the component.
+Call `useSlateEditor` inside the component so React keeps the same editor
+object for the component lifetime.
 
 Now we can render the editor with `<Slate>` and `<Editable>`.
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -50,7 +50,9 @@ const App = () => {
 }
 ```
 
-`<Slate>` provides the editor to everything underneath it. `initialValue` seeds the document when the editor is first mounted, and `<Editable>` renders the editable document surface.
+The editor is seeded by `useSlateEditor({ initialValue })`. `<Slate>`
+provides that existing editor to everything underneath it, and `<Editable>`
+renders the editable document surface.
 
 This is the smallest useful Slate editor. If you render `App`, you should see a paragraph with the text `A line of text in a paragraph.` When you type, Slate updates the document through the editor runtime.
 
@@ -60,7 +62,7 @@ Most applications save the document value somewhere. Pass `onChange` to `<Slate>
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
   const handleChange = (
     nextValue: CustomValue,
@@ -82,7 +84,10 @@ const App = () => {
 }
 ```
 
-Use `initialValue` as the initial document. If your app needs to replace the whole document after the editor is mounted, use an explicit editor update instead of treating `<Slate>` like a controlled `<textarea>`.
+Use `initialValue` as the one-shot initial document passed to `useSlateEditor`.
+If your app needs to replace the whole document after the
+editor exists, use an explicit editor update instead of treating `<Slate>` like
+a controlled `<textarea>`.
 
 ## Next steps
 

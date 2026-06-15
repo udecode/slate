@@ -12,14 +12,14 @@ const editor = createEditor({
 })
 ```
 
-`createReactEditor` installs history by default. Disable it explicitly when a
-React editor should not expose history state or transaction helpers.
+`useSlateEditor` installs history by default. Disable it explicitly when a
+React-owned editor should not expose history state or transaction helpers.
 
 ```typescript
 import { history } from 'slate-history'
-import { createReactEditor } from 'slate-react'
+import { useSlateEditor } from 'slate-react'
 
-const editor = createReactEditor({
+const editor = useSlateEditor({
   extensions: [history({ enabled: false })],
   initialValue,
 })

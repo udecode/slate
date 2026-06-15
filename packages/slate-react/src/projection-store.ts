@@ -1,5 +1,6 @@
 import type {
   Descendant,
+  EditorCommit,
   EditorCommitSource,
   EditorSnapshot,
   Path,
@@ -7,7 +8,6 @@ import type {
   ProjectedRangeSegment,
   Range,
   RuntimeId,
-  SnapshotChange,
 } from 'slate'
 import { NodeApi, RangeApi } from 'slate'
 import { Editor, projectRangeInSnapshot } from './editable/runtime-editor-api'
@@ -40,7 +40,7 @@ export type SlateSourceDirtinessClass =
   | 'external'
 
 export type SlateSourceDirtinessContext = {
-  change?: SnapshotChange
+  change?: EditorCommit
   forceInvalidate?: boolean
   reason: 'annotation' | 'editor' | 'external' | 'refresh'
   requiresDOMSelectionExport?: boolean
@@ -77,7 +77,7 @@ export type SlateProjectionStoreOptions = {
 }
 
 export type SlateProjectionStoreRefreshOptions = {
-  change?: SnapshotChange
+  change?: EditorCommit
   forceInvalidate?: boolean
   reason?: SlateSourceDirtinessContext['reason']
   /**
@@ -764,7 +764,7 @@ export const createSlateProjectionStore = <T>(
     Editor.subscribeSource(
       editor,
       editorSource,
-      (nextSnapshot: EditorSnapshot, change?: SnapshotChange) => {
+      (nextSnapshot: EditorSnapshot, change?: EditorCommit) => {
         recompute({
           change,
           reason: 'editor',

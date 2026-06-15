@@ -1,13 +1,9 @@
 import { render } from '@testing-library/react'
 import React from 'react'
-import {
-  SlateElement,
-  SlateLeaf,
-  SlateText,
-  TextString,
-  ZeroWidthString,
-} from '../src'
+import { SlateElement, SlateLeaf, SlateText } from '../src'
 import { SlateSpacer } from '../src/components/slate-spacer'
+import { TextString } from '../src/components/text-string'
+import { ZeroWidthString } from '../src/components/zero-width-string'
 import {
   createSlateReactRenderCounter,
   recordSlateReactRender,

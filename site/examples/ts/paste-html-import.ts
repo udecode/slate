@@ -14,7 +14,7 @@ interface ElementAttributes {
   url?: string
 }
 
-// COMPAT: `B` is omitted here because Google Docs uses `<b>` in weird ways.
+// Google Docs often emits `<b>` for styling that should not become a bold mark.
 interface TextAttributes {
   backgroundColor?: string
   code?: boolean

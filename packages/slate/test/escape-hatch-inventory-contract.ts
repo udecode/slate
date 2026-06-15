@@ -109,6 +109,16 @@ const inventoryRules: InventoryRule[] = [
   },
   {
     expected: { stale: 1 },
+    gate: 'slate-browser proof audit fixtures must stay classified as test-only transport',
+    id: 'slate-browser-proof-audit-tests',
+    next: 'explicit-proof-bridge',
+    owner: 'browser-proof',
+    path: /^packages\/slate-browser\/test\/core\/keyboard-oracle-audit\.test\.ts$/,
+    rationale:
+      'The keyboard oracle audit stores low-level fixture text for proof classification.',
+  },
+  {
+    expected: { stale: 1 },
     gate: 'DOM runtime bridge usage must stay inside slate-dom',
     id: 'dom-runtime',
     next: 'central-owner',

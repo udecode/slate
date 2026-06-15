@@ -23,13 +23,16 @@ const MAIN_ROOT_KEY: RootKey = 'main'
 const getOperationRoot = (operation: Operation): RootKey =>
   ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
-export type SlateHistoryFocusPolicy = 'none' | 'preserve-dom' | 'restore-root'
+/** Focus behavior after undo or redo commands. */
+export type SlateHistoryFocusPolicy = 'none' | 'preserve' | 'restore-root'
 
+/** Options for history commands and shortcut handling. */
 export type UseSlateHistoryOptions = {
   focusPolicy?: SlateHistoryFocusPolicy
   root?: RootKey
 }
 
+/** Undo/redo state and command handlers for one Slate root. */
 export type SlateHistoryController = {
   canRedo: boolean
   canUndo: boolean
@@ -152,7 +155,7 @@ const selectHistoryAvailability = (state: unknown): HistoryAvailability => {
 const getHistoryUpdateOptions = (
   focus: SlateHistoryFocusPolicy
 ): EditorUpdateOptions => ({
-  ...(focus === 'preserve-dom'
+  ...(focus === 'preserve'
     ? {
         metadata: {
           selection: {
@@ -168,6 +171,11 @@ const getHistoryUpdateOptions = (
 
 /**
  * Create undo/redo commands and keyboard handling for the active or fixed root.
+ *
+ * The controller follows the current selection root by default, or a fixed
+ * `root` when provided. Use `canUndo` / `canRedo` for disabled UI, wire
+ * `onKeyDown` to editor chrome that owns shortcuts, and choose `focusPolicy`
+ * based on whether undo/redo should restore editor focus.
  */
 export function useSlateHistory({
   focusPolicy = 'restore-root',

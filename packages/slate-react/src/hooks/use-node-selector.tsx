@@ -1,10 +1,10 @@
 import { useCallback, useContext } from 'react'
 import {
+  type EditorCommit,
   type Node,
   type Operation,
   type Path,
   type RuntimeId,
-  type SnapshotChange,
   type Text,
   TextApi,
 } from 'slate'
@@ -17,6 +17,7 @@ import { didSyncTextPathToDOM } from './use-slate-node-ref'
 
 const refEquality = (a: unknown, b: unknown) => a === b
 
+/** Runtime/node payload passed to node selectors. */
 export type EditorNodeSelectorContext = {
   editor: ReactRuntimeEditor
   node: Node | null
@@ -24,10 +25,12 @@ export type EditorNodeSelectorContext = {
   runtimeId: RuntimeId | null
 }
 
+/** Node selector payload narrowed with the text node when available. */
 export type EditorTextSelectorContext = EditorNodeSelectorContext & {
   text: Text | null
 }
 
+/** Update-scoping options for selectors tied to a rendered runtime id. */
 export type EditorRuntimeSelectorOptions = {
   deferred?: boolean
   includeRootOrderChanges?: boolean
@@ -49,7 +52,7 @@ const includesRuntimeId = (
 
 const shouldSkipPathOnlyTopLevelOrderRender = (
   runtimeId: RuntimeId | null,
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   if (
     !runtimeId ||
@@ -73,7 +76,7 @@ const shouldUpdateRuntimeNode = (
   editor: ReactRuntimeEditor,
   runtimeId: RuntimeId | null,
   operations?: readonly Operation[],
-  change?: SnapshotChange,
+  change?: EditorCommit,
   updatePolicy: SlateRuntimeSelectorUpdatePolicy = 'model-truth',
   includeRootOrderChanges = false
 ) => {
@@ -191,7 +194,7 @@ function useRuntimeNodeSelector<T>(
     [runtimeId, selector]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdateRuntimeNode(
         editor,
         runtimeId,
@@ -214,6 +217,12 @@ function useRuntimeNodeSelector<T>(
   })
 }
 
+/**
+ * Subscribe to the Slate node rendered by the current runtime.
+ *
+ * Use this from element, leaf, or custom shell renderers that need node, path,
+ * runtime, or root metadata without forcing unrelated runtimes to re-render.
+ */
 export function useNodeSelector<T>(
   selector: (context: EditorNodeSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
@@ -233,6 +242,12 @@ export function useMountedNodeRenderSelector<T>(
   })
 }
 
+/**
+ * Subscribe to the text node rendered by the current runtime.
+ *
+ * The selector receives `text` when the runtime owns a Slate text node, or
+ * `null` for element runtimes.
+ */
 export function useTextSelector<T>(
   selector: (context: EditorTextSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,

@@ -41,6 +41,7 @@
   - [NodeEntry](api/nodes/node-entry.md)
   - [Text](api/nodes/text.md)
 - [Location Types](api/locations/README.md)
+  - [Bookmark](api/locations/bookmark.md)
   - [Location](api/locations/location.md)
   - [Path](api/locations/path.md)
   - [PathRef](api/locations/path-ref.md)
@@ -55,6 +56,8 @@
 
 ## Libraries
 
+- [Slate](libraries/slate.md)
+- [Slate DOM](libraries/slate-dom.md)
 - [Slate React](libraries/slate-react/README.md)
   - [React Editor Setup](libraries/slate-react/react-editor-setup.md)
   - [React Editor](libraries/slate-react/react-editor.md)

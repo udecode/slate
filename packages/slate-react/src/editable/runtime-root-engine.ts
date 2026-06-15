@@ -16,6 +16,7 @@ import type {
   EditableKeyDownHandler,
 } from '../components/editable'
 import { isSelectionPartialDOMBacked } from '../dom-strategy/dom-strategy-commands'
+import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
@@ -29,10 +30,7 @@ import { useEditableRootRef } from './input-router'
 import type { DeferredOperation } from './model-input-strategy'
 import { useProjectionDOMRepairBridge } from './projection-repair-bridge'
 import { useEditableRootCommitWakeup } from './root-selector-sources'
-import {
-  type RuntimeAndroidInputManager,
-  useRuntimeAndroidEngine,
-} from './runtime-android-engine'
+import { useRuntimeAndroidEngine } from './runtime-android-engine'
 import { useRuntimeCompositionEngine } from './runtime-composition-engine'
 import type { Editor } from './runtime-editor-api'
 import { useEditableEventRuntime } from './runtime-event-engine'
@@ -214,7 +212,7 @@ export const useEditableRootRuntime = ({
   }, [autoFocus])
 
   const [androidInputManagerRef] = useState<{
-    current: RuntimeAndroidInputManager | null | undefined
+    current: AndroidInputManager | null | undefined
   }>(() => ({ current: undefined }))
   const {
     onDOMSelectionChange,

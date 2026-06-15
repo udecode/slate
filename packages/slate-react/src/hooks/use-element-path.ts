@@ -1,5 +1,5 @@
 import { useCallback, useContext } from 'react'
-import type { Operation, Path, SnapshotChange } from 'slate'
+import type { EditorCommit, Operation, Path } from 'slate'
 import { NodeRuntimeIdContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
@@ -30,7 +30,7 @@ export const useElementPath = (): Path | null => {
   )
 
   const shouldUpdate = useCallback(
-    (_operations?: readonly Operation[], change?: SnapshotChange) => {
+    (_operations?: readonly Operation[], change?: EditorCommit) => {
       if (!runtimeId || !change) {
         return true
       }

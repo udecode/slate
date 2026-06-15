@@ -223,10 +223,11 @@ export interface DOMEditorClipboardCapability {
   writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) => void
 }
 
-export type DOMApi = Omit<DOMEditorCapability, 'clipboard'>
+export interface DOMApi extends Omit<DOMEditorCapability, 'clipboard'> {}
 
-export type DOMClipboardApi = DOMEditorClipboardCapability
+export interface DOMClipboardApi extends DOMEditorClipboardCapability {}
 
+/** Error thrown when Slate cannot resolve a DOM node, point, or range. */
 export class SlateDOMResolutionError extends Error {
   readonly code: string
   readonly details: unknown

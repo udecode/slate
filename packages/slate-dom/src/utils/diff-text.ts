@@ -60,6 +60,7 @@ export function verifyDiffState(
   return NodeApi.isText(nextNode) && nextNode.text.startsWith(diff.text)
 }
 
+/** Apply one or more string diffs to a text value in order. */
 export function applyStringDiff(text: string, ...diffs: StringDiff[]) {
   return diffs.reduce(
     (text, diff) =>

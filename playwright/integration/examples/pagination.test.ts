@@ -3532,6 +3532,7 @@ test.describe('pagination example', () => {
           label: 'native-select-projected-word',
           offset: 4,
           path: [0, 0],
+          selectedText: 'Premirror',
         },
         {
           kind: 'assertSelectedText',
@@ -3594,6 +3595,7 @@ test.describe('pagination example', () => {
           label: 'native-select-virtualized-projected-word',
           offset: 4,
           path: [0, 0],
+          selectedText: 'Premirror',
         },
         {
           kind: 'assertSelectedText',

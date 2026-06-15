@@ -2,11 +2,11 @@ import type { CSSProperties } from 'react'
 import React, { useCallback } from 'react'
 import type {
   Descendant,
+  EditorCommit,
   Operation,
   Path,
   RuntimeId,
   Editor as SlateEditor,
-  SnapshotChange,
 } from 'slate'
 import type {
   DOMCoverageReason,
@@ -93,7 +93,7 @@ const shouldRefreshPreview = ({
 }) => {
   const previewEndIndex = Math.min(endIndex, startIndex + MAX_PREVIEW_LINES - 1)
 
-  return (_operations?: readonly Operation[], change?: SnapshotChange) => {
+  return (_operations?: readonly Operation[], change?: EditorCommit) => {
     if (!change) {
       return true
     }

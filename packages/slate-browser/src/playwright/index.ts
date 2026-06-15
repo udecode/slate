@@ -41,6 +41,8 @@ const DEFAULT_RUNTIME_ERROR_PATTERNS = [
 const JPEG_SCREENSHOT_EXTENSION_RE = /\.(?:jpe?g)$/i
 const NATIVE_EVENT_TRACE_KEY = '__SLATE_BROWSER_NATIVE_EVENT_TRACE__'
 
+/** Screenshot attachment options for Slate browser proof artifacts. */
+/** Screenshot options accepted by Slate browser screenshot helpers. */
 export type SlateBrowserPageScreenshotOptions = Omit<
   NonNullable<Parameters<Page['screenshot']>[0]>,
   'path'
@@ -108,34 +110,43 @@ export const attachSlateBrowserSelectionScreenshot = async (
     ...options,
   })
 
+/** Runtime error recorder returned by `recordSlateBrowserRuntimeErrors`. */
+/** Recorder returned by runtime-error capture helpers. */
 export type SlateBrowserRuntimeErrorRecorder = {
   assertNone: () => void
   errors: string[]
   stop: () => void
 }
 
+/** Slate model selection snapshot captured from an editor surface. */
+/** Model selection snapshot captured from the editor runtime. */
 export type SelectionSnapshot = {
   anchor: { path: number[]; offset: number }
   focus: { path: number[]; offset: number }
 }
 
+/** Owner metadata for a raw view-selection snapshot. */
 export type SlateBrowserRawViewSelectionOwner = {
   childRoot: string
   ownerPath: number[]
   ownerRoot: string
 }
 
+/** Point in a raw view-selection snapshot. */
 export type SlateBrowserRawViewSelectionPoint = {
   owner?: SlateBrowserRawViewSelectionOwner
   point: { path: number[]; offset: number; root?: string }
 }
 
+/** Raw view-selection snapshot captured from Slate view state. */
 export type SlateBrowserRawViewSelectionSnapshot = {
   anchor: SlateBrowserRawViewSelectionPoint
   focus: SlateBrowserRawViewSelectionPoint
   segments: { backward: boolean; [key: string]: unknown }
 }
 
+/** Browser DOM selection snapshot captured from the page. */
+/** Browser-native DOM selection snapshot. */
 export type DOMSelectionSnapshot = {
   anchorNodeText: string | null
   anchorOffset: number
@@ -143,6 +154,7 @@ export type DOMSelectionSnapshot = {
   focusOffset: number
 }
 
+/** DOM selection endpoints with resolved node-location metadata. */
 export type DOMSelectionLocationSnapshot = {
   anchorOffset: number | null
   anchorPath: number[] | null
@@ -150,6 +162,8 @@ export type DOMSelectionLocationSnapshot = {
   isCollapsed: boolean | null
 }
 
+/** Combined model and native-selection summary for one root. */
+/** Combined model and native selection summary for proof assertions. */
 export type SlateBrowserNativeSelectionSummary = {
   collapsed: boolean | null
   rangeCount: number
@@ -157,6 +171,7 @@ export type SlateBrowserNativeSelectionSummary = {
   textLength: number
 }
 
+/** Slate view-selection snapshot used by browser proof helpers. */
 export type SlateBrowserViewSelectionSnapshot = {
   active: boolean
   anchor: SelectionPoint | null
@@ -168,6 +183,8 @@ export type SlateBrowserViewSelectionSnapshot = {
   textLength: number
 }
 
+/** Visible selection overlay snapshot for one root. */
+/** Displayed selection snapshot for one root in the rendered document. */
 export type SlateBrowserDisplayedSelectionSnapshot = {
   displayed: SelectionSnapshot | null
   doubleHighlighted: boolean
@@ -179,6 +196,8 @@ export type SlateBrowserDisplayedSelectionSnapshot = {
   view: SlateBrowserViewSelectionSnapshot
 }
 
+/** Clipboard payload captured during a browser proof step. */
+/** Clipboard payload snapshot captured during paste/copy proof. */
 export type ClipboardPayloadSnapshot = {
   html: string | null
   slateFragment?: string | null
@@ -186,6 +205,8 @@ export type ClipboardPayloadSnapshot = {
   types: string[]
 }
 
+/** Geometry snapshot for a rendered selection or caret rect. */
+/** Client-rect bounds for a visible selection segment. */
 export type SelectionRectSnapshot = {
   x: number
   y: number
@@ -193,6 +214,7 @@ export type SelectionRectSnapshot = {
   height: number
 }
 
+/** Native event categories recorded by the browser trace helper. */
 export type SlateBrowserNativeEventTraceType =
   | 'beforeinput'
   | 'compositionend'
@@ -201,6 +223,7 @@ export type SlateBrowserNativeEventTraceType =
   | 'input'
   | 'selectionchange'
 
+/** DOM node summary captured in a native event trace. */
 export type SlateBrowserNativeEventTraceNodeSnapshot = {
   nodeName: string | null
   parentNodeName: string | null
@@ -210,6 +233,7 @@ export type SlateBrowserNativeEventTraceNodeSnapshot = {
   text: string | null
 }
 
+/** Selection summary captured during a native event trace. */
 export type SlateBrowserNativeEventTraceSelectionSnapshot = {
   anchor: SlateBrowserNativeEventTraceNodeSnapshot | null
   anchorOffset: number | null
@@ -220,6 +244,7 @@ export type SlateBrowserNativeEventTraceSelectionSnapshot = {
   selectedText: string
 }
 
+/** Rectangle captured from native event target ranges. */
 export type SlateBrowserNativeEventTraceRect = {
   height: number
   width: number
@@ -227,6 +252,7 @@ export type SlateBrowserNativeEventTraceRect = {
   y: number
 }
 
+/** Target-range snapshot captured from a native input event. */
 export type SlateBrowserNativeEventTraceTargetRangeSnapshot = {
   collapsed: boolean
   end: SlateBrowserNativeEventTraceNodeSnapshot
@@ -236,6 +262,7 @@ export type SlateBrowserNativeEventTraceTargetRangeSnapshot = {
   startOffset: number
 }
 
+/** Text-node snapshot captured before or after a native event. */
 export type SlateBrowserNativeEventTraceTextNodeSnapshot = {
   id: string
   parentPath: string | null
@@ -243,16 +270,19 @@ export type SlateBrowserNativeEventTraceTextNodeSnapshot = {
   text: string
 }
 
+/** Text-node before/after delta captured by native event tracing. */
 export type SlateBrowserNativeEventTraceTextNodeDelta = {
   after: SlateBrowserNativeEventTraceTextNodeSnapshot | null
   before: SlateBrowserNativeEventTraceTextNodeSnapshot | null
   type: 'added' | 'deleted' | 'modified' | 'moved'
 }
 
+/** DOM delta captured around one native event. */
 export type SlateBrowserNativeEventTraceDOMDelta = {
   textNodes: SlateBrowserNativeEventTraceTextNodeDelta[]
 }
 
+/** Suspicious native-event trace finding. */
 export type SlateBrowserNativeEventTraceAnomaly = {
   detail: string
   type:
@@ -266,6 +296,7 @@ export type SlateBrowserNativeEventTraceAnomaly = {
     | 'sibling-created'
 }
 
+/** One recorded native browser event with selection and DOM evidence. */
 export type SlateBrowserNativeEventTraceEntry = {
   data: string | null
   domDelta: SlateBrowserNativeEventTraceDOMDelta | null
@@ -277,16 +308,22 @@ export type SlateBrowserNativeEventTraceEntry = {
   type: SlateBrowserNativeEventTraceType
 }
 
+/** Complete native event trace collected from a Slate browser root. */
+/** Complete native event trace snapshot. */
 export type SlateBrowserNativeEventTraceSnapshot = {
   anomalies: SlateBrowserNativeEventTraceAnomaly[]
   entries: SlateBrowserNativeEventTraceEntry[]
 }
 
+/** Options controlling which native events are traced. */
+/** Options for installing a native event trace recorder in the page. */
 export type SlateBrowserNativeEventTraceOptions = {
   events?: readonly SlateBrowserNativeEventTraceType[]
   maxEntries?: number
 }
 
+/** Snapshot of the element that owns browser focus. */
+/** Focus ownership snapshot for editor and native controls. */
 export type FocusOwnerSnapshot = {
   isContentEditable: boolean
   kind: 'contenteditable' | 'editor' | 'internal-control' | 'none' | 'outside'
@@ -295,6 +332,7 @@ export type FocusOwnerSnapshot = {
   testId: string | null
 }
 
+/** Rendered zero-width node shape captured from the DOM. */
 export type SlateBrowserZeroWidthNodeShape = {
   hasBr: boolean
   hasFEFF: boolean
@@ -305,6 +343,7 @@ export type SlateBrowserZeroWidthNodeShape = {
   textContent: string
 }
 
+/** Rendered block DOM shape used by structure assertions. */
 export type RenderedBlockDOMShapeSnapshot = {
   index: number
   innerText: string
@@ -314,6 +353,8 @@ export type RenderedBlockDOMShapeSnapshot = {
   zeroWidthNodes: SlateBrowserZeroWidthNodeShape[]
 }
 
+/** Expected rendered DOM shape for browser proof assertions. */
+/** Expected rendered DOM shape for proof assertions. */
 export type RenderedDOMShapeExpectation = {
   blockIndex?: number
   domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
@@ -330,6 +371,7 @@ export type RenderedDOMShapeExpectation = {
   zeroWidthCount?: number
 }
 
+/** Render-profiler event categories emitted by Slate React. */
 export type SlateReactRenderKind =
   | 'core-time'
   | 'dom-text-sync'
@@ -343,12 +385,15 @@ export type SlateReactRenderKind =
   | 'text'
   | 'void'
 
+/** One Slate React render-profiler event. */
 export type SlateReactRenderProfilerEvent = {
   kind: SlateReactRenderKind
   id?: string | null
   runtimeId?: string | null
 }
 
+/** Collected Slate React render profiler events and counters. */
+/** Snapshot returned by the Slate React render profiler. */
 export type SlateReactRenderProfilerSnapshot = {
   byKey: Record<string, number>
   byKind: Partial<Record<SlateReactRenderKind, number>>
@@ -400,11 +445,13 @@ const installSlateReactRenderProfilerScript = () => {
   target.__SLATE_REACT_RENDER_PROFILER_SNAPSHOT__ = snapshot
 }
 
+/** Install the Slate React render profiler bridge in a Playwright page. */
 export const installSlateReactRenderProfiler = async (page: Page) => {
   await page.addInitScript(installSlateReactRenderProfilerScript)
   await page.evaluate(installSlateReactRenderProfilerScript).catch(() => {})
 }
 
+/** Reset collected Slate React render profiler events in the page. */
 export const resetSlateReactRenderProfiler = async (page: Page) => {
   await page.evaluate(() => {
     const target = window as Window & {
@@ -415,6 +462,7 @@ export const resetSlateReactRenderProfiler = async (page: Page) => {
   })
 }
 
+/** Read the current Slate React render profiler snapshot from the page. */
 export const getSlateReactRenderProfilerSnapshot = async (
   page: Page
 ): Promise<SlateReactRenderProfilerSnapshot> =>
@@ -433,6 +481,7 @@ export const getSlateReactRenderProfilerSnapshot = async (
     )
   })
 
+/** High-level kernel trace event family. */
 export type SlateBrowserKernelEventFamily =
   | 'beforeinput'
   | 'blur'
@@ -454,6 +503,7 @@ export type SlateBrowserKernelEventFamily =
   | 'repair'
   | 'selectionchange'
 
+/** Kernel state label captured in trace entries. */
 export type SlateBrowserKernelState =
   | 'app-owned'
   | 'clipboard'
@@ -466,6 +516,7 @@ export type SlateBrowserKernelState =
   | 'repairing'
   | 'shell-backed'
 
+/** Owner classification for the current browser editing target. */
 export type SlateBrowserKernelTargetOwner =
   | 'app-owned'
   | 'editor'
@@ -474,6 +525,7 @@ export type SlateBrowserKernelTargetOwner =
   | 'shell'
   | 'unknown'
 
+/** Model/native ownership classification for a kernel event. */
 export type SlateBrowserKernelOwnership =
   | 'app-owned'
   | 'deferred'
@@ -482,6 +534,7 @@ export type SlateBrowserKernelOwnership =
   | 'native-denied'
   | 'no-op'
 
+/** Source that produced the selection observed by the kernel trace. */
 export type SlateBrowserKernelSelectionSource =
   | 'app-owned'
   | 'composition-owned'
@@ -491,6 +544,7 @@ export type SlateBrowserKernelSelectionSource =
   | 'shell-backed'
   | 'unknown'
 
+/** Origin of a selection change captured by the kernel trace. */
 export type SlateBrowserKernelSelectionChangeOrigin =
   | 'browser-handle'
   | 'native-user'
@@ -498,6 +552,7 @@ export type SlateBrowserKernelSelectionChangeOrigin =
   | 'repair-induced'
   | 'unknown'
 
+/** Editing command observed by the browser kernel trace. */
 export type SlateBrowserKernelCommand =
   | {
       direction: 'backward' | 'forward'
@@ -521,6 +576,7 @@ export type SlateBrowserKernelCommand =
   | { blockType: string; kind: 'set-block'; wrap?: string }
   | { kind: 'toggle-mark'; mark: string }
 
+/** Ownership trace for keyboard or pointer movement through the editor. */
 export type SlateBrowserKernelMovementOwnershipTrace = {
   axis: 'horizontal' | 'line' | 'unknown' | 'vertical' | 'word'
   extend: boolean
@@ -538,6 +594,7 @@ export type SlateBrowserKernelMovementOwnershipTrace = {
   reverse: boolean | null
 }
 
+/** Selection policy attached to a kernel transition. */
 export type SlateBrowserKernelSelectionPolicy = {
   kind:
     | 'clear'
@@ -556,6 +613,7 @@ export type SlateBrowserKernelSelectionPolicy = {
     | 'unknown-selection'
 }
 
+/** Repair policy attached to a kernel transition. */
 export type SlateBrowserKernelRepairPolicy = {
   kind:
     | 'force-render'
@@ -572,21 +630,25 @@ export type SlateBrowserKernelRepairPolicy = {
     | 'sync-selection'
 }
 
+/** State transition recorded by the browser kernel trace. */
 export type SlateBrowserKernelTransition = {
   allowed: boolean
   reason: string | null
 }
 
+/** Slate operation summary attached to a kernel trace frame. */
 export type SlateBrowserKernelOperation = {
   type: string
   [key: string]: unknown
 }
 
+/** Repair request emitted while handling a kernel event frame. */
 export type SlateBrowserKernelRepairRequest = {
   kind: string
   [key: string]: unknown
 }
 
+/** Native event frame and derived editor evidence. */
 export type SlateBrowserKernelEventFrame = {
   active: boolean
   eventFamily: SlateBrowserKernelEventFamily
@@ -599,6 +661,7 @@ export type SlateBrowserKernelEventFrame = {
   targetOwner: SlateBrowserKernelTargetOwner
 }
 
+/** Kernel trace entry used by browser behavior assertions. */
 export type SlateBrowserKernelTraceEntry = {
   command: SlateBrowserKernelCommand | null
   epochId: number | null
@@ -623,6 +686,7 @@ export type SlateBrowserKernelTraceEntry = {
   transition: SlateBrowserKernelTransition
 }
 
+/** Expected kernel trace properties for one assertion. */
 export type SlateBrowserKernelTraceExpectation = {
   commandKind?: SlateBrowserKernelCommand['kind'] | null
   eventFamily?: SlateBrowserKernelEventFamily
@@ -638,7 +702,9 @@ export type SlateBrowserKernelTraceExpectation = {
   transition?: Partial<SlateBrowserKernelTransition>
 }
 
+/** Point shape reused from a model selection snapshot. */
 export type SelectionPoint = SelectionSnapshot['anchor']
+/** Affinity used when capturing or restoring selection bookmarks. */
 export type RangeRefAffinity =
   | 'forward'
   | 'backward'
@@ -646,19 +712,26 @@ export type RangeRefAffinity =
   | 'inward'
   | null
 
+/** Serializable selection bookmark used by replay helpers. */
 export type SelectionBookmark = {
   id: string
 }
 
+/** Options for capturing Slate and DOM selection snapshots. */
+/** Options for capturing model and DOM selection snapshots. */
 export type SelectionCaptureOptions = {
   affinity?: RangeRefAffinity
 }
 
+/** Options for resolving DOM paths in browser helpers. */
+/** Options for resolving a DOM node from a Slate path. */
 export type SlateBrowserDOMPathOptions = {
   align?: 'center' | 'end' | 'nearest' | 'start'
   timeoutMs?: number
 }
 
+/** Options for clicking a text range by Slate path. */
+/** Options for clicking a text range resolved by Slate path. */
 export type SlateBrowserTextPathRangeClickOptions =
   SlateBrowserDOMPathOptions & {
     endOffset: number
@@ -667,6 +740,8 @@ export type SlateBrowserTextPathRangeClickOptions =
     startOffset: number
   }
 
+/** Options for clicking text by visible offset. */
+/** Options for clicking a text node at a character offset. */
 export type SlateBrowserTextOffsetClickOptions = {
   clickCount?: number
   offset: number
@@ -674,6 +749,7 @@ export type SlateBrowserTextOffsetClickOptions = {
   waitForSelectionSync?: boolean
 }
 
+/** Options for dragging across a resolved text range. */
 export type SlateBrowserDragTextRangeOptions = {
   direction?: 'backward' | 'forward'
   endAffinity?: 'after' | 'inside'
@@ -687,6 +763,7 @@ export type SlateBrowserDragTextRangeOptions = {
   textNodeIndex?: number
 }
 
+/** Options for double-click drag selection across text. */
 export type SlateBrowserDoubleClickDragTextRangeOptions = {
   doubleClickOffset: number
   endOffset: number
@@ -696,13 +773,18 @@ export type SlateBrowserDoubleClickDragTextRangeOptions = {
   textNodeIndex?: number
 }
 
+/** Exact or inclusive offset expectation for selection assertions. */
 export type OffsetExpectation = number | readonly [number, number]
 
+/** Expected Slate model selection shape. */
+/** Expected model selection snapshot shape. */
 export type SelectionSnapshotExpectation = {
   anchor: { path: number[]; offset: OffsetExpectation }
   focus: { path: number[]; offset: OffsetExpectation }
 }
 
+/** Expected browser DOM selection shape. */
+/** Expected browser-native DOM selection snapshot shape. */
 export type DOMSelectionSnapshotExpectation = {
   anchorNodeText: string | null
   anchorOffset: OffsetExpectation
@@ -710,18 +792,23 @@ export type DOMSelectionSnapshotExpectation = {
   focusOffset: OffsetExpectation
 }
 
+/** Combined expectation for a collapsed model and DOM selection. */
+/** Expected collapsed model and DOM selection agreement. */
 export type CollapsedModelDOMSelectionExpectation = {
   offset: OffsetExpectation
   path: number[]
   text: string
 }
 
+/** Options for normalizing HTML before paste or clipboard assertions. */
 export type HtmlNormalizationOptions = {
   ignoreClasses?: boolean
   ignoreInlineStyles?: boolean
   ignoreDir?: boolean
 }
 
+/** Options for waiting until an example route is ready. */
+/** Options for waiting until a Slate example route is ready. */
 export type ReadyOptions = {
   editor?: 'visible'
   placeholder?: 'visible' | 'hidden'
@@ -730,11 +817,15 @@ export type ReadyOptions = {
   selection?: 'settled' | SelectionSnapshot
 }
 
+/** Options for selecting an editor surface on a page. */
+/** Options for locating an editor surface on an example route. */
 export type EditorSurfaceOptions = {
   frame?: string
   scope?: string
 }
 
+/** Options for opening an example route in the browser harness. */
+/** Options for opening and preparing a Slate example route. */
 export type OpenExampleOptions = {
   query?:
     | Record<string, boolean | null | number | string | undefined>
@@ -744,6 +835,8 @@ export type OpenExampleOptions = {
   surface?: EditorSurfaceOptions
 }
 
+/** Document, selection, and shell state captured from an editor. */
+/** Serialized editor state captured from an example route. */
 export type EditorSnapshot = {
   text: string
   blockTexts: string[]
@@ -757,6 +850,7 @@ export type EditorSnapshot = {
   placeholderShape: PlaceholderShape | null
 }
 
+/** Summary of a rendered Slate shell node. */
 export type SlateBrowserShellSummary = {
   isInline: boolean
   isVoid: boolean
@@ -766,6 +860,7 @@ export type SlateBrowserShellSummary = {
   tagName: string | null
 }
 
+/** Snapshot of selected rendered shell nodes. */
 export type SlateBrowserSelectedShellSnapshot = {
   element: SlateBrowserShellSummary | null
   node: SlateBrowserShellSummary | null
@@ -774,29 +869,36 @@ export type SlateBrowserSelectedShellSnapshot = {
   point: 'anchor' | 'focus'
 }
 
+/** Snapshot of rendered shell nodes related to selection. */
 export type SlateBrowserSelectionShellsSnapshot = {
   anchor: SlateBrowserSelectedShellSnapshot
   focus: SlateBrowserSelectedShellSnapshot
   runtimeIds: string[]
 }
 
+/** Full render state snapshot including selected and selection shells. */
+/** Editor snapshot with rendered shell and DOM shape evidence. */
 export type SlateBrowserRenderStateSnapshot = EditorSnapshot & {
   renderCounts: SlateReactRenderProfilerSnapshot
   selectionShells: SlateBrowserSelectionShellsSnapshot | null
 }
 
+/** Browser-side trace entry emitted by scenario runners. */
 export type SlateBrowserTraceEntry = {
   label: string
   snapshot: EditorSnapshot
   stepIndex: number | null
 }
 
+/** Caller-provided metadata for browser scenario execution. */
+/** Scenario metadata supplied by a browser scenario step. */
 export type SlateBrowserScenarioMetadata = {
   capabilities?: readonly string[]
   platform?: string
   transport?: string
 }
 
+/** Transport capability claim attached to a scenario step. */
 export type SlateBrowserTransportClaim =
   | 'desktop-native-clipboard'
   | 'desktop-native-ime-composition'
@@ -811,6 +913,7 @@ export type SlateBrowserTransportClaim =
   | 'synthetic-datatransfer'
   | 'unspecified'
 
+/** Normalized scenario metadata after transport classification. */
 export type SlateBrowserNormalizedScenarioMetadata = {
   capabilities: string[]
   claim: SlateBrowserTransportClaim
@@ -818,11 +921,14 @@ export type SlateBrowserNormalizedScenarioMetadata = {
   transport: string | null
 }
 
+/** Metadata attached to one executable scenario step. */
 export type SlateBrowserScenarioStepMetadata = {
   iteration?: number
   warmLoop?: string
 }
 
+/** Executable step in a browser scenario. */
+/** Executable browser scenario step. */
 export type SlateBrowserScenarioStep = (
   | {
       kind: 'applyOperations'
@@ -990,6 +1096,7 @@ export type SlateBrowserScenarioStep = (
       label?: string
       offset: number
       path: number[]
+      selectedText?: string
     }
   | { kind: 'deleteBackward'; label?: string }
   | { kind: 'deleteForward'; label?: string }
@@ -1041,6 +1148,8 @@ export type SlateBrowserScenarioStep = (
 ) &
   SlateBrowserScenarioStepMetadata
 
+/** Result returned after running a browser scenario. */
+/** Result returned by a browser scenario run. */
 export type SlateBrowserScenarioResult = {
   metadata: SlateBrowserNormalizedScenarioMetadata
   name: string
@@ -1049,6 +1158,8 @@ export type SlateBrowserScenarioResult = {
   trace: SlateBrowserTraceEntry[]
 }
 
+/** Options for running a browser scenario. */
+/** Options for running a browser scenario step list. */
 export type SlateBrowserScenarioRunOptions = {
   metadata?: SlateBrowserScenarioMetadata
   runtimeErrors?:
@@ -1059,6 +1170,8 @@ export type SlateBrowserScenarioRunOptions = {
   tracePath?: string
 }
 
+/** Candidate reduced scenario produced from a failing run. */
+/** Candidate produced while reducing a failing scenario. */
 export type SlateBrowserScenarioReductionCandidate = {
   kind: 'iteration' | 'prefix' | 'single-step' | 'suffix'
   label: string
@@ -1067,6 +1180,8 @@ export type SlateBrowserScenarioReductionCandidate = {
   steps: readonly SlateBrowserScenarioStep[]
 }
 
+/** Serializable summary of a scenario reduction candidate. */
+/** Human-readable summary of a scenario reduction candidate. */
 export type SlateBrowserScenarioReductionCandidateSummary = Omit<
   SlateBrowserScenarioReductionCandidate,
   'removedSteps' | 'steps'
@@ -1078,6 +1193,7 @@ export type SlateBrowserScenarioReductionCandidateSummary = Omit<
   stepSummaries: string[]
 }
 
+/** Serialized scenario step used for replay artifacts. */
 export type SlateBrowserScenarioReplayStep = {
   iteration?: number
   kind: string
@@ -1088,11 +1204,15 @@ export type SlateBrowserScenarioReplayStep = {
   warmLoop?: string
 }
 
+/** Replay artifact for a browser scenario. */
+/** Replay artifact for reproducing a browser scenario. */
 export type SlateBrowserScenarioReplay = {
   replayable: boolean
   steps: SlateBrowserScenarioReplayStep[]
 }
 
+/** Options for the navigation-plus-typing gauntlet. */
+/** Options for navigation-plus-typing gauntlet generation. */
 export type SlateBrowserNavigationTypingGauntletOptions = {
   insertedText: string
   movedSelection: SelectionSnapshot
@@ -1100,18 +1220,22 @@ export type SlateBrowserNavigationTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for the clipboard paste gauntlet. */
+/** Options for clipboard paste gauntlet generation. */
 export type SlateBrowserClipboardPasteGauntletOptions = {
   html: string
   plainText?: string
   textAfterPaste: string
 }
 
+/** Options for drag/drop data gauntlet generation. */
 export type SlateBrowserDropDataGauntletOptions = {
   html: string
   plainText?: string
   textAfterDrop: string
 }
 
+/** Options for inline cut-and-type gauntlet generation. */
 export type SlateBrowserInlineCutTypingGauntletOptions = {
   domShape?: {
     afterCut?: RenderedDOMShapeExpectation
@@ -1122,6 +1246,7 @@ export type SlateBrowserInlineCutTypingGauntletOptions = {
   textAfterTyping: string
 }
 
+/** Options for internal native-control gauntlet generation. */
 export type SlateBrowserInternalControlGauntletOptions = {
   controlSelector: string
   controlValue: string
@@ -1130,6 +1255,7 @@ export type SlateBrowserInternalControlGauntletOptions = {
   textAfterFollowUp: string
 }
 
+/** Options for composition/IME gauntlet generation. */
 export type SlateBrowserCompositionGauntletOptions = {
   committedText?: string
   selection?: SelectionSnapshot
@@ -1139,16 +1265,19 @@ export type SlateBrowserCompositionGauntletOptions = {
   transport?: 'native' | 'synthetic'
 }
 
+/** Options for text insertion gauntlet generation. */
 export type SlateBrowserTextInsertionGauntletOptions = {
   insertedText: string
   textAfterInsert: string
 }
 
+/** Options for shell activation gauntlet generation. */
 export type SlateBrowserShellActivationGauntletOptions = {
   buttonName: RegExp | string
   expectedSelection: SelectionSnapshotExpectation
 }
 
+/** Options for mark typing gauntlet generation. */
 export type SlateBrowserMarkTypingGauntletOptions = {
   hotkey: string
   insertedText: string
@@ -1156,6 +1285,7 @@ export type SlateBrowserMarkTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for mark-click typing gauntlet generation. */
 export type SlateBrowserMarkClickTypingGauntletOptions = {
   clickPoint: SelectionPoint
   domCaretAfterInsert?: {
@@ -1170,6 +1300,7 @@ export type SlateBrowserMarkClickTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for toolbar mark-click typing gauntlet generation. */
 export type SlateBrowserToolbarMarkClickTypingGauntletOptions = Omit<
   SlateBrowserMarkClickTypingGauntletOptions,
   'hotkey'
@@ -1178,6 +1309,8 @@ export type SlateBrowserToolbarMarkClickTypingGauntletOptions = Omit<
   selectionTransport?: 'dom' | 'model'
 }
 
+/** Options for repeating warm-up scenario steps. */
+/** Options for warm-loop browser behavior packets. */
 export type SlateBrowserWarmLoopOptions = {
   createIteration: (iteration: number) => SlateBrowserScenarioStep[]
   iterations?: number
@@ -1194,6 +1327,7 @@ type SlateBrowserWarmToolbarArrowIterationOverride = Partial<
   >
 >
 
+/** Options for warm toolbar-arrow gauntlet generation. */
 export type SlateBrowserWarmToolbarArrowGauntletOptions = {
   domCaretAfterInsert?: {
     offset: number
@@ -1212,6 +1346,7 @@ export type SlateBrowserWarmToolbarArrowGauntletOptions = {
   warmIterations?: number
 }
 
+/** Options for mixed editing conformance gauntlet generation. */
 export type SlateBrowserMixedEditingConformanceGauntletOptions = {
   deleteKey: 'Backspace' | 'Delete'
   domCaretAfterDelete?: {
@@ -1242,6 +1377,7 @@ export type SlateBrowserMixedEditingConformanceGauntletOptions = {
   toolbarSelectionAfterCommand: SelectionSnapshotExpectation
 }
 
+/** Options for destructive editing gauntlet generation. */
 export type SlateBrowserDestructiveEditingGauntletOptions = {
   deleteAfterPasteKey?: 'Backspace' | 'Delete'
   domShape?: {
@@ -1266,6 +1402,7 @@ export type SlateBrowserDestructiveEditingGauntletOptions = {
   wordDeleteSelection: SelectionSnapshot
 }
 
+/** Options for semantic editing conformance gauntlet generation. */
 export type SlateBrowserSemanticEditingConformanceGauntletOptions = {
   insertedText: string
   selectionAfterDelete: SelectionSnapshotExpectation
@@ -1280,12 +1417,14 @@ export type SlateBrowserSemanticEditingConformanceGauntletOptions = {
   toolbarSelectionAfterCommand: SelectionSnapshotExpectation
 }
 
+/** Illegal kernel transition reported by kernel trace validation. */
 export type SlateBrowserIllegalKernelTransition = {
   label: string
   reason: string | null
   stepIndex: number | null
 }
 
+/** Create a scenario that mixes navigation and typing through editor content. */
 export const createSlateBrowserNavigationTypingGauntlet = ({
   insertedText,
   movedSelection,
@@ -1319,6 +1458,7 @@ export const createSlateBrowserNavigationTypingGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates clipboard paste behavior. */
 export const createSlateBrowserClipboardPasteGauntlet = ({
   html,
   plainText,
@@ -1358,6 +1498,7 @@ export const createSlateBrowserClipboardPasteGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates drag/drop data insertion behavior. */
 export const createSlateBrowserDropDataGauntlet = ({
   html,
   plainText,
@@ -1385,6 +1526,7 @@ export const createSlateBrowserDropDataGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates inline cut followed by typing. */
 export const createSlateBrowserInlineCutTypingGauntlet = ({
   domShape,
   replacementText,
@@ -1448,6 +1590,7 @@ export const createSlateBrowserInlineCutTypingGauntlet = ({
     : []),
 ]
 
+/** Create a scenario for editor behavior around internal native controls. */
 export const createSlateBrowserInternalControlGauntlet = ({
   controlSelector,
   controlValue,
@@ -1502,6 +1645,7 @@ export const createSlateBrowserInternalControlGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates composition/IME input behavior. */
 export const createSlateBrowserCompositionGauntlet = ({
   committedText,
   selection,
@@ -1558,6 +1702,7 @@ export const createSlateBrowserCompositionGauntlet = ({
   },
 ]
 
+/** Create a scenario for plain text insertion behavior. */
 export const createSlateBrowserTextInsertionGauntlet = ({
   insertedText,
   textAfterInsert,
@@ -1583,6 +1728,7 @@ export const createSlateBrowserTextInsertionGauntlet = ({
   },
 ]
 
+/** Create a scenario for shell activation and editor focus ownership. */
 export const createSlateBrowserShellActivationGauntlet = ({
   buttonName,
   expectedSelection,
@@ -1595,6 +1741,7 @@ export const createSlateBrowserShellActivationGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates mark toggling followed by typing. */
 export const createSlateBrowserMarkTypingGauntlet = ({
   hotkey,
   insertedText,
@@ -1619,6 +1766,7 @@ export const createSlateBrowserMarkTypingGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates mark toolbar clicks followed by typing. */
 export const createSlateBrowserMarkClickTypingGauntlet = ({
   clickPoint,
   domCaretAfterInsert,
@@ -1676,6 +1824,7 @@ export const createSlateBrowserMarkClickTypingGauntlet = ({
     : []),
 ]
 
+/** Create a scenario that validates toolbar mark clicks and editor typing. */
 export const createSlateBrowserToolbarMarkClickTypingGauntlet = ({
   clickPoint,
   domCaretAfterInsert,
@@ -1757,6 +1906,7 @@ const createToolbarMarkClickStep = (
   testId: markButtonTestId,
 })
 
+/** Create repeated warm-up steps for a scenario packet. */
 export const createSlateBrowserWarmLoopSteps = ({
   createIteration,
   iterations = 1,
@@ -1862,6 +2012,7 @@ const createWarmToolbarArrowIteration = ({
   },
 ]
 
+/** Create a warm toolbar and arrow-navigation scenario. */
 export const createSlateBrowserWarmToolbarArrowGauntlet = ({
   domCaretAfterInsert,
   insertedText,
@@ -1943,6 +2094,7 @@ export const createSlateBrowserWarmToolbarArrowGauntlet = ({
     : []),
 ]
 
+/** Create a mixed editing conformance scenario across text and structure. */
 export const createSlateBrowserMixedEditingConformanceGauntlet = ({
   deleteKey,
   domCaretAfterDelete,
@@ -2131,6 +2283,7 @@ export const createSlateBrowserMixedEditingConformanceGauntlet = ({
     : []),
 ]
 
+/** Create a destructive editing conformance scenario. */
 export const createSlateBrowserDestructiveEditingGauntlet = ({
   deleteAfterPasteKey = 'Backspace',
   domShape,
@@ -2319,6 +2472,7 @@ export const createSlateBrowserDestructiveEditingGauntlet = ({
     : []),
 ]
 
+/** Create a semantic editing conformance scenario. */
 export const createSlateBrowserSemanticEditingConformanceGauntlet = ({
   insertedText,
   selectionAfterDelete,
@@ -2431,6 +2585,7 @@ export const createSlateBrowserSemanticEditingConformanceGauntlet = ({
   },
 ]
 
+/** Return kernel trace transitions that violate the expected policy. */
 export const getIllegalKernelTransitions = (
   result: SlateBrowserScenarioResult
 ): SlateBrowserIllegalKernelTransition[] =>
@@ -2450,6 +2605,7 @@ export const getIllegalKernelTransitions = (
     })
   )
 
+/** Assert that a kernel trace contains no illegal transitions. */
 export const assertNoIllegalKernelTransitions = (
   result: SlateBrowserScenarioResult
 ) => {
@@ -2465,6 +2621,7 @@ const matchesPartialObject = <T extends object>(
     ([key, value]) => actual[key as keyof T] === value
   )
 
+/** Return true when a kernel trace entry satisfies an expectation. */
 export const matchesSlateBrowserKernelTrace = (
   entry: SlateBrowserKernelTraceEntry,
   expected: SlateBrowserKernelTraceExpectation
@@ -2537,11 +2694,13 @@ export const matchesSlateBrowserKernelTrace = (
   )
 }
 
+/** Find the first kernel trace entry matching an expectation. */
 export const findSlateBrowserKernelTraceEntry = (
   trace: readonly SlateBrowserKernelTraceEntry[],
   expected: SlateBrowserKernelTraceExpectation
 ) => trace.find((entry) => matchesSlateBrowserKernelTrace(entry, expected))
 
+/** Assert that a kernel trace contains an expected entry. */
 export const assertSlateBrowserKernelTraceEntry = (
   trace: readonly SlateBrowserKernelTraceEntry[],
   expected: SlateBrowserKernelTraceExpectation
@@ -2559,6 +2718,7 @@ export const assertSlateBrowserKernelTraceEntry = (
   return entry
 }
 
+/** Create candidate reduced scenarios from a failing scenario result. */
 export const createScenarioReductionCandidates = (
   steps: readonly SlateBrowserScenarioStep[]
 ): SlateBrowserScenarioReductionCandidate[] => {
@@ -2668,6 +2828,7 @@ const summarizeSelectionPayload = (selection: SelectionSnapshotExpectation) =>
     selection.focus
   )}`
 
+/** Summarize a scenario step for logs and reduction output. */
 export const summarizeScenarioStep = (
   step: SlateBrowserScenarioStep,
   index: number
@@ -2705,7 +2866,11 @@ export const summarizeScenarioStep = (
       return `${label}: clickTestId ${step.testId}`
     case 'clickTextOffset':
     case 'doubleClickTextOffset':
-      return `${label}: ${step.kind} ${step.path.join('.')}:${step.offset}`
+      return `${label}: ${step.kind} ${step.path.join('.')}:${step.offset}${
+        step.kind === 'doubleClickTextOffset' && step.selectedText !== undefined
+          ? ` selects ${summarizeTextPayload(step.selectedText)}`
+          : ''
+      }`
     case 'dragTextSelection':
       return `${label}: dragTextSelection ${step.selector}`
     case 'assertWindowSelectionText': {
@@ -2780,6 +2945,7 @@ const toReplayValue = (
   return { replayable: true, value }
 }
 
+/** Serialize a scenario step into a replayable description. */
 export const serializeScenarioStepForReplay = (
   step: SlateBrowserScenarioStep,
   index: number
@@ -2799,6 +2965,7 @@ export const serializeScenarioStepForReplay = (
   }
 }
 
+/** Create a replay artifact from scenario metadata and steps. */
 export const createScenarioReplay = (
   steps: readonly SlateBrowserScenarioStep[]
 ): SlateBrowserScenarioReplay => {
@@ -2810,6 +2977,7 @@ export const createScenarioReplay = (
   }
 }
 
+/** Summarize a scenario reduction candidate for handoff output. */
 export const summarizeScenarioReductionCandidate = ({
   kind,
   label,
@@ -2827,6 +2995,7 @@ export const summarizeScenarioReductionCandidate = ({
   stepSummaries: steps.map(summarizeScenarioStep),
 })
 
+/** Normalize scenario metadata with defaults for transport and labels. */
 export const normalizeScenarioMetadata = (
   metadata: SlateBrowserScenarioMetadata = {}
 ): SlateBrowserNormalizedScenarioMetadata => ({
@@ -2836,6 +3005,7 @@ export const normalizeScenarioMetadata = (
   transport: metadata.transport ?? null,
 })
 
+/** Classify the proof strength of a scenario transport claim. */
 export const classifyScenarioTransportClaim = ({
   platform,
   transport,
@@ -2912,6 +3082,7 @@ const isIgnoredRuntimeError = (text: string) =>
   (text.includes('error loading dynamically imported module') &&
     text.includes('https://player.vimeo.com'))
 
+/** Start recording browser runtime errors for a Playwright page. */
 export const recordSlateBrowserRuntimeErrors = (
   page: Page,
   options: {
@@ -3057,6 +3228,7 @@ const dispatchSyntheticKey = async (
   await root.page().waitForTimeout(0)
 }
 
+/** Run a callback while holding the shared clipboard access lock. */
 export const withExclusiveClipboardAccess = async <T>(
   work: () => Promise<T> | T
 ) => {
@@ -3381,6 +3553,7 @@ const getSelectedText = async (root: Locator): Promise<string> =>
     return (selection?.toString() ?? '').replace(/\uFEFF/g, '')
   })
 
+/** Capture displayed selection overlays for one editor root. */
 export const takeDisplayedSelectionSnapshotForRoot = async (
   root: Locator
 ): Promise<SlateBrowserDisplayedSelectionSnapshot> =>
@@ -3594,6 +3767,7 @@ export const takeDisplayedSelectionSnapshotForRoot = async (
     { key: SLATE_BROWSER_HANDLE_KEY }
   )
 
+/** Start native event tracing for a Slate browser root. */
 export const startSlateBrowserNativeEventTrace = async (
   root: Locator,
   options: SlateBrowserNativeEventTraceOptions = {}
@@ -4030,6 +4204,7 @@ export const startSlateBrowserNativeEventTrace = async (
   )
 }
 
+/** Clear the current native event trace for a Slate browser root. */
 export const resetSlateBrowserNativeEventTrace = async (root: Locator) => {
   await root.evaluate(
     (element: HTMLElement, { key }: { key: string }) => {
@@ -4039,6 +4214,7 @@ export const resetSlateBrowserNativeEventTrace = async (root: Locator) => {
   )
 }
 
+/** Stop native event tracing for a Slate browser root. */
 export const stopSlateBrowserNativeEventTrace = async (root: Locator) => {
   await root.evaluate(
     (element: HTMLElement, { key }: { key: string }) => {
@@ -4049,6 +4225,7 @@ export const stopSlateBrowserNativeEventTrace = async (root: Locator) => {
   )
 }
 
+/** Read the native event trace captured for a Slate browser root. */
 export const takeSlateBrowserNativeEventTrace = async (
   root: Locator
 ): Promise<SlateBrowserNativeEventTraceSnapshot> =>
@@ -4681,9 +4858,13 @@ const clickTextOffset = async (
       point
     )
 
-  await root.page().mouse.click(point.x, point.y, {
-    clickCount,
-  })
+  if (clickCount === 2) {
+    await root.page().mouse.dblclick(point.x, point.y)
+  } else {
+    await root.page().mouse.click(point.x, point.y, {
+      clickCount,
+    })
+  }
   if (options.waitForSelectionSync ?? true) {
     const isSingleClick = (clickCount ?? 1) === 1
     await waitForSelectionSync(
@@ -5462,6 +5643,8 @@ const assertDOMCaretExpectation = async (
     })
 }
 
+/** Playwright helper bundle for opening routes and inspecting editors. */
+/** Browser editor harness returned by `createSlateBrowserEditorHarness`. */
 export type SlateBrowserEditorHarness = {
   name: string
   page: Page
@@ -5631,6 +5814,8 @@ export type SlateBrowserEditorHarness = {
   withExtension: <T>(extend: (editor: SlateBrowserEditorHarness) => T) => T
 }
 
+/** Contract expectation for model, DOM, native, and visual selection proof. */
+/** Expected selection state for `assertSlateBrowserSelectionContract`. */
 export type SlateBrowserSelectionContractExpectation = {
   domSelection?: DOMSelectionSnapshotExpectation
   domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
@@ -5641,6 +5826,8 @@ export type SlateBrowserSelectionContractExpectation = {
   selection?: SelectionSnapshotExpectation
 }
 
+/** Snapshot used to prove caret visibility inside a scroll container. */
+/** Caret visibility evidence captured inside a scrollable parent. */
 export type CaretVisibilitySnapshot = {
   activeElementTestId: string | null
   activeElementTagName: string | null
@@ -5662,6 +5849,7 @@ export type CaretVisibilitySnapshot = {
   } | null
 }
 
+/** Assert model, DOM, native, and visual selection expectations. */
 export const assertSlateBrowserSelectionContract = async (
   harness: SlateBrowserEditorHarness,
   expected: SlateBrowserSelectionContractExpectation
@@ -5862,6 +6050,7 @@ const assertNoVisibleCaretInRoot = async (root: Locator) => {
   }
 }
 
+/** Assert the caret is visible inside its scrollable ancestor. */
 export const assertSlateBrowserCaretVisibleInScrollableParent = async (
   editor: SlateBrowserEditorHarness
 ) => {
@@ -6000,6 +6189,7 @@ const getFocusOwnerSnapshot = async (
     }
   })
 
+/** Capture the current DOM selection from a Playwright page. */
 export const takeDOMSelectionSnapshot = async (
   page: Page
 ): Promise<DOMSelectionSnapshot | null> =>
@@ -6109,6 +6299,7 @@ const takeDOMSelectionLocationSnapshotForRoot = async (
     }
   })
 
+/** Capture the current Slate model selection from a Playwright page. */
 export const takeSelectionSnapshot = async (
   page: Page
 ): Promise<SelectionSnapshot | null> =>
@@ -8644,9 +8835,66 @@ const createEditorHarness = (
                 await clickTextOffset(root, step.path, step.offset)
                 break
               case 'doubleClickTextOffset':
-                await clickTextOffset(root, step.path, step.offset, {
-                  clickCount: 2,
-                })
+                if (step.selectedText === undefined) {
+                  await clickTextOffset(root, step.path, step.offset, {
+                    clickCount: 2,
+                  })
+                } else {
+                  const retryDelayMs = 650
+                  let lastError: unknown = null
+
+                  for (let attempt = 0; attempt < 3; attempt++) {
+                    await clickTextOffset(root, step.path, step.offset, {
+                      clickCount: 2,
+                    })
+
+                    try {
+                      await expect
+                        .poll(() => harness.get.selectedText(), {
+                          timeout: 1500,
+                        })
+                        .toBe(step.selectedText)
+                      lastError = null
+                      break
+                    } catch (error) {
+                      lastError = error
+
+                      // Firefox can fold rapid repeated double-click attempts
+                      // into one multi-click gesture. Wait past that window
+                      // before retrying the proof gesture.
+                      if (attempt < 2) {
+                        await root.page().waitForTimeout(retryDelayMs)
+                      }
+                    }
+                  }
+
+                  if (lastError) {
+                    const displayedSelection =
+                      await harness.selection.displayed()
+                    const windowSelectionText = await page.evaluate(
+                      () => window.getSelection()?.toString() ?? ''
+                    )
+                    const selectedText = await harness.get.selectedText()
+                    const selection = await harness.selection.get()
+                    const domSelection = await harness.get.domSelection()
+
+                    throw new Error(
+                      `Double-click text selection did not settle on ${JSON.stringify(
+                        step.selectedText
+                      )}.\nSelected text: ${JSON.stringify(
+                        selectedText
+                      )}\nWindow selection text: ${JSON.stringify(
+                        windowSelectionText
+                      )}\nSelection: ${JSON.stringify(
+                        selection
+                      )}\nDOM selection: ${JSON.stringify(
+                        domSelection
+                      )}\nDisplayed selection: ${JSON.stringify(
+                        displayedSelection
+                      )}\n${lastError instanceof Error ? lastError.message : String(lastError)}`
+                    )
+                  }
+                }
                 break
               case 'dropHtml':
                 await dropHtml(surface, root, step.html, step.text)
@@ -8781,6 +9029,7 @@ const createEditorHarness = (
   return harness
 }
 
+/** Create a Playwright harness for opening examples and inspecting editors. */
 export const createSlateBrowserEditorHarness = (
   page: Page,
   name: string,
@@ -8877,6 +9126,7 @@ const takeSelectionShellsSnapshot = async (
   }, selection)
 }
 
+/** Capture editor render state, selected shells, and selection shells. */
 export const takeSlateBrowserRenderStateSnapshot = async (
   editor: SlateBrowserEditorHarness
 ): Promise<SlateBrowserRenderStateSnapshot> => {
@@ -8892,12 +9142,14 @@ export const takeSlateBrowserRenderStateSnapshot = async (
   }
 }
 
+/** Open a Slate example route with default harness options. */
 export const openExample = async (
   page: Page,
   name: string,
   options: OpenExampleOptions = {}
 ) => openExampleWithOptions(page, name, options)
 
+/** Open a Slate example route with explicit harness options. */
 export const openExampleWithOptions = async (
   page: Page,
   name: string,

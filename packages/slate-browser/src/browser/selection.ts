@@ -1,13 +1,16 @@
+/** Slate model selection endpoint captured from the DOM. */
 export type EditorSelectionPoint = {
   path: number[]
   offset: number
 }
 
+/** Slate model selection snapshot resolved from browser selection endpoints. */
 export type EditorSelectionSnapshot = {
   anchor: EditorSelectionPoint
   focus: EditorSelectionPoint
 }
 
+/** Browser-native selection endpoint snapshot for debug proof. */
 export type DOMSelectionSnapshot = {
   anchorNodeText: string | null
   anchorOffset: number
@@ -65,6 +68,7 @@ const findTextPathOrNull = (root: ParentNode, node: Node | null) => {
   }
 }
 
+/** Capture the browser-native selection endpoints for debugging. */
 export const takeDOMSelectionSnapshot = (
   selection: Selection | null
 ): DOMSelectionSnapshot | null => {
@@ -80,6 +84,7 @@ export const takeDOMSelectionSnapshot = (
   }
 }
 
+/** Resolve browser selection endpoints back to Slate text paths and offsets. */
 export const takeEditorSelectionSnapshot = (
   root: ParentNode,
   selection: Selection | null

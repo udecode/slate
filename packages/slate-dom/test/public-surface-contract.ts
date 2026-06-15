@@ -19,6 +19,9 @@ const reactEditorDocsPath = fileURLToPath(
     import.meta.url
   )
 )
+const slateDomDocsPath = fileURLToPath(
+  new URL('../../../docs/libraries/slate-dom.md', import.meta.url)
+)
 
 const extractDocumentedCapabilityMethods = (
   source: string,
@@ -32,7 +35,109 @@ const extractDocumentedCapabilityMethods = (
     .map((match) => match[1])
     .sort()
 
+const expectedSlateDOMRuntimeRootExports = [
+  'CAN_USE_DOM',
+  'DOMCoverage',
+  'HAS_BEFORE_INPUT_SUPPORT',
+  'Hotkeys',
+  'IS_ANDROID',
+  'IS_CHROME',
+  'IS_FIREFOX',
+  'IS_IOS',
+  'IS_UC_MOBILE',
+  'IS_WEBKIT',
+  'IS_WECHATBROWSER',
+  'Key',
+  'SlateDOMResolutionError',
+  'TRIPLE_CLICK',
+  'applyStringDiff',
+  'closestShadowAware',
+  'containsShadowAware',
+  'dom',
+  'getActiveElement',
+  'getDefaultView',
+  'getSelection',
+  'hasShadowRoot',
+  'isAfter',
+  'isBefore',
+  'isDOMElement',
+  'isDOMNode',
+  'isDOMSelection',
+  'isDOMText',
+  'isElementDecorationsEqual',
+  'isHotkey',
+  'isPlainTextOnlyPaste',
+  'isTextDecorationsEqual',
+  'isTrackedMutation',
+  'mergeStringDiffs',
+  'normalizeDOMPoint',
+  'normalizePoint',
+  'normalizeRange',
+  'normalizeStringDiff',
+  'splitDecorationsByChild',
+  'targetRange',
+  'verifyDiffState',
+]
+
 describe('slate-dom public surface contract', () => {
+  it('keeps public root runtime values exact', () => {
+    assert.deepEqual(
+      Object.keys(SlateDOM).sort(),
+      expectedSlateDOMRuntimeRootExports
+    )
+  })
+
+  it('keeps explicit public root exports documented in source', () => {
+    const sourceRoot = fileURLToPath(new URL('../src/', import.meta.url))
+    const indexSource = readFileSync(
+      fileURLToPath(new URL('../src/index.ts', import.meta.url)),
+      'utf8'
+    )
+    const exportPattern = /export \{([^}]+)\} from '([^']+)'/g
+    const missing: string[] = []
+
+    for (const match of indexSource.matchAll(exportPattern)) {
+      const [, rawNames, sourceSpecifier] = match
+      const sourcePath = `${sourceRoot}${sourceSpecifier}.ts`
+      const source = readFileSync(sourcePath, 'utf8')
+
+      for (const rawName of rawNames.split(',')) {
+        const name = rawName
+          .trim()
+          .replace(/^type\s+/, '')
+          .split(/\s+as\s+/)[0]
+          ?.trim()
+
+        if (!name) {
+          continue
+        }
+
+        const isType = rawName.trim().startsWith('type ')
+        const declaration = new RegExp(
+          isType
+            ? `export\\s+(?:interface|type)\\s+${name}\\b`
+            : `export\\s+(?:const|function|class)\\s+${name}\\b`
+        )
+        const declarationIndex = source.search(declaration)
+
+        if (declarationIndex === -1) {
+          continue
+        }
+
+        const beforeDeclaration = source.slice(
+          Math.max(0, declarationIndex - 600),
+          declarationIndex
+        )
+
+        if (!/\/\*\*[\s\S]*?\*\/\s*$/.test(beforeDeclaration)) {
+          missing.push(`${name}: missing immediate source JSDoc`)
+        }
+      }
+    }
+
+    assert.deepEqual(missing, [])
+  })
+
   it('keeps the package README aligned to the public DOM and coverage APIs', () => {
     const readme = readFileSync(
       fileURLToPath(new URL('../README.md', import.meta.url)),
@@ -41,9 +146,89 @@ describe('slate-dom public surface contract', () => {
 
     assert.match(readme, /editor\.api\.dom\.focus\(\)/)
     assert.match(readme, /editor\.api\.clipboard\.insertTextData/)
-    assert.match(readme, /import \{ DOMCoverage \} from 'slate-dom'/)
+    assert.match(
+      readme,
+      /import \{ DOMCoverage, Hotkeys, isDOMNode \} from 'slate-dom'/
+    )
     assert.match(readme, /DOM coverage boundaries model same-root content/)
     assert.match(readme, /Framework packages own bridge installation/)
+  })
+
+  it('keeps grouped root utility exports named in package docs', () => {
+    const docs = [
+      readFileSync(
+        fileURLToPath(new URL('../README.md', import.meta.url)),
+        'utf8'
+      ),
+      readFileSync(slateDomDocsPath, 'utf8'),
+    ].join('\n')
+
+    for (const name of [
+      'dom()',
+      'DOMCoverage',
+      'Hotkeys',
+      'isHotkey',
+      'Key',
+      'TRIPLE_CLICK',
+      'closestShadowAware',
+      'containsShadowAware',
+      'getActiveElement',
+      'getDefaultView',
+      'getSelection',
+      'hasShadowRoot',
+      'isAfter',
+      'isBefore',
+      'isDOMElement',
+      'isDOMNode',
+      'isDOMSelection',
+      'isDOMText',
+      'isPlainTextOnlyPaste',
+      'isTrackedMutation',
+      'normalizeDOMPoint',
+      'applyStringDiff',
+      'mergeStringDiffs',
+      'normalizePoint',
+      'normalizeRange',
+      'normalizeStringDiff',
+      'targetRange',
+      'verifyDiffState',
+      'CAN_USE_DOM',
+      'HAS_BEFORE_INPUT_SUPPORT',
+      'IS_ANDROID',
+      'IS_CHROME',
+      'IS_FIREFOX',
+      'IS_IOS',
+      'IS_UC_MOBILE',
+      'IS_WEBKIT',
+      'IS_WECHATBROWSER',
+      'isElementDecorationsEqual',
+      'isTextDecorationsEqual',
+      'splitDecorationsByChild',
+      'SlateDOMResolutionError',
+      'DOMApi',
+      'DOMClipboardApi',
+      'DOMClipboardInsertDataHandler',
+      'DOMEditorOptions',
+      'DOMCoverageBoundary',
+      'DOMCoverageSelectionPolicy',
+      'DOMCoverageSlatePointResult',
+      'DOMCoverageDOMRangeResult',
+      'DOMNode',
+      'DOMElement',
+      'DOMText',
+      'DOMPoint',
+      'DOMRange',
+      'DOMStaticRange',
+      'DOMSelection',
+      'HotkeySpec',
+      'HotkeyPlatform',
+      'HotkeyMatchOptions',
+      'KeyboardEventLike',
+      'StringDiff',
+      'TextDiff',
+    ]) {
+      assert.ok(docs.includes(name), `${name} should be named in docs`)
+    }
   })
 
   it('publishes root export declarations through the export map', () => {

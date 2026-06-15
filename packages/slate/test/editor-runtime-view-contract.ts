@@ -765,7 +765,7 @@ describe('editor runtime/view contract', () => {
     let mainDirtyInside: unknown
 
     headerEditor.update((tx) => {
-      tx.nodes.insertMany([paragraph('h2'), paragraph('h3')], { at: [1] })
+      tx.nodes.insert([paragraph('h2'), paragraph('h3')], { at: [1] })
       mainDirtyInside = getDirtyPathsForRoot(runtime.editor, 'main')
     })
 

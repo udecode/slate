@@ -6,29 +6,29 @@ import {
   Editable,
   Slate,
   useSlateCommandCallback,
-  useSlateViewEffect,
+  useSlateRootEffect,
 } from '../src'
 
 const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
 
-describe('slate-react view and command hooks', () => {
-  test('useSlateViewEffect runs after child layout effects with the committed root editor', () => {
+describe('slate-react root and command hooks', () => {
+  test('useSlateRootEffect runs after child layout effects with the committed root editor', () => {
     const editor = createReactEditor({ initialValue })
     const calls: { childLayoutSeen: string | null; root: string }[] = []
 
     const Probe = () => {
       useLayoutEffect(() => {
         screen
-          .getByTestId('view-effect-root')
+          .getByTestId('root-effect-root')
           .setAttribute('data-child-layout', 'ready')
       }, [])
 
-      useSlateViewEffect((viewEditor) => {
+      useSlateRootEffect((rootEditor) => {
         calls.push({
           childLayoutSeen: screen
-            .getByTestId('view-effect-root')
+            .getByTestId('root-effect-root')
             .getAttribute('data-child-layout'),
-          root: viewEditor.read((state) => state.view.root()),
+          root: rootEditor.read((state) => state.view.root()),
         })
       })
 
@@ -37,7 +37,7 @@ describe('slate-react view and command hooks', () => {
 
     render(
       <Slate editor={editor}>
-        <Editable data-testid="view-effect-root" />
+        <Editable data-testid="root-effect-root" />
         <Probe />
       </Slate>
     )
@@ -45,15 +45,15 @@ describe('slate-react view and command hooks', () => {
     expect(calls).toEqual([{ childLayoutSeen: 'ready', root: 'main' }])
   })
 
-  test('useSlateViewEffect stays registered across editor commits', async () => {
+  test('useSlateRootEffect stays registered across editor commits', async () => {
     const editor = createReactEditor({ initialValue })
     const calls: string[] = []
 
     const Probe = () => {
-      useSlateViewEffect(
-        (viewEditor) => {
+      useSlateRootEffect(
+        (rootEditor) => {
           calls.push(
-            viewEditor.read((state) => {
+            rootEditor.read((state) => {
               const [firstBlock] = state.nodes.children() as {
                 children: { text: string }[]
               }[]
@@ -84,13 +84,13 @@ describe('slate-react view and command hooks', () => {
     expect(calls).toEqual(['test', 'test!'])
   })
 
-  test('useSlateViewEffect with explicit deps ignores focus-only context changes', async () => {
+  test('useSlateRootEffect with explicit deps ignores focus-only context changes', async () => {
     const editor = createReactEditor({ initialValue })
     const calls: string[] = []
     const cleanups: string[] = []
 
     const Probe = () => {
-      useSlateViewEffect(
+      useSlateRootEffect(
         () => {
           calls.push('effect')
 
@@ -120,12 +120,12 @@ describe('slate-react view and command hooks', () => {
     expect(cleanups).toEqual([])
   })
 
-  test('useSlateViewEffect reruns when deps change without an editor commit', () => {
+  test('useSlateRootEffect reruns when deps change without an editor commit', () => {
     const editor = createReactEditor({ initialValue })
     const calls: string[] = []
 
     const Probe = ({ label }: { label: string }) => {
-      useSlateViewEffect(
+      useSlateRootEffect(
         () => {
           calls.push(label)
         },
@@ -154,12 +154,12 @@ describe('slate-react view and command hooks', () => {
     expect(calls).toEqual(['first', 'second'])
   })
 
-  test('useSlateViewEffect without deps reruns on React rerenders', () => {
+  test('useSlateRootEffect without deps reruns on React rerenders', () => {
     const editor = createReactEditor({ initialValue })
     const calls: string[] = []
 
     const Probe = ({ label }: { label: string }) => {
-      useSlateViewEffect(() => {
+      useSlateRootEffect(() => {
         calls.push(label)
       })
 
@@ -199,10 +199,10 @@ describe('slate-react view and command hooks', () => {
 
     const CommandButton = ({ label }: { label: string }) => {
       const command = useSlateCommandCallback(
-        (viewEditor) => {
+        (rootEditor) => {
           calls.push({
             label,
-            root: viewEditor.read((state) => state.view.root()),
+            root: rootEditor.read((state) => state.view.root()),
           })
         },
         { root: 'header' }

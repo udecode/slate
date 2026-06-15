@@ -8,7 +8,7 @@ import {
   useSlateEditor,
   useSlateHistory,
   useSlateRootChrome,
-  useSlateViewState,
+  useSlateRootState,
   useStateFieldValue,
 } from 'slate-react'
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +63,7 @@ const formatCommit = (commit: EditorCommit | null) => {
 }
 
 const RootStatus = ({ id, root }: { id: string; root: string }) => {
-  const text = useSlateViewState(root, rootText)
+  const text = useSlateRootState(root, rootText)
 
   return (
     <Badge
@@ -117,7 +117,7 @@ const RootEditor = ({
 
 const MultiRootPanel = () => {
   const history = useSlateHistory()
-  const titleHistory = useSlateHistory({ focusPolicy: 'preserve-dom' })
+  const titleHistory = useSlateHistory({ focusPolicy: 'preserve' })
   const title = useStateFieldValue(documentTitle)
   const setTitleField = useSetStateField(documentTitle)
   const commitSummary = useEditorState((state) =>

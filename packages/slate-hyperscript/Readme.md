@@ -20,3 +20,12 @@ const editor = (
 ```
 
 Use `createHyperscript({ elements })` to define domain tags for fixtures.
+
+Root exports:
+
+- `jsx`: default JSX factory with Slate's built-in fixture tags.
+- `createHyperscript`: custom JSX factory builder.
+- `createEditor` and `createText`: low-level creators for custom factories and
+  fixture helpers.
+- `HyperscriptCreators` and `HyperscriptShorthands`: TypeScript helper types
+  for custom factories.

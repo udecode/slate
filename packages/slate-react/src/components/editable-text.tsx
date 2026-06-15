@@ -23,7 +23,7 @@ import {
   useMountedTextRenderSelector,
 } from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
-import { useSlateProjections } from '../hooks/use-slate-projections'
+import { useSlateProjectionEntries } from '../hooks/use-slate-projection-entries'
 import type { SlateProjectionSlice } from '../projection-store'
 import { hasVisibleSlateViewSelectionDecoration } from '../view-selection-decoration'
 import { SlateLeaf } from './slate-leaf'
@@ -602,7 +602,7 @@ const BoundEditableText = <T,>({
     path: boundText.path,
     slateNode: boundText.slateNode,
   })
-  const projections = useSlateProjections(
+  const projections = useSlateProjectionEntries(
     resolvedRuntimeId ?? ''
   ) as readonly SlateProjectionSlice<T>[]
 
@@ -637,7 +637,7 @@ const ProjectedEditableText = <T,>({
   ...props
 }: EditableTextProps<T>) => {
   const boundRef = useSlateNodeRef(runtimeId, { path, slateNode })
-  const projections = useSlateProjections(
+  const projections = useSlateProjectionEntries(
     runtimeId ?? ''
   ) as readonly SlateProjectionSlice<T>[]
 

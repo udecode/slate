@@ -2,6 +2,7 @@ import { useCallback, useContext, useSyncExternalStore } from 'react'
 import { ProjectionContext } from '../projection-context'
 import type { SlateProjectionRefreshResult } from '../projection-store'
 
+/** Projected range entry for one rendered runtime. */
 export interface SlateProjectionEntry<T = unknown> {
   data?: T
   end: number
@@ -9,6 +10,7 @@ export interface SlateProjectionEntry<T = unknown> {
   start: number
 }
 
+/** External store that publishes projection entries by runtime id. */
 export interface SlateProjectionStore<T = unknown> {
   getSnapshot: () => Readonly<
     Record<string, readonly SlateProjectionEntry<T>[]>
@@ -28,7 +30,13 @@ const EMPTY_PROJECTIONS = Object.freeze(
 const subscribeEmpty = () => () => {}
 const getEmptyRuntimeSnapshot = () => EMPTY_PROJECTIONS
 
-export function useSlateProjections<T = unknown>(
+/**
+ * Read projection entries for one runtime id from the current projection store.
+ *
+ * Returns an empty frozen list when no projection store or runtime snapshot is
+ * available.
+ */
+export function useSlateProjectionEntries<T = unknown>(
   runtimeId: string
 ): readonly SlateProjectionEntry<T>[] {
   const store = useContext(ProjectionContext)

@@ -1,17 +1,15 @@
 // Components
 
 // Utils
-export {
-  createSlateAnnotationStore,
-  type SlateAnnotation,
-  type SlateAnnotationAnchor,
-  type SlateAnnotationProjectionData,
-  type SlateAnnotationRefreshOptions,
-  type SlateAnnotationSnapshot,
-  type SlateAnnotationStore,
-  type SlateAnnotationStoreMetrics,
-  type SlateAnnotationStoreRefreshOptions,
-  type SlateResolvedAnnotation,
+export type {
+  SlateAnnotation,
+  SlateAnnotationAnchor,
+  SlateAnnotationProjectionData,
+  SlateAnnotationRefreshOptions,
+  SlateAnnotationSnapshot,
+  SlateAnnotationStore,
+  SlateAnnotationStoreMetrics,
+  SlateResolvedAnnotation,
 } from './annotation-store'
 export type {
   EditableDOMBeforeInputContext,
@@ -26,17 +24,13 @@ export type {
   EditableKeyDownContext,
   EditableKeyDownHandler,
 } from './components/editable'
-export {
-  DefaultPlaceholder,
-  defaultScrollSelectionIntoView,
-} from './components/editable'
+export { defaultScrollSelectionIntoView } from './components/editable'
 export { EditableElement } from './components/editable-element'
 export type {
   RenderLeafProps,
   RenderPlaceholderProps,
   RenderTextProps,
 } from './components/editable-text'
-export { EditableText } from './components/editable-text'
 export type {
   EditableDecorate,
   EditableDecoration,
@@ -44,8 +38,8 @@ export type {
   EditableDOMCoverageBoundaryPlaceholderContext,
   EditableDOMCoverageBoundaryProps,
   EditableDOMCoverageBoundaryScope,
+  EditableDOMStrategyLayout,
   EditableElementSlots,
-  EditableLayout,
   EditableProps,
   RenderElementProps,
   RenderVoidProps,
@@ -56,18 +50,13 @@ export { SlateElement } from './components/slate-element'
 export { SlateLeaf } from './components/slate-leaf'
 export { SlatePlaceholder } from './components/slate-placeholder'
 export { SlateText } from './components/slate-text'
-export { TextString } from './components/text-string'
-export { ZeroWidthString } from './components/zero-width-string'
-export {
-  composeDecorationSources,
-  createDecorationSource,
-  createRangeDecorationSource,
-  type SlateDecoration,
-  type SlateDecorationSource,
-  type SlateDecorationSourceOptions,
-  type SlateDecorationSourceReadContext,
-  type SlateRangeDecoration,
-  type SlateRangeDecorationSourceOptions,
+export type {
+  SlateDecoration,
+  SlateDecorationSource,
+  SlateDecorationSourceOptions,
+  SlateDecorationSourceReadContext,
+  SlateRangeDecoration,
+  SlateRangeDecorationSourceOptions,
 } from './decoration-source'
 export type {
   DOMStrategyOptions,
@@ -140,8 +129,8 @@ export { useSlateNodeRef } from './hooks/use-slate-node-ref'
 export {
   type SlateProjectionEntry,
   type SlateProjectionStore,
-  useSlateProjections,
-} from './hooks/use-slate-projections'
+  useSlateProjectionEntries,
+} from './hooks/use-slate-projection-entries'
 export {
   type SlateRootChromeController,
   type UseSlateRootChromeOptions,
@@ -156,16 +145,16 @@ export {
   type SlateRuntimeValue,
   type UseSlateCommandCallbackOptions,
   type UseSlateRootEditorOptions,
+  type UseSlateRootEffectOptions,
   type UseSlateRuntimeOptions,
-  type UseSlateViewEffectOptions,
   useSlateActiveEditor,
   useSlateActiveRoot,
   useSlateCommandCallback,
   useSlateRootEditor,
+  useSlateRootEffect,
+  useSlateRootState,
   useSlateRuntime,
   useSlateRuntimeState,
-  useSlateViewEffect,
-  useSlateViewState,
 } from './hooks/use-slate-runtime'
 export {
   type SlateWidgetStoreProjector,
@@ -187,30 +176,27 @@ export {
   type ReactEditorOptions,
   react,
 } from './plugin/with-react'
-export {
-  createSlateProjectionStore,
-  isSlateSourceDirty,
-  type SlateCustomSourceDirtiness,
-  type SlateProjection,
-  type SlateProjectionRefreshListener,
-  type SlateProjectionRefreshResult,
-  type SlateProjectionRuntimeScope,
-  type SlateProjectionSlice,
-  type SlateProjectionSource,
-  type SlateProjectionStoreMetrics,
-  type SlateProjectionStoreOptions,
-  type SlateProjectionStoreRefreshOptions,
-  type SlateRangeProjection,
-  type SlateSourceDirtiness,
-  type SlateSourceDirtinessClass,
-  type SlateSourceDirtinessContext,
+export type {
+  SlateCustomSourceDirtiness,
+  SlateProjection,
+  SlateProjectionRefreshListener,
+  SlateProjectionRefreshResult,
+  SlateProjectionRuntimeScope,
+  SlateProjectionSlice,
+  SlateProjectionSource,
+  SlateProjectionStoreMetrics,
+  SlateProjectionStoreOptions,
+  SlateProjectionStoreRefreshOptions,
+  SlateRangeProjection,
+  SlateSourceDirtiness,
+  SlateSourceDirtinessClass,
+  SlateSourceDirtinessContext,
 } from './projection-store'
-export {
-  createSlateWidgetStore,
-  type SlateResolvedWidget,
-  type SlateWidget,
-  type SlateWidgetAnchor,
-  type SlateWidgetSnapshot,
-  type SlateWidgetStore,
-  type SlateWidgetStoreMetrics,
+export type {
+  SlateResolvedWidget,
+  SlateWidget,
+  SlateWidgetAnchor,
+  SlateWidgetSnapshot,
+  SlateWidgetStore,
+  SlateWidgetStoreMetrics,
 } from './widget-store'

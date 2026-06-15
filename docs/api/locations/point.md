@@ -43,7 +43,7 @@ Check if a `point` is before `another`.
 
 Check if a `point` is exactly equal to `another`.
 
-#### `PointApi.isPoint(value: any) => value is Point`
+#### `PointApi.isPoint(value: unknown) => value is Point`
 
 Check if a `value` implements the `Point` interface.
 

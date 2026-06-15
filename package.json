@@ -138,6 +138,7 @@
     "slate-dom": "workspace:*",
     "slate-history": "workspace:*",
     "slate-hyperscript": "workspace:*",
+    "slate-layout": "workspace:*",
     "slate-react": "workspace:*",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",

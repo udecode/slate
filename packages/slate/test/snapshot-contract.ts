@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import {
   createEditor,
   type Descendant,
+  type EditorCommit,
   type EditorElementSpec,
   type Operation,
   OperationApi,
   type Path,
-  type SnapshotChange,
 } from '../src'
 import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
 import {
@@ -2105,7 +2105,7 @@ it('reuses snapshot indexes for selection-only listener snapshots', () => {
 
 it('publishes touched runtime ids for collapsed insert_text operations', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2159,7 +2159,7 @@ it('publishes touched runtime ids for collapsed insert_text operations', () => {
 it('notifies snapshot subscribers with commit metadata for operation replay', () => {
   const editor = createEditor()
   const callOrder: string[] = []
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2199,7 +2199,7 @@ it('notifies snapshot subscribers with commit metadata for operation replay', ()
 
 it('publishes selection-only dirtiness without touched runtime ids', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2254,7 +2254,7 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
 
 it('keeps small top-level expanded selection impact precise', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: Array.from({ length: 12 }, (_, index) => ({
@@ -2473,7 +2473,7 @@ it('routes selection-only commits through source subscribers only', () => {
 
 it('uses broad selection impact for large cross-document selections', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: Array.from({ length: 200 }, (_, index) => ({
@@ -2508,7 +2508,7 @@ it('uses broad selection impact for large cross-document selections', () => {
 
 it('publishes replace-level broad invalidation for Editor.replace', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2547,7 +2547,7 @@ it('publishes replace-level broad invalidation for Editor.replace', () => {
 
 it('publishes marks-only dirtiness without pretending the document paths changed', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),

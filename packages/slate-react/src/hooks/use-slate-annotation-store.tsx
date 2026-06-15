@@ -8,6 +8,7 @@ import {
 } from '../annotation-store'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
+/** React-state projector used to refresh an annotation store. */
 export type SlateAnnotationStoreProjector<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
@@ -26,6 +27,12 @@ const isSlateAnnotationStoreProjector = <
 ): value is SlateAnnotationStoreProjector<TData, TProjection> =>
   !Array.isArray(value)
 
+/**
+ * Create an annotation store from static annotations or a React-state projector.
+ *
+ * Projector `deps` own refresh freshness. The hook refreshes the store after
+ * commits to the annotation input and destroys it when the component unmounts.
+ */
 export function useSlateAnnotationStore<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,

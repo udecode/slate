@@ -2,15 +2,15 @@ import { render } from '@testing-library/react'
 import React from 'react'
 import {
   EditableElement,
-  EditableText,
   SlateElement,
   SlateLeaf,
   SlatePlaceholder,
   SlateText,
-  TextString,
-  ZeroWidthString,
 } from '../src'
+import { EditableText } from '../src/components/editable-text'
 import { SlateSpacer } from '../src/components/slate-spacer'
+import { TextString } from '../src/components/text-string'
+import { ZeroWidthString } from '../src/components/zero-width-string'
 
 describe('slate-react primitives contract', () => {
   test('ZeroWidthString renders line-break placeholders without FEFF by default', () => {

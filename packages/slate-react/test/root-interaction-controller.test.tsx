@@ -260,7 +260,7 @@ describe('root interaction controller', () => {
 
     render(
       <Slate editor={editor}>
-        <Editable aria-label="Main editor" layout={{}} />
+        <Editable aria-label="Main editor" domStrategyLayout={{}} />
       </Slate>
     )
 
@@ -274,7 +274,7 @@ describe('root interaction controller', () => {
     expect(fireEvent.mouseDown(editable)).toBe(false)
   })
 
-  test('owns focused native-editable coordinate placements in layout mode', async () => {
+  test('owns focused native-editable coordinate placements in DOM strategy layout mode', async () => {
     const editor = createReactEditor({
       initialValue: {
         roots: {
@@ -285,7 +285,7 @@ describe('root interaction controller', () => {
 
     render(
       <Slate editor={editor}>
-        <Editable aria-label="Main editor" layout={{}} />
+        <Editable aria-label="Main editor" domStrategyLayout={{}} />
       </Slate>
     )
 
@@ -554,7 +554,7 @@ describe('root interaction controller', () => {
     editable.remove()
   })
 
-  test('leaves native double-click word selection to the browser in layout mode', async () => {
+  test('leaves native double-click word selection to the browser in DOM strategy layout mode', async () => {
     const editor = createReactEditor({
       initialValue: {
         roots: {
@@ -565,7 +565,7 @@ describe('root interaction controller', () => {
 
     render(
       <Slate editor={editor}>
-        <Editable aria-label="Main editor" layout={{}} />
+        <Editable aria-label="Main editor" domStrategyLayout={{}} />
       </Slate>
     )
 

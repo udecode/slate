@@ -22,6 +22,7 @@ const enableSourcemaps = !process.env.CI
 const dts = {
   bundle: true,
   sourcemap: enableSourcemaps,
+  tsconfig: '../../config/typescript/tsconfig.dts.json',
 }
 
 export default defineConfig({

@@ -9,11 +9,11 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { flushSync } from 'react-dom'
-import type { Editor, Path, SnapshotChange } from 'slate'
+import type { Editor, EditorCommit, Path } from 'slate'
 import {
   defaultScrollSelectionIntoView,
   Editable,
-  type EditableLayout,
+  type EditableDOMStrategyLayout,
   type EditableProps,
   useEditorState,
   useElementPath,
@@ -24,9 +24,7 @@ import {
   createSlatePageLayout,
   getSlatePageLayoutGeometry,
   getSlatePageLayoutProjection,
-  type SlateLayout,
   type SlateLayoutOptions,
-  type SlateLayoutSnapshot,
   type SlatePageLayout,
   type SlatePageLayoutFragment,
   type SlatePageLayoutMode,
@@ -122,7 +120,7 @@ export const useSlateLayout = <
 >(
   editor: Editor,
   options: UseSlateLayoutOptions<TSettings>
-): SlateLayout => {
+): SlatePageLayout => {
   const optionsRef = useRef(options)
   optionsRef.current = options
 
@@ -208,10 +206,10 @@ export const useSlatePageLayoutSnapshot = (
 ): SlatePageLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
-/** Read a `SlateLayout` snapshot with React external-store semantics. */
+/** Read a `SlatePageLayout` snapshot with React external-store semantics. */
 export const useSlateLayoutSnapshot = (
-  layout: SlateLayout
-): SlateLayoutSnapshot =>
+  layout: SlatePageLayout
+): SlatePageLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
 /**
@@ -397,12 +395,12 @@ const sameSelectedPaths = (
     left.length === right.length &&
     left.every((path, index) => samePath(path, right[index]!)))
 
-const getSelectionPathsKey = (selection: SnapshotChange['selectionAfter']) =>
+const getSelectionPathsKey = (selection: EditorCommit['selectionAfter']) =>
   selection
     ? `${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
     : 'null'
 
-const shouldUpdatePagedEditableSelectedPaths = (change?: SnapshotChange) =>
+const shouldUpdatePagedEditableSelectedPaths = (change?: EditorCommit) =>
   !change ||
   change.fullDocumentChanged ||
   change.rootRuntimeIdsChanged ||
@@ -447,17 +445,15 @@ export type PagedEditableRenderPageProps = {
   page: SlatePageLayoutPage
 }
 
-export type PagedEditablePageLayoutMode = SlatePageLayoutMode
-
 export type PagedEditablePageView = {
   gap?: number
-  mode?: PagedEditablePageLayoutMode
+  mode?: SlatePageLayoutMode
 }
 
 export type PagedEditableProps = EditableProps & {
   layout: SlatePageLayout
   pageView?: PagedEditablePageView
-  pageLayoutMode?: PagedEditablePageLayoutMode
+  pageLayoutMode?: SlatePageLayoutMode
   pageGap?: number
   renderPage?: (props: PagedEditableRenderPageProps) => ReactNode
 }
@@ -491,7 +487,7 @@ const normalizePagedEditablePageView = ({
   pageView,
 }: {
   pageGap?: number
-  pageLayoutMode?: PagedEditablePageLayoutMode
+  pageLayoutMode?: SlatePageLayoutMode
   pageView?: PagedEditablePageView | null
 }) => ({
   gap: pageView?.gap ?? pageGap ?? 24,
@@ -842,7 +838,7 @@ export const PagedEditable = ({
 
     return byFragment
   }, [projection.lines])
-  const editableLayout = useMemo<EditableLayout>(
+  const editableLayout = useMemo<EditableDOMStrategyLayout>(
     () => ({
       getVirtualizedPageItems: () =>
         pageMountPlan.items.map((item) => ({
@@ -899,7 +895,7 @@ export const PagedEditable = ({
   const editable = (
     <Editable
       {...editableProps}
-      layout={editableLayout}
+      domStrategyLayout={editableLayout}
       scrollSelectionIntoView={scrollSelectionIntoView}
       style={{
         minHeight: geometry.height,

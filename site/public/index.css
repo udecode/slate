@@ -298,11 +298,6 @@ details > summary {
   color: #1f2937;
 }
 
-.example-badge-new {
-  background: #93c5fd;
-  color: #172554;
-}
-
 .example-tab.active {
   color: white;
   background: #333;

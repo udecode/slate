@@ -1,3 +1,4 @@
+/** One browser behavior family owned by a plugin or feature area. */
 export type SlateBrowserPluginContractRow = {
   assertions: readonly string[]
   family: string
@@ -5,22 +6,26 @@ export type SlateBrowserPluginContractRow = {
   routes: readonly string[]
 }
 
+/** Declarative browser contract bundle for one plugin or feature area. */
 export type SlateBrowserPluginContractDefinition = {
   plugin: string
   rows: readonly Omit<SlateBrowserPluginContractRow, 'plugin'>[]
 }
 
+/** Indexed browser contract registry built from plugin definitions. */
 export type SlateBrowserPluginContractRegistry = {
   rowByFamily: ReadonlyMap<string, SlateBrowserPluginContractRow>
   rows: readonly SlateBrowserPluginContractRow[]
 }
 
+/** Preserve a plugin contract definition with exact literal family names. */
 export const defineSlateBrowserPluginContract = <
   T extends SlateBrowserPluginContractDefinition,
 >(
   contract: T
 ): T => contract
 
+/** Build and validate a browser contract registry from plugin definitions. */
 export const createSlateBrowserPluginContractRegistry = (
   definitions: readonly SlateBrowserPluginContractDefinition[]
 ): SlateBrowserPluginContractRegistry => {

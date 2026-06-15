@@ -11,10 +11,7 @@ import {
 } from 'slate'
 import { Editor } from 'slate/internal'
 import {
-  createDecorationSource,
-  createRangeDecorationSource,
   createReactEditor,
-  createSlateProjectionStore,
   Editable,
   type ReactEditor,
   Slate,
@@ -22,8 +19,12 @@ import {
   type SlateProjection,
   type SlateProjectionSource,
   useDecorationSelector,
-  useSlateProjections,
+  useSlateProjectionEntries,
 } from '../src'
+import {
+  createDecorationSource,
+  createRangeDecorationSource,
+} from '../src/decoration-source'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -31,7 +32,10 @@ import {
 } from '../src/editable/input-controller'
 import { useProjectionDOMRepairBridge } from '../src/editable/projection-repair-bridge'
 import { ProjectionContext } from '../src/projection-context'
-import type { SlateProjectionRefreshListener } from '../src/projection-store'
+import {
+  createSlateProjectionStore,
+  type SlateProjectionRefreshListener,
+} from '../src/projection-store'
 
 type SegmentLike = {
   end: number
@@ -947,7 +951,7 @@ describe('slate-react projections and selection contract', () => {
       label: keyof typeof renders
       runtimeId: string
     }) => {
-      const projections = useSlateProjections(runtimeId)
+      const projections = useSlateProjectionEntries(runtimeId)
 
       renders[label] += 1
 
@@ -1384,7 +1388,7 @@ describe('slate-react projections and selection contract', () => {
     store.destroy()
   })
 
-  test('projection stores created from root views receive runtime source changes', async () => {
+  test('projection stores created from roots receive runtime source changes', async () => {
     const runtime = createEditorRuntime({
       initialValue: {
         roots: {

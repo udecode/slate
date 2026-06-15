@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
-import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
+import type { EditorCommit, Operation, Path, RuntimeId } from 'slate'
 import { NodeApi } from 'slate'
 import { getSelectionRoot } from '../hooks/root-selection-cache'
 import { useEditor } from '../hooks/use-editor'
@@ -159,7 +159,7 @@ const getSingleFullRootReplaceOperation = (
 
 const getChangedOperations = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => operations ?? change?.operations
 
 const hasOperationForRoot = (root: string, operations?: readonly Operation[]) =>
@@ -175,17 +175,17 @@ const isStructureOperationForRoot = (operation: Operation, root: string) =>
   !isSelectionOperation(operation) &&
   getOperationRoot(operation) === root
 
-const isSelectionChangeForRoot = (root: string, change: SnapshotChange) =>
+const isSelectionChangeForRoot = (root: string, change: EditorCommit) =>
   change.selectionChanged &&
   (getSelectionRoot(change.selectionBefore) === root ||
     getSelectionRoot(change.selectionAfter) === root)
 
-const getSelectionPathKey = (selection: SnapshotChange['selectionAfter']) =>
+const getSelectionPathKey = (selection: EditorCommit['selectionAfter']) =>
   selection
     ? `${getSelectionRoot(selection)}:${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
     : 'null'
 
-const isSelectionPathChangeForRoot = (root: string, change: SnapshotChange) =>
+const isSelectionPathChangeForRoot = (root: string, change: EditorCommit) =>
   isSelectionChangeForRoot(root, change) &&
   getSelectionPathKey(change.selectionBefore) !==
     getSelectionPathKey(change.selectionAfter)
@@ -200,7 +200,7 @@ const topLevelRangesIncludeIndex = (
 const shouldUpdateRootRuntimeIds = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -220,7 +220,7 @@ const shouldUpdateRootRuntimeIds = (
 const shouldUpdateSelectedTopLevelIndex = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -239,7 +239,7 @@ const shouldUpdateSelectedTopLevelIndex = (
 const shouldUpdatePlaceholderValue = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
   const firstTopLevelChanged = topLevelRangesIncludeIndex(
@@ -262,7 +262,7 @@ const shouldUpdatePlaceholderValue = (
 const shouldUpdateEditableRootCommit = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -284,7 +284,7 @@ const shouldUpdateEditableRootCommit = (
 
 const shouldUpdateRootDocumentEpoch = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => (change ? change.fullDocumentChanged : hasNoOperations(operations))
 
 const sameRuntimeIds = (
@@ -329,7 +329,7 @@ export const useRootRuntimeIds = () => {
     [root]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdateRootRuntimeIds(root, operations, change),
     [root]
   )
@@ -390,7 +390,7 @@ export const useTopLevelSelectionIndex = (enabled: boolean) => {
     [enabled]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
     [enabled, root]
   )
@@ -437,7 +437,7 @@ export const useSelectionPaths = (enabled: boolean) => {
     [enabled]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
     [enabled, root]
   )
@@ -466,7 +466,7 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
   )
 
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdatePlaceholderValue(root, operations, change),
     [root]
   )
@@ -481,7 +481,7 @@ export const useEditableRootCommitWakeup = () => {
   const editor = useEditor<ReactRuntimeEditor>()
   const root = editor.read((state) => state.view.root())
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdateEditableRootCommit(root, operations, change),
     [root]
   )

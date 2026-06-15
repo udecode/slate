@@ -4865,6 +4865,7 @@ test.describe('On richtext example', () => {
           label: 'native-select-word',
           offset: 18,
           path: [1, 0],
+          selectedText: 'text',
         },
         {
           kind: 'assertSelectedText',
@@ -6640,6 +6641,9 @@ test.describe('On richtext example', () => {
         (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
       )
       .toBe(firstBlockText)
+    await expect(page.getByTestId('block-button-block-quote')).not.toHaveClass(
+      /is-active/
+    )
     await expect
       .poll(() =>
         editor.root.evaluate((element: HTMLElement) => {

@@ -38,6 +38,12 @@ const assignRef = (
   }
 }
 
+/**
+ * Render a Slate element DOM shell bound to the current element runtime.
+ *
+ * Use this primitive when building custom element shells that still need Slate
+ * DOM attributes, path/runtime metadata, and node-ref binding.
+ */
 export const SlateElement = ({
   as = 'div',
   children,

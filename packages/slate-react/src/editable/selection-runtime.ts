@@ -1,21 +1,16 @@
-import {
-  type Operation,
-  type Range,
-  RangeApi,
-  type SnapshotChange,
-} from 'slate'
+import { type EditorCommit, type Operation, type Range, RangeApi } from 'slate'
 import type { EditableInputController } from './input-state'
 
 type SelectorListener = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => void
 
 type SelectorSubscriptionOptions = {
   profileId?: string
   shouldUpdate?: (
     operations?: readonly Operation[],
-    change?: SnapshotChange
+    change?: EditorCommit
   ) => boolean
 }
 
@@ -36,7 +31,7 @@ export const shouldExportModelSelectionToDOM = (
     commit,
     modelSelection,
   }: {
-    commit?: SnapshotChange
+    commit?: EditorCommit
     modelSelection?: Range | null
   } = {}
 ) => {
@@ -57,7 +52,7 @@ export const shouldExportModelSelectionToDOM = (
 
 export const isTextInputSelectionHandledByCaretRepair = (
   inputController: EditableInputController,
-  commit?: SnapshotChange
+  commit?: EditorCommit
 ) =>
   Boolean(
     inputController.state.activeIntent === 'text-insert' &&
@@ -72,7 +67,7 @@ export const isTextInputSelectionHandledByCaretRepair = (
 
 const isSyncedTextOnlySelectionCommit = (
   operations?: readonly Operation[],
-  commit?: SnapshotChange,
+  commit?: EditorCommit,
   inputController?: EditableInputController
 ) => {
   if (
@@ -113,7 +108,7 @@ const isSyncedTextOnlySelectionCommit = (
 
 export const shouldSyncModelSelectionAfterCommit = (
   _operations?: readonly Operation[],
-  commit?: SnapshotChange,
+  commit?: EditorCommit,
   inputController?: EditableInputController
 ) => {
   if (
@@ -164,7 +159,7 @@ export const subscribeSelectionOnlyDOMExport = ({
   scheduleDOMExport?: ScheduleDOMExport
   shouldSkipDOMExport?: (
     selection: Range | null,
-    commit?: SnapshotChange
+    commit?: EditorCommit
   ) => boolean
   syncDOMSelectionToEditor: () => void
 }) => {

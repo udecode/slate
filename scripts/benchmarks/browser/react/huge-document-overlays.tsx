@@ -7,8 +7,8 @@ import type {
   RuntimeId,
 } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
+import { createDecorationSource } from '../../../../packages/slate-react/src/decoration-source.ts'
 import {
-  createDecorationSource,
   createReactEditor,
   Editable,
   type ReactEditor,
@@ -16,7 +16,7 @@ import {
   type SlateDecorationSource,
   useEditorSelector,
   useElementPath,
-  useSlateProjections,
+  useSlateProjectionEntries,
 } from '../../../../packages/slate-react/src/index.ts'
 import { createSlateReactRenderCounter } from '../../../../packages/slate-react/src/render-profiler.ts'
 import {
@@ -177,7 +177,7 @@ const ProjectionCountSlice = memo(
     runtimeId: RuntimeId | null
     slot: string
   }) => {
-    const projections = useSlateProjections<{ highlight?: boolean }>(
+    const projections = useSlateProjectionEntries<{ highlight?: boolean }>(
       runtimeId ?? ''
     ) as readonly unknown[]
 

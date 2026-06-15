@@ -6,8 +6,7 @@ small input policies that belong to one editor surface.
 This is the editor from the install walkthrough:
 
 ```tsx
-import { useState } from 'react'
-import { Editable, Slate, createReactEditor } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const initialValue = [
   {
@@ -17,7 +16,7 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -33,7 +32,7 @@ Pass `onKeyDown` when you only need to observe the browser event.
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -54,7 +53,7 @@ Prevent the browser default when Slate should own the edit, then write inside
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>

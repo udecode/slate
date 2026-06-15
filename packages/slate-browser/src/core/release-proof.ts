@@ -7,6 +7,7 @@ import type {
 import { classifyBrowserMobileTransportProof } from '../transports/contracts'
 import type { ProofEvidenceClass } from './proof'
 
+/** Browser proof claim that can block release-quality assertions. */
 export type SlateBrowserReleaseClaim =
   | 'android-chrome-device-browser-text-input'
   | 'android-chrome-device-browser-ime-commit'
@@ -20,6 +21,7 @@ export type SlateBrowserMobileReleaseCapability =
   | BrowserMobileSupportedClaim
   | BrowserMobileUnsupportedClaim
 
+/** Raw-device browser proof artifact for mobile claims. */
 export type SlateBrowserMobileDeviceProofArtifact = {
   capabilities: SlateBrowserMobileReleaseCapability[]
   evidenceClass: ProofEvidenceClass
@@ -31,6 +33,7 @@ export type SlateBrowserMobileDeviceProofArtifact = {
   transport: BrowserMobileTransportId
 }
 
+/** Persistent-profile browser soak proof artifact. */
 export type SlateBrowserPersistentSoakProofArtifact = {
   browserName: string
   iterations: number
@@ -41,12 +44,14 @@ export type SlateBrowserPersistentSoakProofArtifact = {
   scenario: string
 }
 
+/** Proof artifact for release-discipline guard coverage. */
 export type SlateBrowserReleaseDisciplineProofArtifact = {
   guards: string[]
   kind: 'release-discipline'
   passed: boolean
 }
 
+/** Union of browser proof artifacts accepted by release proof validation. */
 export type SlateBrowserReleaseProofArtifact =
   | SlateBrowserMobileDeviceProofArtifact
   | SlateBrowserPersistentSoakProofArtifact
@@ -59,11 +64,13 @@ export type SlateBrowserReleaseProofOptions = {
   requiredSoakIterations?: number
 }
 
+/** Result of validating browser release proof artifacts. */
 export type SlateBrowserReleaseProofResult = {
   issues: string[]
   ok: boolean
 }
 
+/** Required guard names for browser release-discipline proof. */
 export const SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS = [
   'public-surface-contract',
   'public-field-hard-cut-contract',
@@ -77,6 +84,7 @@ export const SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS = [
   'compat-alias-hard-cut-contract',
 ] as const
 
+/** Create a raw-device mobile browser proof artifact. */
 export const createBrowserMobileReleaseProofArtifact = ({
   passed,
   scenario,
@@ -100,6 +108,7 @@ export const createBrowserMobileReleaseProofArtifact = ({
   }
 }
 
+/** Create a persistent-profile browser soak proof artifact. */
 export const createPersistentBrowserSoakProofArtifact = ({
   browserName,
   iterations,
@@ -120,6 +129,7 @@ export const createPersistentBrowserSoakProofArtifact = ({
   scenario,
 })
 
+/** Create a release-discipline proof artifact. */
 export const createReleaseDisciplineProofArtifact = ({
   guards,
   passed,
@@ -230,6 +240,7 @@ const validateReleaseDiscipline = (
   }
 }
 
+/** Validate browser proof artifacts against requested release claims. */
 export const validateSlateBrowserReleaseProof = ({
   artifacts,
   claims,
@@ -301,6 +312,7 @@ export const validateSlateBrowserReleaseProof = ({
   }
 }
 
+/** Throw when browser proof artifacts do not satisfy requested claims. */
 export const assertSlateBrowserReleaseProof = (
   options: SlateBrowserReleaseProofOptions
 ) => {

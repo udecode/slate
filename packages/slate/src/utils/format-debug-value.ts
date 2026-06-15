@@ -1,3 +1,4 @@
+/** Hook for replacing values before Slate debug output is stringified. */
 export type DebugValueScrubber = (key: string, value: unknown) => unknown
 
 let debugValueScrubber: DebugValueScrubber | undefined
@@ -10,6 +11,7 @@ const defaultDebugValueScrubber = (key: string, value: unknown): unknown => {
   return value
 }
 
+/** Override the debug value scrubber used by Slate diagnostic formatting. */
 export const setDebugValueScrubber = (
   scrubber: DebugValueScrubber | null | undefined
 ) => {

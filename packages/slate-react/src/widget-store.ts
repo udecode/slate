@@ -1,9 +1,9 @@
 import {
+  type EditorCommit,
   PointApi,
   type Range,
   type RuntimeId,
   type Editor as SlateEditor,
-  type SnapshotChange,
 } from 'slate'
 import type {
   SlateAnnotationStore,
@@ -151,7 +151,7 @@ const countMappedListeners = (
 
 const shouldRecomputeForEditorChange = <T extends Record<string, unknown>>(
   widgets: readonly SlateWidget<T>[],
-  change: SnapshotChange | undefined,
+  change: EditorCommit | undefined,
   editor: SlateEditor
 ) => {
   if (!change) {

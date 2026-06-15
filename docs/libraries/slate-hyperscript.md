@@ -41,5 +41,12 @@ const h = createHyperscript({
 const paragraph = h('paragraph', {}, 'hello')
 ```
 
+## Creator Helpers
+
+`jsx` is the default fixture factory. `createHyperscript` builds a custom
+factory. `createEditor` and `createText` are low-level creators for custom
+factories and fixture helpers. `HyperscriptCreators` and
+`HyperscriptShorthands` are TypeScript helper types for custom factories.
+
 Keep hyperscript in tests and fixtures. Runtime editor code should use normal
 Slate node values.

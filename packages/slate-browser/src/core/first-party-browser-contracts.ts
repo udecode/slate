@@ -4,23 +4,27 @@ import {
   type SlateBrowserPluginContractRow,
 } from './plugin-contracts'
 
+/** First-party browser behavior row without its owning plugin label. */
 export type SlateBrowserOperationFamilyContract = Omit<
   SlateBrowserPluginContractRow,
   'plugin'
 >
 
+/** Small cross-route parity slice used to keep canonical examples aligned. */
 export type SlateBrowserFirstPartyParityFamily = {
   assertions: readonly string[]
   family: string
   routes: readonly string[]
 }
 
+/** Summary returned after first-party browser contract validation. */
 export type SlateBrowserFirstPartyParityContractResult = {
   operationFamilyCount: number
   parityFamilies: string[]
   registryRowCount: number
 }
 
+/** Canonical first-party browser behavior families Slate v2 must preserve. */
 export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   {
     assertions: [
@@ -270,6 +274,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
 ] satisfies readonly SlateBrowserOperationFamilyContract[]
 
+/** Focused parity families that compare the same invariant across routes. */
 export const SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES = [
   {
     assertions: [
@@ -318,6 +323,7 @@ const rowsByFamily = (families: readonly string[]) =>
     families.includes(contract.family)
   )
 
+/** Plugin-indexed registry built from the first-party behavior families. */
 export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
   createSlateBrowserPluginContractRegistry([
     defineSlateBrowserPluginContract({
@@ -384,6 +390,7 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
     }),
   ])
 
+/** Assert that first-party behavior and parity contract registries agree. */
 export const assertSlateBrowserFirstPartyParityContracts =
   (): SlateBrowserFirstPartyParityContractResult => {
     const registry = SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY

@@ -11,6 +11,7 @@ import type {
   EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
+import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
@@ -19,7 +20,6 @@ import type {
 } from './input-state'
 import type { DeferredOperation } from './model-input-strategy'
 import type { EditableRepairRequest } from './mutation-controller'
-import type { RuntimeAndroidInputManager } from './runtime-android-engine'
 import { useRuntimeBeforeInputEvents } from './runtime-before-input-events'
 import { useRuntimeBrowserHandle } from './runtime-browser-handle-events'
 import { useRuntimeClipboardEvents } from './runtime-clipboard-events'
@@ -87,7 +87,7 @@ type EditableKernelTraceRuntime = ReturnType<typeof useRuntimeKernelTraceEngine>
 
 export type EditableEventRuntimeCore = {
   android: {
-    managerRef: RefObject<RuntimeAndroidInputManager | null | undefined>
+    managerRef: RefObject<AndroidInputManager | null | undefined>
   }
   composition: {
     setComposing: (nextValue: boolean) => void
@@ -129,9 +129,7 @@ export const useEditableEventRuntime = ({
   syncDOMSelectionToEditor,
   trace,
 }: {
-  androidInputManagerRef: RefObject<
-    RuntimeAndroidInputManager | null | undefined
-  >
+  androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   applyInputRules: ApplyInputRules
   browserHandleNextId: RefObject<number>
   browserHandleRangeRefs: RefObject<

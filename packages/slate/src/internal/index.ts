@@ -44,6 +44,7 @@ export {
 } from '../core/transform-registry'
 export { projectRangeInSnapshot } from '../range-projection'
 export { formatDebugValue } from '../utils/format-debug-value'
+export { isObject } from '../utils/is-object'
 export {
   getOperationRoot,
   getRangeRoot,

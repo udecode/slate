@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
+import * as ts from 'typescript'
+
 import * as Slate from '../src'
 
 const repoRoot = resolve(import.meta.dir, '../../..')
@@ -13,6 +15,15 @@ const collectFiles = (directory: string, pattern: RegExp): string[] =>
       const path = join(directory, entry)
 
       if (statSync(path).isDirectory()) {
+        if (
+          entry === 'node_modules' ||
+          entry === 'dist' ||
+          entry === 'out' ||
+          entry === '.next'
+        ) {
+          return []
+        }
+
         return collectFiles(path, pattern)
       }
 
@@ -64,11 +75,22 @@ const exampleBrowserProofAliases = new Map([
     ],
   ],
 ] as const)
+const exampleBrowserUtilitySpecs = new Map([
+  [
+    'example-navigation',
+    'global examples navigation metadata proof, not one editor route',
+  ],
+  [
+    'visual-native-selection-smoke',
+    'cross-route screenshot/native-selection smoke proof',
+  ],
+] as const)
 const publicDocumentationFiles = [
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/api')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/concepts')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/libraries')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/walkthroughs')),
+  ...collectFiles(resolve(repoRoot, 'packages'), /(?:README|Readme)\.md$/),
 ]
 const publicMarkdownFiles = [
   'Readme.md',
@@ -80,6 +102,30 @@ const publicAuthoringFiles = [
   ...collectExampleFiles(resolve(repoRoot, 'docs/api')),
   ...collectExampleFiles(resolve(repoRoot, 'docs/concepts')),
   ...collectExampleFiles(resolve(repoRoot, 'docs/walkthroughs')),
+]
+
+const publicPredicateInputFiles = [
+  'docs/api/locations/location.md',
+  'docs/api/locations/path.md',
+  'docs/api/locations/point.md',
+  'docs/api/locations/range.md',
+  'docs/api/locations/span.md',
+  'docs/api/nodes/element.md',
+  'docs/api/nodes/node.md',
+  'docs/api/nodes/text.md',
+  'docs/api/operations/operation.md',
+  'docs/libraries/slate-history/history.md',
+  'packages/slate-dom/src/utils/dom.ts',
+  'packages/slate-history/src/history.ts',
+  'packages/slate/src/editor/is-editor.ts',
+  'packages/slate/src/interfaces/element.ts',
+  'packages/slate/src/interfaces/location.ts',
+  'packages/slate/src/interfaces/node.ts',
+  'packages/slate/src/interfaces/operation.ts',
+  'packages/slate/src/interfaces/path.ts',
+  'packages/slate/src/interfaces/point.ts',
+  'packages/slate/src/interfaces/range.ts',
+  'packages/slate/src/interfaces/text.ts',
 ]
 
 const primitiveWriteTeachingPattern =
@@ -119,6 +165,11 @@ const bannedPublicSurface = [
     pattern: /\b(operationMiddlewares|commitListeners)\b|\bregister\s*[:(]/,
     reason:
       'public authoring examples must teach operations.apply, onCommit, and setup',
+  },
+  {
+    pattern: /\buseSlateView(State|Effect)\b/,
+    reason:
+      'public examples must teach root-named runtime hooks, not removed view hook names',
   },
 ]
 
@@ -163,7 +214,7 @@ const bannedPublicDocumentationSurface = [
       'public docs must be direct current-state reference, not old tutorial prose',
   },
   {
-    pattern: /\bon(SnapshotChange|KeyCommand)\b/,
+    pattern: /\bon(EditorCommit|KeyCommand)\b/,
     reason:
       'normal React docs must teach current Slate callbacks, not removed callback names',
   },
@@ -200,6 +251,11 @@ const bannedPublicDocumentationSurface = [
     reason: 'normal React docs must teach editor/node-scoped focus state',
   },
   {
+    pattern: /\buseSlateView(State|Effect)\b/,
+    reason:
+      'normal React docs must teach root-named runtime hooks, not removed view hook names',
+  },
+  {
     pattern: /contentEditable=\{false\}/,
     reason: 'normal void docs must not make app renderers own the void shell',
   },
@@ -230,8 +286,63 @@ const bannedPublicSnapshotAndRangeSurface = [
 const bannedPublicInternalImportPattern =
   /from\s+['"](?:slate|slate-dom)\/internal['"]/g
 
+const allowedSlateInternalBridgeImporters = new Map([
+  [
+    'packages/slate-dom/src/plugin/dom-clipboard-runtime.ts',
+    'DOM clipboard integration needs internal apply/runtime hooks for Slate fragment paste and copy repair',
+  ],
+  [
+    'packages/slate-dom/src/plugin/dom-coverage.ts',
+    'DOM coverage translates mounted and hidden DOM ranges through internal snapshot/version helpers',
+  ],
+  [
+    'packages/slate-dom/src/plugin/dom-editor.ts',
+    'DOM editor bridge needs internal editor helpers to resolve Slate ranges against browser DOM state',
+  ],
+  [
+    'packages/slate-dom/src/plugin/with-dom.ts',
+    'DOM extension setup needs internal transform registry access and root-scoped operation helpers',
+  ],
+  [
+    'packages/slate-dom/src/utils/diff-text.ts',
+    'DOM text diff recovery needs internal root metadata to keep pending selection edits root-local',
+  ],
+  [
+    'packages/slate-dom/src/utils/lines.ts',
+    'DOM single-line range helpers need the internal Editor table for line geometry lookup',
+  ],
+  [
+    'packages/slate-dom/src/utils/range-list.ts',
+    'DOM decoration range equality needs the internal Editor table for placeholder-aware comparisons',
+  ],
+  [
+    'packages/slate-history/src/history-extension.ts',
+    'history extension needs internal runtime/registry helpers to install core history behavior',
+  ],
+  [
+    'packages/slate-history/src/history.ts',
+    'history package validates batch shapes with the sibling-owned object guard',
+  ],
+  [
+    'packages/slate-hyperscript/src/creators.ts',
+    'hyperscript fixture creators need the sibling-owned editor children setter',
+  ],
+  [
+    'packages/slate-hyperscript/src/hyperscript.ts',
+    'hyperscript package validates shorthand option objects with the sibling-owned object guard',
+  ],
+  [
+    'packages/slate-react/src/editable/runtime-editor-api.ts',
+    'React editable runtime bridge re-exports selected internal helpers for React-owned editor wiring',
+  ],
+])
+
 const markdownLinkPattern = /\[[^\]]*]\(([^)\s#]*)(#[^)\s]+)?\)/g
+const markdownReferenceLinkPattern = /^\s*\[[^\]\n]+]:\s*(\S+)/gm
 const markdownHeadingPattern = /^(#{1,6})\s+(.+)$/gm
+
+const stripFencedCodeBlocks = (source: string) =>
+  source.replace(/^```[\s\S]*?^```/gm, '').replace(/^~~~[\s\S]*?^~~~/gm, '')
 
 const slugifyMarkdownHeading = (text: string) =>
   text
@@ -242,8 +353,13 @@ const slugifyMarkdownHeading = (text: string) =>
     .replace(/[^\w\s-]/g, '')
     .replace(/\s+/g, '-')
 
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 const collectMarkdownAnchors = (relativePath: string): Set<string> => {
-  const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+  const source = stripFencedCodeBlocks(
+    readFileSync(resolve(repoRoot, relativePath), 'utf8')
+  )
   const anchors = new Set<string>()
   const counts = new Map<string, number>()
 
@@ -256,6 +372,387 @@ const collectMarkdownAnchors = (relativePath: string): Set<string> => {
   }
 
   return anchors
+}
+
+const readPackageJson = (packageName: string) =>
+  JSON.parse(
+    readFileSync(
+      resolve(repoRoot, 'packages', packageName, 'package.json'),
+      'utf8'
+    )
+  ) as {
+    exports?: Record<string, unknown>
+    main?: string
+    module?: string
+    name: string
+    peerDependencies?: Record<string, string>
+    private?: boolean
+    scripts?: Record<string, string>
+    types?: string
+    version: string
+  }
+
+const readRootPackageJson = () =>
+  JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+    devDependencies?: Record<string, string>
+  }
+
+const readDtsTsconfig = () =>
+  JSON.parse(
+    readFileSync(
+      resolve(repoRoot, 'config/typescript/tsconfig.dts.json'),
+      'utf8'
+    )
+  ) as {
+    compilerOptions?: {
+      paths?: Record<string, readonly string[]>
+    }
+  }
+
+const expectedPublicPackageExportMaps: Record<string, readonly string[]> = {
+  slate: ['.', './internal'],
+  'slate-browser': ['./browser', './core', './playwright', './transports'],
+  'slate-dom': ['.', './internal'],
+  'slate-history': ['.'],
+  'slate-hyperscript': ['.'],
+  'slate-layout': ['.', './react'],
+  'slate-react': ['.'],
+}
+
+const expectedPackageReadmeFiles: Record<string, 'README.md' | 'Readme.md'> = {
+  slate: 'Readme.md',
+  'slate-browser': 'README.md',
+  'slate-dom': 'README.md',
+  'slate-history': 'Readme.md',
+  'slate-hyperscript': 'Readme.md',
+  'slate-layout': 'README.md',
+  'slate-react': 'Readme.md',
+}
+
+const expectedRootWorkspacePackageDevDependencies = [
+  'slate',
+  'slate-browser',
+  'slate-dom',
+  'slate-history',
+  'slate-hyperscript',
+  'slate-layout',
+  'slate-react',
+]
+
+const expectedPublicPackageImportSpecifiers = new Set(
+  Object.entries(expectedPublicPackageExportMaps)
+    .flatMap(([packageName, subpaths]) =>
+      subpaths
+        .filter((subpath) => subpath !== './internal')
+        .map((subpath) =>
+          subpath === '.' ? packageName : `${packageName}/${subpath.slice(2)}`
+        )
+    )
+    .sort()
+)
+
+const exportSubpathToImportSpecifier = (
+  packageName: string,
+  subpath: string
+) => (subpath === '.' ? packageName : `${packageName}/${subpath.slice(2)}`)
+
+const exportTypesTargetToDtsPath = (packageName: string, types: string) =>
+  `packages/${packageName}/${types.replace(/^\.\//, '')}`
+
+const rootDistTarget = {
+  types: './dist/index.d.ts',
+  import: './dist/index.js',
+  default: './dist/index.js',
+}
+
+const expectedPublicPackageExportTargets: Record<
+  string,
+  {
+    exports: Record<string, unknown>
+    main?: string
+    module?: string
+    types?: string
+  }
+> = {
+  slate: {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+      './internal': {
+        types: './dist/internal/index.d.ts',
+        import: './dist/internal/index.js',
+        default: './dist/internal/index.js',
+      },
+    },
+  },
+  'slate-browser': {
+    exports: {
+      './browser': {
+        types: './dist/browser/index.d.ts',
+        default: './dist/browser/index.js',
+      },
+      './core': {
+        types: './dist/core/index.d.ts',
+        default: './dist/core/index.js',
+      },
+      './playwright': {
+        types: './dist/playwright/index.d.ts',
+        default: './dist/playwright/index.js',
+      },
+      './transports': {
+        types: './dist/transports/index.d.ts',
+        default: './dist/transports/index.js',
+      },
+    },
+  },
+  'slate-dom': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+      './internal': {
+        types: './dist/internal/index.d.ts',
+        import: './dist/internal/index.js',
+        default: './dist/internal/index.js',
+      },
+    },
+  },
+  'slate-history': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+    },
+  },
+  'slate-hyperscript': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+    },
+  },
+  'slate-layout': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+      './react': {
+        types: './dist/react.d.ts',
+        import: './dist/react.js',
+        default: './dist/react.js',
+      },
+    },
+  },
+  'slate-react': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+    },
+  },
+}
+
+const expectedPublicPackageDtsPaths = Object.fromEntries(
+  Object.entries(expectedPublicPackageExportTargets)
+    .flatMap(([packageName, { exports }]) =>
+      Object.entries(exports).map(([subpath, target]) => {
+        const types =
+          typeof target === 'object' && target !== null && 'types' in target
+            ? (target.types as string)
+            : null
+
+        assert.equal(
+          typeof types,
+          'string',
+          `${packageName} ${subpath} should expose a declaration target`
+        )
+
+        return [
+          exportSubpathToImportSpecifier(packageName, subpath),
+          [exportTypesTargetToDtsPath(packageName, types)],
+        ] as const
+      })
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
+)
+
+const expectedPublicPackageBuildEntries: Record<
+  string,
+  Record<string, string>
+> = {
+  slate: {
+    index: 'src/index.ts',
+    'internal/index': 'src/internal/index.ts',
+  },
+  'slate-browser': {
+    'browser/index': 'src/browser/index.ts',
+    'core/index': 'src/core/index.ts',
+    'playwright/index': 'src/playwright/index.ts',
+    'transports/index': 'src/transports/index.ts',
+  },
+  'slate-dom': {
+    index: 'src/index.ts',
+    'internal/index': 'src/internal/index.ts',
+  },
+  'slate-history': {
+    index: 'src/index.ts',
+  },
+  'slate-hyperscript': {
+    index: 'src/index.ts',
+  },
+  'slate-layout': {
+    index: 'src/index.ts',
+    react: 'src/react.tsx',
+  },
+  'slate-react': {
+    index: 'src/index.ts',
+  },
+}
+
+const exportTargetToBuildEntry = (target: unknown): string => {
+  assert.equal(typeof target, 'object')
+  assert.notEqual(target, null)
+
+  const types = (target as { types?: unknown }).types
+
+  assert.equal(typeof types, 'string')
+  assert.equal(types.startsWith('./dist/'), true)
+  assert.equal(types.endsWith('.d.ts'), true)
+
+  const withoutPrefix = types.slice('./dist/'.length, -'.d.ts'.length)
+
+  return withoutPrefix === 'index' ? 'index' : withoutPrefix
+}
+
+const collectPublicSlateImportSpecifiers = () => {
+  const importSpecifiers = new Map<string, string[]>()
+  const sourceFiles = [
+    ...publicMarkdownFiles,
+    ...collectFiles(resolve(repoRoot, 'site/examples'), /\.(ts|tsx|js|jsx)$/),
+  ].sort()
+  const importSpecifierPattern =
+    /(?:from\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\))/g
+
+  for (const relativePath of sourceFiles) {
+    const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+    for (const match of source.matchAll(importSpecifierPattern)) {
+      const specifier = match[1] ?? match[2]
+
+      if (!specifier?.startsWith('slate')) continue
+
+      const files = importSpecifiers.get(specifier) ?? []
+
+      files.push(relativePath)
+      importSpecifiers.set(specifier, files)
+    }
+  }
+
+  return new Map(
+    [...importSpecifiers.entries()]
+      .map(
+        ([specifier, files]) => [specifier, [...new Set(files)].sort()] as const
+      )
+      .sort(([left], [right]) => left.localeCompare(right))
+  )
+}
+
+const publicMarkdownCodeFenceLanguages = new Map([
+  ['js', ts.ScriptKind.JS],
+  ['javascript', ts.ScriptKind.JS],
+  ['jsx', ts.ScriptKind.JSX],
+  ['ts', ts.ScriptKind.TS],
+  ['tsx', ts.ScriptKind.TSX],
+  ['typescript', ts.ScriptKind.TS],
+] as const)
+
+const getPublicMarkdownCodeFences = (source: string) => {
+  const codeFencePattern = /```([^\n]*)\n([\s\S]*?)```/g
+
+  return [...source.matchAll(codeFencePattern)].flatMap((match, index) => {
+    const language = match[1].trim().split(/\s+/)[0].toLowerCase()
+    const scriptKind = publicMarkdownCodeFenceLanguages.get(language)
+
+    if (!scriptKind) return []
+
+    return [
+      {
+        body: match[2],
+        index: index + 1,
+        language,
+        scriptKind,
+      },
+    ]
+  })
+}
+
+const hasPendingChangesetRelease = (packageName: string) => {
+  const changesetRoot = resolve(repoRoot, '.changeset')
+
+  for (const file of readdirSync(changesetRoot)) {
+    if (!file.endsWith('.md')) continue
+
+    const source = readFileSync(resolve(changesetRoot, file), 'utf8')
+    const match = source.match(
+      new RegExp(`"${packageName}"\\s*:\\s*(major|minor|patch)`)
+    )
+
+    if (match) return true
+  }
+
+  return false
+}
+
+const getMarkdownHeadingSection = (source: string, heading: string) => {
+  const headingPattern = new RegExp(`^#### ${escapeRegExp(heading)}$`, 'm')
+  const headingMatch = source.match(headingPattern)
+
+  assert.ok(headingMatch, `${heading} should be documented`)
+
+  const start = headingMatch.index! + headingMatch[0].length
+  const tail = source.slice(start)
+  const nextHeading = tail.search(/^#{2,4} /m)
+
+  return nextHeading === -1 ? tail : tail.slice(0, nextHeading)
+}
+
+const collectNamedTypeExports = (source: string, exportSource: string) => {
+  const blockPattern = new RegExp(
+    `export type \\{([\\s\\S]*?)\\} from '${escapeRegExp(exportSource)}'`
+  )
+  const block = source.match(blockPattern)?.[1]
+
+  assert.ok(block, `${exportSource} type export block should exist`)
+
+  return block
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .sort()
+}
+
+const bumpPatchVersion = (version: string) => {
+  const [major = 0, minor = 0, patch = 0] = version
+    .split('.')
+    .map((part) => Number(part))
+
+  return `${major}.${minor}.${patch + 1}`
+}
+
+const expectedSiblingRuntimePeerFloor = (packageName: string) => {
+  const packageJson = readPackageJson(packageName)
+  const version = hasPendingChangesetRelease(packageName)
+    ? bumpPatchVersion(packageJson.version)
+    : packageJson.version
+
+  return `>=${version}`
 }
 
 const markdownAnchorsByFile = new Map(
@@ -313,6 +810,9 @@ const collectBareDataHelperValueImports = (source: string): string[] => {
 describe('primary public surface examples', () => {
   it('keeps every example route covered by browser proof', () => {
     const specRoutes = new Set(browserExampleSpecRoutes)
+    const aliasedSpecRoutes = new Set(
+      [...exampleBrowserProofAliases.values()].map(([alias]) => alias)
+    )
     const failures = primaryExampleRoutes.flatMap((route) => {
       const alias = exampleBrowserProofAliases.get(route)?.[0]
 
@@ -328,9 +828,26 @@ describe('primary public surface examples', () => {
           ? []
           : [`${route} -> ${alias}`]
     )
+    const orphanSpecs = browserExampleSpecRoutes.flatMap((route) => {
+      if (
+        primaryExampleRoutes.includes(route) ||
+        aliasedSpecRoutes.has(route) ||
+        exampleBrowserUtilitySpecs.has(route)
+      ) {
+        return []
+      }
+
+      return [route]
+    })
+    const staleUtilitySpecs = [...exampleBrowserUtilitySpecs].flatMap(
+      ([route, reason]) =>
+        specRoutes.has(route) && /\S/.test(reason) ? [] : [route]
+    )
 
     assert.deepEqual(failures, [])
     assert.deepEqual(staleAliases, [])
+    assert.deepEqual(orphanSpecs, [])
+    assert.deepEqual(staleUtilitySpecs, [])
   })
 
   for (const relativePath of primaryExampleFiles) {
@@ -369,6 +886,53 @@ describe('primary public surface examples', () => {
   })
 })
 
+describe('public React editor factory examples', () => {
+  it('keeps direct createReactEditor usage limited to remount/control surfaces', () => {
+    const directFactoryExamples = primaryExampleFiles
+      .filter((relativePath) =>
+        readFileSync(resolve(repoRoot, relativePath), 'utf8').includes(
+          'createReactEditor('
+        )
+      )
+      .sort()
+
+    assert.deepEqual(directFactoryExamples, [
+      'site/examples/ts/huge-document.tsx',
+    ])
+
+    const hugeDocument = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/huge-document.tsx'),
+      'utf8'
+    )
+
+    assert.match(hugeDocument, /remounts editors from URL\/config controls/)
+    assert.match(hugeDocument, /setEditor\(createEditor/)
+    assert.match(hugeDocument, /setEditorVersion/)
+  })
+})
+
+describe('public example metadata', () => {
+  it('keeps example badges current-state only', () => {
+    const examples = readFileSync(
+      resolve(repoRoot, 'site/constants/examples.ts'),
+      'utf8'
+    )
+    const layout = readFileSync(
+      resolve(repoRoot, 'site/components/ExampleLayout.tsx'),
+      'utf8'
+    )
+    const styles = readFileSync(
+      resolve(repoRoot, 'site/public/index.css'),
+      'utf8'
+    )
+
+    assert.match(examples, /export type ExampleBadge = 'alpha'/)
+    assert.doesNotMatch(examples, /badge: 'new'/)
+    assert.doesNotMatch(layout, /\bNew\b/)
+    assert.doesNotMatch(styles, /example-badge-new/)
+  })
+})
+
 describe('public data helper namespace examples', () => {
   for (const relativePath of [
     ...publicAuthoringFiles,
@@ -386,10 +950,89 @@ describe('public data helper namespace examples', () => {
   }
 })
 
-describe('primary public internal import boundaries', () => {
+describe('public current-state wording', () => {
   for (const relativePath of [
     ...publicAuthoringFiles,
     ...publicDocumentationFiles,
+  ]) {
+    it(`${relativePath} does not teach compatibility or migration posture`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      assert.doesNotMatch(
+        source,
+        /\b(?:COMPAT|compatibility|deprecated|deprecation|legacy|migrat(?:e|ion)|previously)\b/i
+      )
+    })
+  }
+
+  for (const relativePath of publicMarkdownFiles) {
+    it(`${relativePath} does not teach public API aliases`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      assert.doesNotMatch(source, /\balias(?:es)?\b/i)
+    })
+  }
+})
+
+describe('public markdown code fences', () => {
+  for (const relativePath of publicMarkdownFiles) {
+    it(`${relativePath} keeps TypeScript and JavaScript fences parseable`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const codeFences = getPublicMarkdownCodeFences(source)
+      const failures = codeFences.flatMap((block) => {
+        const sourceFile = ts.createSourceFile(
+          `${relativePath}#code-block-${block.index}.${block.language}`,
+          block.body,
+          ts.ScriptTarget.Latest,
+          true,
+          block.scriptKind
+        )
+
+        return sourceFile.parseDiagnostics.map(
+          (diagnostic) =>
+            `code block ${block.index}: ${ts.flattenDiagnosticMessageText(
+              diagnostic.messageText,
+              ' '
+            )}`
+        )
+      })
+
+      assert.deepEqual(failures, [])
+      assert.deepEqual(
+        codeFences.flatMap((block) =>
+          /\bany\b/.test(block.body)
+            ? [`code block ${block.index} should not teach any`]
+            : []
+        ),
+        []
+      )
+    })
+  }
+})
+
+describe('public predicate input types', () => {
+  for (const relativePath of publicPredicateInputFiles) {
+    it(`${relativePath} accepts unknown predicate inputs`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      assert.doesNotMatch(source, /\b(?:value|props): any\b/)
+    })
+  }
+
+  it('keeps EditorStaticApi.isEditor on unknown input without banning mark values', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/editor.ts'),
+      'utf8'
+    )
+
+    assert.doesNotMatch(source, /\bisEditor:\s*\(\s*value:\s*any\b/)
+  })
+})
+
+describe('primary public internal import boundaries', () => {
+  for (const relativePath of [
+    ...publicAuthoringFiles,
+    ...publicMarkdownFiles,
   ]) {
     it(`${relativePath} does not import internal package paths`, () => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
@@ -402,18 +1045,100 @@ describe('primary public internal import boundaries', () => {
   }
 })
 
+describe('sibling runtime bridge peer floors', () => {
+  const packageSourceFiles = collectFiles(
+    resolve(repoRoot, 'packages'),
+    /\.(ts|tsx|js|jsx)$/
+  ).filter(
+    (relativePath) =>
+      relativePath.includes('/src/') && !relativePath.includes('/node_modules/')
+  )
+
+  it('keeps slate/internal imports on the classified sibling bridge list', () => {
+    const importers = packageSourceFiles
+      .filter((relativePath) =>
+        readFileSync(resolve(repoRoot, relativePath), 'utf8').includes(
+          "from 'slate/internal'"
+        )
+      )
+      .sort()
+    const classified = [...allowedSlateInternalBridgeImporters.keys()].sort()
+
+    assert.deepEqual(importers, classified)
+
+    for (const [relativePath, reason] of allowedSlateInternalBridgeImporters) {
+      assert.ok(reason.length > 40, `${relativePath} needs a concrete reason`)
+    }
+  })
+
+  it('keeps packages importing slate/internal on the current Slate peer floor', () => {
+    const expectedFloor = expectedSiblingRuntimePeerFloor('slate')
+    const violations = packageSourceFiles.flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      if (!source.includes("from 'slate/internal'")) return []
+
+      const packageName = relativePath.split('/')[1] ?? ''
+      const packageJson = readPackageJson(packageName)
+
+      if (packageJson.private) return []
+
+      return packageJson.peerDependencies?.slate === expectedFloor
+        ? []
+        : [
+            `${packageName}: expected slate ${expectedFloor}, got ${packageJson.peerDependencies?.slate ?? 'missing'}`,
+          ]
+    })
+
+    assert.deepEqual(violations, [])
+  })
+
+  it('keeps packages importing slate-dom/internal on the current Slate DOM peer floor', () => {
+    const expectedFloor = expectedSiblingRuntimePeerFloor('slate-dom')
+    const violations = packageSourceFiles.flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      if (!source.includes("from 'slate-dom/internal'")) return []
+
+      const packageName = relativePath.split('/')[1] ?? ''
+      const packageJson = readPackageJson(packageName)
+
+      if (packageJson.private) return []
+
+      return packageJson.peerDependencies?.['slate-dom'] === expectedFloor
+        ? []
+        : [
+            `${packageName}: expected slate-dom ${expectedFloor}, got ${packageJson.peerDependencies?.['slate-dom'] ?? 'missing'}`,
+          ]
+    })
+
+    assert.deepEqual(violations, [])
+  })
+})
+
 describe('primary public markdown links', () => {
+  it('lists every API leaf page in the Summary navigation', () => {
+    const summary = readFileSync(resolve(repoRoot, 'docs/Summary.md'), 'utf8')
+    const apiLeafDocs = collectMarkdownFiles(resolve(repoRoot, 'docs/api'))
+      .filter((relativePath) => !relativePath.endsWith('/README.md'))
+      .map((relativePath) => relativePath.replace(/^docs\//, ''))
+    const missing = apiLeafDocs.filter(
+      (relativePath) => !summary.includes(`(${relativePath})`)
+    )
+
+    assert.deepEqual(missing, [])
+  })
+
   for (const relativePath of publicMarkdownFiles) {
     it(`${relativePath} links to existing markdown files and anchors`, () => {
-      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const source = stripFencedCodeBlocks(
+        readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      )
       const failures: string[] = []
 
-      for (const match of source.matchAll(markdownLinkPattern)) {
-        const rawTarget = match[1] ?? ''
-        const rawHash = match[2] ?? ''
-
+      const checkTarget = (rawTarget: string, rawHash: string) => {
         if (/^[a-z]+:/.test(rawTarget) || rawTarget.startsWith('/')) {
-          continue
+          return
         }
 
         const targetPath = rawTarget
@@ -422,7 +1147,7 @@ describe('primary public markdown links', () => {
 
         if (rawTarget && !statSync(targetPath, { throwIfNoEntry: false })) {
           failures.push(`missing file: ${rawTarget}`)
-          continue
+          return
         }
 
         if (
@@ -444,6 +1169,23 @@ describe('primary public markdown links', () => {
         }
       }
 
+      for (const match of source.matchAll(markdownLinkPattern)) {
+        checkTarget(match[1] ?? '', match[2] ?? '')
+      }
+
+      for (const match of source.matchAll(markdownReferenceLinkPattern)) {
+        const rawTargetWithHash = (match[1] ?? '').replace(/^<|>$/g, '')
+        const hashIndex = rawTargetWithHash.indexOf('#')
+        const rawTarget =
+          hashIndex === -1
+            ? rawTargetWithHash
+            : rawTargetWithHash.slice(0, hashIndex)
+        const rawHash =
+          hashIndex === -1 ? '' : rawTargetWithHash.slice(hashIndex)
+
+        checkTarget(rawTarget, rawHash)
+      }
+
       assert.deepEqual(failures, [])
     })
   }
@@ -455,11 +1197,108 @@ describe('slate-react public docs', () => {
       resolve(repoRoot, 'docs/libraries/slate-react/slate.md'),
       'utf8'
     )
+    const installing = readFileSync(
+      resolve(repoRoot, 'docs/walkthroughs/01-installing-slate.md'),
+      'utf8'
+    )
+    const rootReadme = readFileSync(resolve(repoRoot, 'Readme.md'), 'utf8')
 
     assert.equal(/### `initialValue`/.test(source), false)
     assert.match(source, /onSelectionChange\?:/)
     assert.match(source, /onValueChange\?:/)
+    assert.match(
+      source,
+      /`SlateChange` is the React callback detail for the provider root/
+    )
+    assert.match(
+      source,
+      /Use `editor\.subscribeCommit`[\s\S]*when infrastructure needs every raw commit/
+    )
     assert.match(source, /<Slate>` does\s+not take an `initialValue` prop/)
+    assert.match(
+      installing,
+      /import \{ Editable, Slate, type SlateChange, useSlateEditor \} from 'slate-react'/
+    )
+    assert.match(
+      installing,
+      /const editor = useSlateEditor<CustomValue>\(\{ initialValue \}\)/
+    )
+    assert.match(
+      installing,
+      /The editor is seeded by `useSlateEditor\(\{ initialValue \}\)`/
+    )
+    assert.match(installing, /`<Slate>`\s+provides that existing editor/)
+    assert.match(
+      source,
+      /const editor = useSlateEditor<CustomValue>\(\{ initialValue \}\)/
+    )
+    assert.match(
+      rootReadme,
+      /import \{ Editable, Slate, useSlateEditor \} from 'slate-react'/
+    )
+    assert.match(
+      rootReadme,
+      /const editor = useSlateEditor<CustomValue>\(\{ initialValue \}\)/
+    )
+    assert.doesNotMatch(rootReadme, /useState\(\(\) =>/)
+    assert.doesNotMatch(rootReadme, /createReactEditor/)
+  })
+
+  it('teaches useSlateEditor as the React-owned walkthrough front door', () => {
+    for (const file of [
+      'Readme.md',
+      'docs/walkthroughs/01-installing-slate.md',
+      'docs/walkthroughs/02-adding-event-handlers.md',
+      'docs/walkthroughs/03-defining-custom-elements.md',
+      'docs/walkthroughs/04-applying-custom-formatting.md',
+      'docs/walkthroughs/05-executing-commands.md',
+      'docs/libraries/slate-react/react-editor-setup.md',
+      'docs/libraries/slate-react/slate.md',
+    ]) {
+      const source = readFileSync(resolve(repoRoot, file), 'utf8')
+
+      assert.match(
+        source,
+        /\buseSlateEditor\b/,
+        `${file} should teach useSlateEditor for React-owned editors`
+      )
+    }
+  })
+
+  it('documents subscribe and subscribeCommit as different integration hooks', () => {
+    const slateDocs = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/slate.md'),
+      'utf8'
+    )
+    const editorDocs = readFileSync(
+      resolve(repoRoot, 'docs/api/nodes/editor.md'),
+      'utf8'
+    )
+
+    assert.match(
+      slateDocs,
+      /Use `editor\.subscribe\(\.\.\.\)` for persistence services\s+that need a committed snapshot plus a change summary/
+    )
+    assert.match(
+      slateDocs,
+      /Use `editor\.subscribeCommit\(\.\.\.\)` for low-level commit subscribers/
+    )
+    assert.match(slateDocs, /collaboration adapters, operation replay/)
+    assert.match(
+      editorDocs,
+      /#### `editor\.subscribe\(listener\) => \(\) => void`/
+    )
+    assert.match(
+      editorDocs,
+      /#### `editor\.subscribeCommit\(listener\) => \(\) => void`/
+    )
+    assert.match(editorDocs, /subscribe\(listener: SnapshotListener\)/)
+    assert.match(
+      editorDocs,
+      /subscribeCommit\(listener: \(commit: EditorCommit\) => void\)/
+    )
+    assert.doesNotMatch(editorDocs, /\bEditorListener\b/)
+    assert.doesNotMatch(editorDocs, /\bEditorCommitListener\b/)
   })
 })
 
@@ -480,6 +1319,982 @@ describe('slate-hyperscript public docs', () => {
   })
 })
 
+describe('core package library docs', () => {
+  it('documents the root README package table with current package roles', () => {
+    const source = readFileSync(resolve(repoRoot, 'Readme.md'), 'utf8')
+
+    for (const row of [
+      /\| `slate` \| Core editor, document model, operations, transactions, state fields, transforms, refs, and extension runtime\. \|/,
+      /\| `slate-dom` \| DOM bridge, clipboard bridge, selection conversion, hotkeys, and contenteditable coverage helpers\. \|/,
+      /\| `slate-react` \| React editor factory, `<Slate>`, `<Editable>`, rendering primitives, hooks, decoration sources, annotations, widgets, and DOM strategies\. \|/,
+      /\| `slate-history` \| Undo\/redo history extension exposed through `state\.history` and `tx\.history`\. \|/,
+      /\| `slate-hyperscript` \| JSX-style test\/document creation helpers\. \|/,
+      /\| `slate-layout` \| Experimental page layout and page-level rendering helpers\. \|/,
+      /\| `slate-browser` \| Browser proof harness\. It is test infrastructure, not the product editing API\. \|/,
+    ]) {
+      assert.match(source, row)
+    }
+
+    assert.doesNotMatch(source, /previously|migration|deprecated/)
+  })
+
+  it('links slate and slate-dom from the library navigation', () => {
+    const summary = readFileSync(resolve(repoRoot, 'docs/Summary.md'), 'utf8')
+
+    assert.match(summary, /- \[Slate\]\(libraries\/slate\.md\)/)
+    assert.match(summary, /- \[Slate DOM\]\(libraries\/slate-dom\.md\)/)
+  })
+
+  it('documents the slate package as the core runtime', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate.md'),
+      'utf8'
+    )
+    const packageReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate/Readme.md'),
+      'utf8'
+    )
+    const packageSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/index.ts'),
+      'utf8'
+    )
+
+    assert.match(source, /`slate` is the core editor runtime/)
+    assert.match(source, /createEditor/)
+    assert.match(source, /createEditorRuntime/)
+    assert.match(source, /createEditorView/)
+    assert.match(source, /Use `isEditor`/)
+    assert.match(source, /editor\.read/)
+    assert.match(source, /editor\.update/)
+    assert.match(source, /defineEditorExtension/)
+    assert.match(source, /defineStateField/)
+    assert.match(source, /elementProperty/)
+    assert.match(source, /ElementApi/)
+    assert.match(source, /state\.\*/)
+    assert.match(source, /tx\.\*/)
+    assert.match(source, /Middleware and debug APIs include/)
+    assert.match(source, /The `\/internal` package subpath is reserved/)
+    assert.doesNotMatch(source, /from\s+['"]slate\/internal['"]/)
+    assert.match(packageReadme, /Core Slate editor runtime/)
+    assert.match(packageReadme, /import \{ createEditor \} from 'slate'/)
+    assert.match(packageReadme, /createEditorRuntime/)
+    assert.match(packageReadme, /createEditorView/)
+    assert.match(packageReadme, /Use `isEditor`/)
+    assert.match(packageReadme, /defineEditorExtension/)
+    assert.match(packageReadme, /defineStateField/)
+    assert.match(packageReadme, /elementProperty/)
+    assert.match(packageReadme, /ElementApi/)
+    assert.match(packageReadme, /state fields/)
+    assert.match(packageReadme, /tx\.text\.insert/)
+    assert.match(packageReadme, /Middleware and debug APIs include/)
+
+    const groupedTypeDocs = `${source}\n${packageReadme}`
+    for (const name of [
+      'Editor',
+      'BaseEditor',
+      'Value',
+      'InitialValue',
+      'Selection',
+      'RootKey',
+      'RuntimeId',
+      'EditorRuntime',
+      'EditorView',
+      'EditorSnapshot',
+      'EditorCommit',
+      'EditorCommitClass',
+      'SnapshotInput',
+      'SnapshotListener',
+      'EditorStateView',
+      'EditorStateValueApi',
+      'EditorUpdateTransaction',
+      'EditorTransactionValueApi',
+      'EditorUpdateOptions',
+      'EditorUpdateMetadata',
+      'EditorExtension',
+      'EditorExtensionInput',
+      'EditorExtensionSetupContext',
+      'EditorExtensionSetupOutput',
+      'EditorExtensionRuntimeState',
+      'EditorExtensionStateGroup',
+      'EditorExtensionStateGroups',
+      'EditorExtensionTxGroup',
+      'EditorExtensionTxGroups',
+      'EditorExtensionOperations',
+      'EditorElementSpec',
+      'EditorElementBehavior',
+      'EditorElementContentRootSpec',
+      'EditorElementPropertyDescriptor',
+      'EditorElementPropertyKind',
+      'EditorElementVoidKind',
+      'StateFieldDescriptor',
+      'StateFieldValueInput',
+      'EditorStateField',
+      'EditorTransformApi',
+      'EditorTransformMiddlewareArgs',
+      'EditorTransformMiddlewareContext',
+      'EditorTransformMiddlewareMap',
+      'EditorQueryGroup',
+      'EditorQueryMiddlewareContext',
+      'EditorQueryMiddlewareMap',
+      'EditorQueryMiddlewareResult',
+      'EditorOperationApplyContext',
+      'EditorOperationApplyHandler',
+      'setDebugValueScrubber',
+      'DebugValueScrubber',
+    ]) {
+      assert.match(
+        groupedTypeDocs,
+        new RegExp(`\\b${name}\\b`),
+        `${name} should be anchored in Slate package docs`
+      )
+    }
+    assert.match(packageSource, /export \{ createEditor \}/)
+    assert.match(
+      packageSource,
+      /export \{ createEditorRuntime, createEditorView \}/
+    )
+    assert.match(packageSource, /export \{ defineEditorExtension \}/)
+    assert.match(packageSource, /export \{ defineStateField \}/)
+    assert.match(packageSource, /export \{ elementProperty \}/)
+    assert.doesNotMatch(packageSource, /export \* from '\.\/text-units'/)
+    assert.doesNotMatch(packageSource, /export \* from '\.\/utils\/is-object'/)
+  })
+
+  it('classifies every explicit root editor type export', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate.md'),
+      'utf8'
+    )
+    const packageReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate/Readme.md'),
+      'utf8'
+    )
+    const packageSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/index.ts'),
+      'utf8'
+    )
+    const groupedTypeDocs = `${source}\n${packageReadme}`
+    const explicitlyExportedEditorTypes = collectNamedTypeExports(
+      packageSource,
+      './interfaces/editor'
+    )
+    const deliberatelyGroupedRootEditorTypeExports = new Map([
+      ['BaseSelection', 'selection detail covered by Selection'],
+      ['CreateEditorOptions', 'factory option detail covered by createEditor'],
+      ['DirtyRegion', 'dirty-range internals'],
+      ['EditorCanonicalUpdateTag', 'update-tag detail'],
+      ['EditorCollaborationUpdateMetadata', 'update metadata detail'],
+      ['EditorCommitCommand', 'commit implementation detail'],
+      ['EditorCommitContext', 'commit implementation detail'],
+      ['EditorCommitHandler', 'commit implementation detail'],
+      ['EditorCommitSource', 'commit source detail'],
+      ['EditorCoreStateView', 'core state alias covered by EditorStateView'],
+      [
+        'EditorCoreUpdateTransaction',
+        'core transaction alias covered by EditorUpdateTransaction',
+      ],
+      ['EditorDocumentValue', 'value detail covered by Value'],
+      ['EditorFragmentReadOptions', 'read option detail'],
+      ['EditorHistoryUpdateMetadata', 'update metadata detail'],
+      ['EditorIsEditorOptions', 'type-guard option detail'],
+      ['EditorMarks', 'marks detail covered by state.marks and tx.marks'],
+      ['EditorMarksOf', 'marks utility detail'],
+      ['EditorOperationDirtinessOptions', 'operation option detail'],
+      ['EditorOperationReplayOptions', 'operation option detail'],
+      ['EditorPublicTransformMiddlewareKey', 'middleware key detail'],
+      ['EditorQueryMiddlewareArgs', 'query middleware argument detail'],
+      ['EditorRuntimeOptions', 'runtime option detail'],
+      ['EditorSchemaApi', 'schema API detail'],
+      ['EditorSelectionUpdateMetadata', 'update metadata detail'],
+      [
+        'EditorStateExtensionGroups',
+        'state extension group detail covered by extension type groups',
+      ],
+      ['EditorStateFragmentApi', 'state API group detail covered by state.*'],
+      ['EditorStateMarksApi', 'state API group detail covered by state.*'],
+      ['EditorStateNodesApi', 'state API group detail covered by state.*'],
+      ['EditorStatePatch', 'state patch payload detail'],
+      ['EditorStatePointsApi', 'state API group detail covered by state.*'],
+      ['EditorStateRangesApi', 'state API group detail covered by state.*'],
+      ['EditorStateRuntimeApi', 'state API group detail covered by state.*'],
+      ['EditorStateSchemaApi', 'state API group detail covered by state.*'],
+      ['EditorStateSelectionApi', 'state API group detail covered by state.*'],
+      ['EditorStateTextApi', 'state API group detail covered by state.*'],
+      ['EditorStateViewApi', 'state API group detail covered by state.*'],
+      ['EditorTargetRuntime', 'target runtime detail'],
+      ['EditorTransactionBreakApi', 'transaction API group covered by tx.*'],
+      ['EditorTransactionFragmentApi', 'transaction API group covered by tx.*'],
+      ['EditorTransactionMarksApi', 'transaction API group covered by tx.*'],
+      ['EditorTransactionNodesApi', 'transaction API group covered by tx.*'],
+      [
+        'EditorTransactionOperationsApi',
+        'transaction API group covered by tx.*',
+      ],
+      ['EditorTransactionRootsApi', 'transaction API group covered by tx.*'],
+      [
+        'EditorTransactionSelectionApi',
+        'transaction API group covered by tx.*',
+      ],
+      [
+        'EditorTransactionStatePatchesApi',
+        'transaction API group covered by tx.*',
+      ],
+      ['EditorTransactionTextApi', 'transaction API group covered by tx.*'],
+      ['EditorTransformNext', 'middleware continuation detail'],
+      [
+        'EditorTxExtensionGroups',
+        'transaction extension group detail covered by extension type groups',
+      ],
+      ['EditorUpdateContext', 'update context detail'],
+      ['EditorUpdateTag', 'update-tag detail'],
+      ['EditorUpdateTagInput', 'update-tag detail'],
+      ['EditorViewOptions', 'view option detail'],
+      ['ProjectedRangeSegment', 'projected range detail'],
+      ['SnapshotDirtyScope', 'snapshot dirtiness detail'],
+      ['SnapshotIndex', 'snapshot indexing detail'],
+      ['StateFieldCollabPolicy', 'state-field policy detail'],
+      ['StateFieldHistoryPolicy', 'state-field policy detail'],
+      ['StateFieldInitial', 'state-field initial-value detail'],
+      ['TargetFreshnessRequest', 'target freshness detail'],
+      ['TopLevelRuntimeRange', 'runtime range detail'],
+      ['ValueOf', 'value utility detail'],
+    ] as const)
+    const undocumented = explicitlyExportedEditorTypes.filter(
+      (name) =>
+        !new RegExp(`\\b${name}\\b`).test(groupedTypeDocs) &&
+        !deliberatelyGroupedRootEditorTypeExports.has(name)
+    )
+    const staleClassifications = [
+      ...deliberatelyGroupedRootEditorTypeExports.keys(),
+    ].filter((name) => !explicitlyExportedEditorTypes.includes(name))
+    const nowDocumentedClassifications = [
+      ...deliberatelyGroupedRootEditorTypeExports.keys(),
+    ].filter((name) => new RegExp(`\\b${name}\\b`).test(groupedTypeDocs))
+    const emptyReasons = [
+      ...deliberatelyGroupedRootEditorTypeExports.entries(),
+    ].flatMap(([name, reason]) => (reason.length > 0 ? [] : [name]))
+
+    assert.deepEqual(undocumented, [])
+    assert.deepEqual(staleClassifications, [])
+    assert.deepEqual(nowDocumentedClassifications, [])
+    assert.deepEqual(emptyReasons, [])
+  })
+
+  it('documents the slate-dom package as a framework bridge', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-dom.md'),
+      'utf8'
+    )
+    const packageReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate-dom/README.md'),
+      'utf8'
+    )
+    const packageSource = readFileSync(
+      resolve(repoRoot, 'packages/slate-dom/src/index.ts'),
+      'utf8'
+    )
+
+    assert.match(source, /`slate-dom` is the DOM bridge/)
+    assert.match(
+      source,
+      /React apps normally use these APIs through `slate-react`/
+    )
+    assert.match(
+      source,
+      /import \{ DOMCoverage, Hotkeys, isDOMNode \} from 'slate-dom'/
+    )
+    assert.match(source, /EditableDOMCoverageBoundary/)
+    assert.match(source, /The `\/internal` package subpath is reserved/)
+    assert.doesNotMatch(source, /slate-dom\/internal/)
+    assert.match(packageReadme, /DOM bridge for Slate editors/)
+    assert.match(packageReadme, /React apps normally use these APIs through/)
+    assert.match(
+      packageReadme,
+      /import \{ DOMCoverage, Hotkeys, isDOMNode \} from 'slate-dom'/
+    )
+    assert.match(packageSource, /export \{ DOMCoverage \}/)
+    assert.match(packageSource, /Hotkeys/)
+  })
+
+  it('documents exported package subpaths with public boundaries', () => {
+    for (const [packageName, expectedExportMap] of Object.entries(
+      expectedPublicPackageExportMaps
+    )) {
+      assert.deepEqual(
+        Object.keys(readPackageJson(packageName).exports ?? {}).sort(),
+        expectedExportMap,
+        `${packageName} package export map changed`
+      )
+    }
+    for (const [packageName, expectedTargets] of Object.entries(
+      expectedPublicPackageExportTargets
+    )) {
+      const packageJson = readPackageJson(packageName)
+      const actualTargets: {
+        exports: Record<string, unknown>
+        main?: string
+        module?: string
+        types?: string
+      } = {
+        exports: packageJson.exports ?? {},
+      }
+
+      if (packageJson.main !== undefined) actualTargets.main = packageJson.main
+      if (packageJson.module !== undefined) {
+        actualTargets.module = packageJson.module
+      }
+      if (packageJson.types !== undefined) {
+        actualTargets.types = packageJson.types
+      }
+
+      assert.deepEqual(
+        actualTargets,
+        expectedTargets,
+        `${packageName} package export targets changed`
+      )
+    }
+
+    const slatePackage = readPackageJson('slate')
+    const slateReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate/Readme.md'),
+      'utf8'
+    )
+    const slateDomPackage = readPackageJson('slate-dom')
+    const slateDomReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate-dom/README.md'),
+      'utf8'
+    )
+    const slateBrowserPackage = readPackageJson('slate-browser')
+    const slateBrowserReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate-browser/README.md'),
+      'utf8'
+    )
+    const slateLayoutPackage = readPackageJson('slate-layout')
+    const slateLayoutReadme = readFileSync(
+      resolve(repoRoot, 'packages/slate-layout/README.md'),
+      'utf8'
+    )
+
+    assert.equal('./internal' in (slatePackage.exports ?? {}), true)
+    assert.match(slateReadme, /`\/internal` package subpath is reserved/)
+    assert.equal('./internal' in (slateDomPackage.exports ?? {}), true)
+    assert.match(slateDomReadme, /`\/internal` package subpath is reserved/)
+
+    assert.equal('.' in (slateBrowserPackage.exports ?? {}), false)
+    for (const subpath of [
+      './core',
+      './browser',
+      './playwright',
+      './transports',
+    ]) {
+      assert.equal(subpath in (slateBrowserPackage.exports ?? {}), true)
+      assert.match(
+        slateBrowserReadme,
+        new RegExp(`slate-browser/${subpath.slice(2)}`)
+      )
+    }
+
+    assert.equal('./react' in (slateLayoutPackage.exports ?? {}), true)
+    assert.match(slateLayoutReadme, /slate-layout\/react/)
+  })
+
+  it('keeps declaration build paths aligned with package export types', () => {
+    assert.deepEqual(
+      readDtsTsconfig().compilerOptions?.paths ?? {},
+      expectedPublicPackageDtsPaths
+    )
+  })
+
+  it('keeps root workspace links for public package smoke tests exact', () => {
+    const rootPackage = readRootPackageJson()
+
+    for (const packageName of expectedRootWorkspacePackageDevDependencies) {
+      assert.equal(
+        rootPackage.devDependencies?.[packageName],
+        'workspace:*',
+        `${packageName} should be linked from root package.json`
+      )
+    }
+  })
+
+  it('keeps package README casing singular and deliberate', () => {
+    for (const [packageName, expectedReadme] of Object.entries(
+      expectedPackageReadmeFiles
+    )) {
+      const packageEntries = readdirSync(
+        resolve(repoRoot, 'packages', packageName)
+      )
+      const readmeEntries = packageEntries
+        .filter((entry) => entry === 'README.md' || entry === 'Readme.md')
+        .sort()
+
+      assert.deepEqual(
+        readmeEntries,
+        [expectedReadme],
+        `${packageName} should have exactly one package README with deliberate casing`
+      )
+    }
+  })
+
+  it('keeps public docs and examples on exported package import paths', () => {
+    const publicSlateImportSpecifiers = collectPublicSlateImportSpecifiers()
+    const unexpectedSpecifiers = [...publicSlateImportSpecifiers.entries()]
+      .filter(
+        ([specifier]) => !expectedPublicPackageImportSpecifiers.has(specifier)
+      )
+      .map(
+        ([specifier, files]) => `${specifier}: ${files.slice(0, 8).join(', ')}`
+      )
+
+    assert.deepEqual(unexpectedSpecifiers, [])
+    assert.deepEqual(
+      [...publicSlateImportSpecifiers.keys()],
+      [
+        'slate',
+        'slate-browser/playwright',
+        'slate-dom',
+        'slate-history',
+        'slate-hyperscript',
+        'slate-layout',
+        'slate-layout/react',
+        'slate-react',
+      ]
+    )
+  })
+
+  it('keeps package export targets aligned with build entries', () => {
+    for (const [packageName, expectedEntries] of Object.entries(
+      expectedPublicPackageBuildEntries
+    )) {
+      const packageJson = readPackageJson(packageName)
+      const packageRoot = resolve(repoRoot, 'packages', packageName)
+      const exportedEntries = Object.fromEntries(
+        Object.entries(packageJson.exports ?? {}).map(([subpath, target]) => [
+          subpath,
+          exportTargetToBuildEntry(target),
+        ])
+      )
+      const expectedExportedEntries = Object.fromEntries(
+        Object.keys(packageJson.exports ?? {}).map((subpath) => [
+          subpath,
+          subpath === '.'
+            ? 'index'
+            : subpath.slice(2) === 'internal'
+              ? 'internal/index'
+              : packageName === 'slate-browser'
+                ? `${subpath.slice(2)}/index`
+                : subpath.slice(2),
+        ])
+      )
+
+      assert.deepEqual(
+        exportedEntries,
+        expectedExportedEntries,
+        `${packageName} export targets should resolve to expected build entries`
+      )
+      assert.deepEqual(
+        expectedEntries,
+        Object.fromEntries(
+          Object.entries(expectedEntries).sort(([left], [right]) =>
+            left.localeCompare(right)
+          )
+        ),
+        `${packageName} expected build entries should stay sorted`
+      )
+
+      for (const [entryName, sourcePath] of Object.entries(expectedEntries)) {
+        assert.equal(
+          readFileSync(resolve(packageRoot, sourcePath), 'utf8').length > 0,
+          true,
+          `${packageName} build entry ${entryName} source should exist`
+        )
+      }
+
+      const buildScript = packageJson.scripts?.build
+      if (
+        buildScript ===
+        'tsdown --config ../../config/tsdown.config.mts --log-level warn'
+      ) {
+        assert.deepEqual(
+          expectedEntries,
+          { index: 'src/index.ts' },
+          `${packageName} shared tsdown config should only publish the root entry`
+        )
+        continue
+      }
+
+      assert.equal(
+        buildScript,
+        'tsdown --config ./tsdown.config.mts --log-level warn',
+        `${packageName} should use a known build script`
+      )
+      const tsdownConfig = readFileSync(
+        resolve(packageRoot, 'tsdown.config.mts'),
+        'utf8'
+      )
+
+      for (const [entryName, sourcePath] of Object.entries(expectedEntries)) {
+        assert.match(
+          tsdownConfig,
+          new RegExp(
+            `${entryName.includes('/') ? `'${escapeRegExp(entryName)}'` : escapeRegExp(entryName)}:\\s*'${escapeRegExp(sourcePath)}'`
+          ),
+          `${packageName} tsdown config should build ${entryName}`
+        )
+      }
+    }
+  })
+
+  it('documents current operation subtypes and check helpers', () => {
+    const operationTypes = readFileSync(
+      resolve(repoRoot, 'docs/api/operations/README.md'),
+      'utf8'
+    )
+    const operationApi = readFileSync(
+      resolve(repoRoot, 'docs/api/operations/operation.md'),
+      'utf8'
+    )
+
+    for (const snippet of [
+      'Replace Children Operations',
+      "type: 'replace_children'",
+      'rootWasPresent?: boolean',
+      'rootIsPresent?: boolean',
+      '| ReplaceChildrenOperation',
+    ]) {
+      assert.equal(operationTypes.includes(snippet), true)
+    }
+
+    for (const helper of [
+      'isInsertNodeOperation',
+      'isInsertTextOperation',
+      'isMergeNodeOperation',
+      'isMoveNodeOperation',
+      'isRemoveNodeOperation',
+      'isRemoveTextOperation',
+      'isReplaceChildrenOperation',
+      'isReplaceFragmentOperation',
+      'isSetNodeOperation',
+      'isSetSelectionOperation',
+      'isSplitNodeOperation',
+    ]) {
+      assert.match(operationApi, new RegExp(`OperationApi\\.${helper}`))
+    }
+  })
+
+  it('documents every static API method listed by Slate source interfaces', () => {
+    const apiDocs = [
+      [
+        'Element',
+        'packages/slate/src/interfaces/element.ts',
+        'docs/api/nodes/element.md',
+      ],
+      [
+        'Node',
+        'packages/slate/src/interfaces/node.ts',
+        'docs/api/nodes/node.md',
+      ],
+      [
+        'Operation',
+        'packages/slate/src/interfaces/operation.ts',
+        'docs/api/operations/operation.md',
+      ],
+      [
+        'Path',
+        'packages/slate/src/interfaces/path.ts',
+        'docs/api/locations/path.md',
+      ],
+      [
+        'Point',
+        'packages/slate/src/interfaces/point.ts',
+        'docs/api/locations/point.md',
+      ],
+      [
+        'Range',
+        'packages/slate/src/interfaces/range.ts',
+        'docs/api/locations/range.md',
+      ],
+      [
+        'Text',
+        'packages/slate/src/interfaces/text.ts',
+        'docs/api/nodes/text.md',
+      ],
+    ] as const
+    const missingEntries = apiDocs.flatMap(
+      ([apiName, sourcePath, docsPath]) => {
+        const source = readFileSync(resolve(repoRoot, sourcePath), 'utf8')
+        const docs = readFileSync(resolve(repoRoot, docsPath), 'utf8')
+        const interfaceMatch = source.match(
+          new RegExp(
+            `export interface ${apiName}Interface \\{([\\s\\S]*?)\\n\\}`
+          )
+        )
+
+        assert.ok(
+          interfaceMatch,
+          `${sourcePath} should export ${apiName}Interface`
+        )
+
+        const methods = [
+          ...interfaceMatch[1]!.matchAll(
+            /^ {2}([a-zA-Z][a-zA-Z0-9_]*)\s*[:(]/gm
+          ),
+        ].map((match) => match[1]!)
+
+        return methods
+          .filter(
+            (method) => !new RegExp(`${apiName}Api\\.${method}\\b`).test(docs)
+          )
+          .map((method) => `${docsPath}: ${apiName}Api.${method}`)
+      }
+    )
+
+    assert.deepEqual(missingEntries, [])
+  })
+
+  it('anchors core package docs in the docs proof map', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/general/docs-proof-map.md'),
+      'utf8'
+    )
+
+    assert.match(source, /Core Slate owns the editor runtime/)
+    assert.match(source, /Slate DOM owns DOM bridge helpers/)
+    assert.match(source, /React-owned setup uses `useSlateEditor`/)
+    assert.match(source, /Public package READMEs describe the latest/)
+    assert.match(source, /Public package import paths, export targets/)
+    assert.match(source, /strict TypeScript export\/type declaration/)
+    assert.match(source, /public-package-import-smoke\.test\.ts/)
+    assert.match(source, /public-package-types-smoke\.ts/)
+    assert.match(source, /tsconfig\.public-package-types\.json/)
+    assert.match(source, /config\/typescript\/tsconfig\.dts\.json/)
+    assert.match(source, /Slate React docs and package README route/)
+    assert.match(source, /Slate React runtime hooks use root terminology/)
+    assert.match(source, /Editable DOM strategy layout is an explicit/)
+    assert.match(source, /widget stores are hook-owned/)
+    assert.match(source, /Example route proof coverage/)
+    assert.match(source, /Example navigation metadata/)
+    assert.match(source, /Visual\/native selection screenshots/)
+  })
+
+  it('documents transaction transform methods with source-backed options', () => {
+    const docs = readFileSync(
+      resolve(repoRoot, 'docs/api/transforms.md'),
+      'utf8'
+    )
+    const nodeSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/transforms/node.ts'),
+      'utf8'
+    )
+    const textSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/transforms/text.ts'),
+      'utf8'
+    )
+    const selectionSource = readFileSync(
+      resolve(
+        repoRoot,
+        'packages/slate/src/interfaces/transforms/selection.ts'
+      ),
+      'utf8'
+    )
+    const editorSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/editor.ts'),
+      'utf8'
+    )
+    const publicStateSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/core/public-state.ts'),
+      'utf8'
+    )
+    const methodOptionDocs = [
+      {
+        heading: '`tx.nodes.insert(nodes: Node | Node[], options?)`',
+        options: [
+          'at',
+          'match',
+          'mode',
+          'hanging',
+          'select',
+          'voids',
+          'batchDirty',
+        ],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.remove(options?)`',
+        options: ['at', 'match', 'mode', 'hanging', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.merge(options?)`',
+        options: ['at', 'match', 'mode', 'hanging', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.split(options?)`',
+        options: [
+          'at',
+          'match',
+          'mode',
+          'always',
+          'height',
+          'position',
+          'voids',
+        ],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.wrap(element: Element, options?)`',
+        options: ['at', 'match', 'mode', 'split', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.unwrap(options?)`',
+        options: ['at', 'match', 'mode', 'split', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.set(props: Partial<Node>, options?)`',
+        options: [
+          'at',
+          'match',
+          'mode',
+          'hanging',
+          'split',
+          'voids',
+          'compare',
+          'merge',
+        ],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.unset(props: string | string[], options?)`',
+        options: ['at', 'match', 'mode', 'hanging', 'split', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.lift(options?)`',
+        options: ['at', 'match', 'mode', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.nodes.move(options)`',
+        options: ['at', 'match', 'mode', 'to', 'voids'],
+        source: nodeSource,
+      },
+      {
+        heading: '`tx.fragment.get(options?)`',
+        options: ['at'],
+        source: editorSource,
+      },
+      {
+        heading: '`tx.fragment.insert(fragment: Node[], options?)`',
+        options: ['at', 'hanging', 'voids', 'batchDirty'],
+        source: textSource,
+      },
+      {
+        heading: '`tx.fragment.delete(options?)`',
+        options: ['at', 'direction'],
+        source: editorSource,
+      },
+      {
+        heading: '`tx.text.insert(text: string, options?)`',
+        options: ['at', 'voids'],
+        source: textSource,
+      },
+      {
+        heading: '`tx.text.delete(options?)`',
+        options: ['at', 'distance', 'unit', 'reverse', 'hanging', 'voids'],
+        source: textSource,
+      },
+      {
+        heading: '`tx.text.deleteBackward(options?)`',
+        options: ['unit'],
+        source: editorSource,
+      },
+      {
+        heading: '`tx.text.deleteForward(options?)`',
+        options: ['unit'],
+        source: editorSource,
+      },
+      {
+        heading: '`tx.selection.collapse(options?)`',
+        options: ['edge'],
+        source: selectionSource,
+      },
+      {
+        heading: '`tx.selection.move(options?)`',
+        options: ['distance', 'unit', 'reverse', 'edge'],
+        source: selectionSource,
+      },
+      {
+        heading: '`tx.selection.setPoint(props: Partial<Point>, options?)`',
+        options: ['edge'],
+        source: selectionSource,
+      },
+    ]
+
+    for (const { heading, options, source } of methodOptionDocs) {
+      const section = getMarkdownHeadingSection(docs, heading)
+
+      for (const option of options) {
+        assert.match(
+          source,
+          new RegExp(`\\b${escapeRegExp(option)}\\??:`),
+          `${heading} option ${option} should be source-backed`
+        )
+        assert.match(
+          section,
+          new RegExp(`\`${escapeRegExp(option)}\\??`),
+          `${heading} should document option ${option}`
+        )
+      }
+    }
+
+    for (const name of [
+      'insert',
+      'insertSoft',
+      'deleteBackward',
+      'deleteForward',
+    ]) {
+      assert.match(
+        publicStateSource,
+        new RegExp(`\\b${name}:`),
+        `tx.${name} should be runtime-backed`
+      )
+    }
+    assert.match(docs, /#### `tx\.break\.insert\(\)`/)
+    assert.match(docs, /#### `tx\.break\.insertSoft\(\)`/)
+    assert.doesNotMatch(
+      getMarkdownHeadingSection(docs, '`tx.fragment.delete(options?)`'),
+      /\b(hanging|voids)\?:/
+    )
+  })
+
+  it('does not expose a duplicate tx.nodes.insertMany alias', () => {
+    const scannedFiles = [
+      'packages/slate/src/interfaces/editor.ts',
+      'packages/slate/src/core/public-state.ts',
+      'packages/slate/src/editor-runtime-view.ts',
+      ...publicAuthoringFiles,
+      ...publicDocumentationFiles,
+    ]
+    const aliasLeaks = scannedFiles.flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      return /\binsertMany\b|\bnodes\.insertMany\b/.test(source)
+        ? [relativePath]
+        : []
+    })
+
+    assert.deepEqual(aliasLeaks, [])
+  })
+
+  it('documents the complete core transaction write groups', () => {
+    const docs = readFileSync(
+      resolve(repoRoot, 'docs/api/transforms.md'),
+      'utf8'
+    )
+    const conceptDocs = readFileSync(
+      resolve(repoRoot, 'docs/concepts/04-transforms.md'),
+      'utf8'
+    )
+    const editorSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/editor.ts'),
+      'utf8'
+    )
+    const publicStateSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/core/public-state.ts'),
+      'utf8'
+    )
+    const documentedTransactionMethods = [
+      ['break', 'insert'],
+      ['break', 'insertSoft'],
+      ['fragment', 'get'],
+      ['fragment', 'delete'],
+      ['fragment', 'insert'],
+      ['marks', 'get'],
+      ['marks', 'add'],
+      ['marks', 'remove'],
+      ['marks', 'toggle'],
+      ['nodes', 'insert'],
+      ['nodes', 'lift'],
+      ['nodes', 'merge'],
+      ['nodes', 'move'],
+      ['nodes', 'remove'],
+      ['nodes', 'set'],
+      ['nodes', 'split'],
+      ['nodes', 'unset'],
+      ['nodes', 'unwrap'],
+      ['nodes', 'wrap'],
+      ['operations', 'replay'],
+      ['roots', 'create'],
+      ['roots', 'delete'],
+      ['roots', 'replace'],
+      ['selection', 'set'],
+      ['selection', 'clear'],
+      ['selection', 'collapse'],
+      ['selection', 'move'],
+      ['selection', 'setPoint'],
+      ['selection', 'setRange'],
+      ['statePatches', 'replay'],
+      ['text', 'insert'],
+      ['text', 'delete'],
+      ['text', 'deleteBackward'],
+      ['text', 'deleteForward'],
+      ['value', 'replace'],
+    ] as const
+
+    for (const [group, method] of documentedTransactionMethods) {
+      assert.match(
+        docs,
+        new RegExp(`tx\\.${group}\\.${method}\\b`),
+        `docs/api/transforms.md should document tx.${group}.${method}`
+      )
+      assert.match(
+        publicStateSource,
+        new RegExp(`\\b${method}:`),
+        `tx.${group}.${method} should be backed by public-state transaction source`
+      )
+    }
+
+    for (const method of ['normalize', 'setField', 'withoutNormalizing']) {
+      assert.match(
+        docs,
+        new RegExp(`tx\\.${method}\\b`),
+        `docs/api/transforms.md should document tx.${method}`
+      )
+      assert.match(
+        editorSource,
+        new RegExp(`\\b${method}\\b`),
+        `tx.${method} should be typed on EditorCoreUpdateTransaction`
+      )
+      assert.match(
+        publicStateSource,
+        new RegExp(`\\b${method}\\b`),
+        `tx.${method} should be backed by public-state transaction source`
+      )
+    }
+
+    for (const token of [
+      'tx.fragment',
+      'tx.break',
+      'tx.value',
+      'tx.roots',
+      'tx.setField',
+      'tx.statePatches',
+      'tx.normalize',
+      'tx.withoutNormalizing',
+    ]) {
+      assert.match(
+        conceptDocs,
+        new RegExp(escapeRegExp(token)),
+        `docs/concepts/04-transforms.md should name ${token}`
+      )
+    }
+    assert.match(conceptDocs, /\.\.\/api\/transforms\.md/)
+  })
+})
+
 describe('primary slate package surface', () => {
   const publicEditorMethods = [
     'extend',
@@ -491,7 +2306,10 @@ describe('primary slate package surface', () => {
   ].sort()
   const requiredSlateRootExports = [
     'createEditor',
+    'createEditorRuntime',
+    'createEditorView',
     'defineEditorExtension',
+    'defineStateField',
     'elementProperty',
     'isEditor',
     'ElementApi',
@@ -506,7 +2324,7 @@ describe('primary slate package surface', () => {
     'RangeRefApi',
     'SpanApi',
     'TextApi',
-    'isObject',
+    'setDebugValueScrubber',
   ]
   const bannedSlateRootDataHelperValues = [
     'Element',
@@ -639,12 +2457,74 @@ describe('primary slate package surface', () => {
 
   it('keeps the intended small public root', () => {
     const missing = requiredSlateRootExports.filter((key) => !(key in Slate))
+    const unexpected = Object.keys(Slate)
+      .filter((key) => !requiredSlateRootExports.includes(key))
+      .sort()
 
     assert.deepEqual(missing, [])
+    assert.deepEqual(unexpected, [])
     assert.equal(typeof Slate.createEditor, 'function')
+    assert.equal(typeof Slate.createEditorRuntime, 'function')
+    assert.equal(typeof Slate.createEditorView, 'function')
     assert.equal(typeof Slate.defineEditorExtension, 'function')
+    assert.equal(typeof Slate.defineStateField, 'function')
     assert.equal(typeof Slate.elementProperty.boolean, 'function')
     assert.equal(typeof Slate.isEditor, 'function')
+    assert.equal(typeof Slate.setDebugValueScrubber, 'function')
+  })
+
+  it('keeps explicit public root exports documented in source', () => {
+    const sourceRoot = resolve(repoRoot, 'packages/slate/src')
+    const indexSource = readFileSync(join(sourceRoot, 'index.ts'), 'utf8')
+    const exportPattern = /export \{([^}]+)\} from '([^']+)'/g
+    const missing: string[] = []
+
+    for (const match of indexSource.matchAll(exportPattern)) {
+      const [, rawNames, sourceSpecifier] = match
+      const sourcePath = resolve(sourceRoot, `${sourceSpecifier}.ts`)
+      const source = readFileSync(sourcePath, 'utf8')
+
+      for (const rawName of rawNames.split(',')) {
+        const name = rawName
+          .trim()
+          .replace(/^type\s+/, '')
+          .split(/\s+as\s+/)[0]
+          ?.trim()
+
+        if (!name) {
+          continue
+        }
+
+        const isType = rawName.trim().startsWith('type ')
+        const declaration = new RegExp(
+          isType
+            ? `export\\s+(?:interface|type)\\s+${name}\\b`
+            : `export\\s+(?:const|function|class)\\s+${name}\\b`
+        )
+        const declarationIndex = source.search(declaration)
+
+        if (declarationIndex === -1) {
+          missing.push(`${name}: missing public declaration`)
+          continue
+        }
+
+        const beforeDeclaration = source.slice(
+          Math.max(0, declarationIndex - 600),
+          declarationIndex
+        )
+
+        if (!/\/\*\*[\s\S]*?\*\/\s*$/.test(beforeDeclaration)) {
+          missing.push(
+            `${name}: missing immediate source JSDoc in ${relative(
+              repoRoot,
+              sourcePath
+            )}`
+          )
+        }
+      }
+    }
+
+    assert.deepEqual(missing, [])
   })
 
   it('does not export raw editor, core, or transform helper functions from the primary package', () => {
@@ -704,15 +2584,131 @@ describe('primary slate package surface', () => {
     assert.equal('executeCommand' in Slate, false)
   })
 
+  it('does not export duplicate commit/change aliases', () => {
+    assert.equal('SnapshotChange' in Slate, false)
+    assert.equal('SnapshotChangeClass' in Slate, false)
+    assert.equal('OperationClass' in Slate, false)
+    assert.equal('CommitListener' in Slate, false)
+    assert.equal('EditorApplyOperationsOptions' in Slate, false)
+    assert.equal('EditorCommandResult' in Slate, false)
+    assert.equal('EditorCommit' in Slate, false)
+    assert.equal('EditorCommitClass' in Slate, false)
+
+    const indexSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/index.ts'),
+      'utf8'
+    )
+    const editorSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/editor.ts'),
+      'utf8'
+    )
+
+    assert.doesNotMatch(indexSource, /\bSnapshotChange\b/)
+    assert.doesNotMatch(indexSource, /\bSnapshotChangeClass\b/)
+    assert.doesNotMatch(indexSource, /\bOperationClass\b/)
+    assert.doesNotMatch(indexSource, /\bCommitListener\b/)
+    assert.doesNotMatch(indexSource, /\bEditorApplyOperationsOptions\b/)
+    assert.doesNotMatch(indexSource, /\bEditorCommandResult\b/)
+    assert.doesNotMatch(editorSource, /type SnapshotChange\b/)
+    assert.doesNotMatch(editorSource, /type OperationClass\b/)
+    assert.doesNotMatch(editorSource, /type CommitListener\b/)
+    assert.doesNotMatch(editorSource, /type EditorApplyOperationsOptions\b/)
+    assert.doesNotMatch(editorSource, /type EditorCommandResult\b/)
+    assert.match(indexSource, /\bEditorCommit\b/)
+    assert.match(indexSource, /\bEditorCommitClass\b/)
+  })
+
+  it('keeps remaining pure type aliases explicitly classified', () => {
+    const allowedPureAliases = new Set([
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryGraphModel',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryGraphNodeInput',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryOwner',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryPoint',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryRangeEndpoint',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryRangeSegment',
+      'packages/slate-react/src/view-boundary-graph.ts:SlateViewBoundaryRangeSegments',
+      'packages/slate/src/interfaces/editor.ts:EditorExtensionApiMap',
+      'packages/slate/src/interfaces/editor.ts:RootKey',
+      'packages/slate/src/interfaces/editor.ts:RuntimeId',
+      'packages/slate/src/interfaces/editor.ts:Selection',
+      'packages/slate/src/interfaces/node.ts:AncestorEntryOf',
+      'packages/slate/src/interfaces/node.ts:AncestorIn',
+      'packages/slate/src/interfaces/element.ts:Element',
+      'packages/slate/src/interfaces/element.ts:ElementIn',
+      'packages/slate/src/interfaces/element.ts:TElement',
+      'packages/slate/src/interfaces/node.ts:DescendantEntryIn',
+      'packages/slate/src/interfaces/node.ts:DescendantEntryOf',
+      'packages/slate/src/interfaces/node.ts:DescendantIn',
+      'packages/slate/src/interfaces/node.ts:ElementEntryOf',
+      'packages/slate/src/interfaces/node.ts:NodeEntryIn',
+      'packages/slate/src/interfaces/node.ts:NodeEntryOf',
+      'packages/slate/src/interfaces/node.ts:TextEntryIn',
+      'packages/slate/src/interfaces/node.ts:TextEntryOf',
+      'packages/slate/src/interfaces/node.ts:TNode',
+      'packages/slate/src/interfaces/operation.ts:InsertTextOperation',
+      'packages/slate/src/interfaces/operation.ts:MoveNodeOperation',
+      'packages/slate/src/interfaces/operation.ts:RemoveTextOperation',
+      'packages/slate/src/interfaces/operation.ts:SelectionOperation',
+      'packages/slate/src/interfaces/operation.ts:SetSelectionOperation',
+      'packages/slate/src/interfaces/point.ts:Point',
+      'packages/slate/src/interfaces/range.ts:Range',
+      'packages/slate/src/interfaces/text.ts:BooleanMarkKeysOf',
+      'packages/slate/src/interfaces/text.ts:MarksIn',
+      'packages/slate/src/interfaces/text.ts:MarksOf',
+      'packages/slate/src/interfaces/text.ts:Text',
+      'packages/slate/src/interfaces/text.ts:TextIn',
+      'packages/slate/src/interfaces/text.ts:TText',
+      'packages/slate/src/internal/range-text-marks.ts:TextMarks',
+      'packages/slate/src/transforms-selection/set-selection.ts:SetSelectionCommand',
+    ])
+    const aliasPattern =
+      /^export type ([A-Za-z][A-Za-z0-9_]*)(?:<[^=]+>)? = (?:[A-Za-z][A-Za-z0-9_]*(?:<[^/\n]+>)?|string|boolean|Record<[^/\n]+>|Pick<[^/\n]+>|Extract<[^/\n]+>)$/gm
+    const foundAliases = [
+      ...collectFiles(resolve(repoRoot, 'packages/slate/src'), /\.(ts|tsx)$/),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-browser/src'),
+        /\.(ts|tsx)$/
+      ),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-dom/src'),
+        /\.(ts|tsx)$/
+      ),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-history/src'),
+        /\.(ts|tsx)$/
+      ),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-hyperscript/src'),
+        /\.(ts|tsx)$/
+      ),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-layout/src'),
+        /\.(ts|tsx)$/
+      ),
+      ...collectFiles(
+        resolve(repoRoot, 'packages/slate-react/src'),
+        /\.(ts|tsx)$/
+      ),
+    ].flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      return [...source.matchAll(aliasPattern)].map(
+        (match) => `${relativePath}:${match[1]}`
+      )
+    })
+
+    assert.deepEqual(
+      foundAliases.filter((alias) => !allowedPureAliases.has(alias)).sort(),
+      []
+    )
+  })
+
   it('keeps command middleware returns strict boolean', () => {
     const sourceFiles = ['packages/slate/src/core/command-registry.ts']
     const failures = sourceFiles.flatMap((relativePath) => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
 
-      return [
-        /\bEditorCommandResult\s*\|\s*void\b/,
-        /\bvoid\s*\|\s*EditorCommandResult\b/,
-      ]
+      return [/\bvoid\s*\|\s*boolean\b/]
         .filter((pattern) => pattern.test(source))
         .map((pattern) => `${relativePath}: ${pattern}`)
     })

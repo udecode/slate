@@ -5,6 +5,8 @@
 #### `useEditor(): Editor`
 
 Get the current editor object from React context.
+Use `useSlateEditor` to create an editor; use `useEditor` inside descendants
+that read the provider editor.
 
 #### `useEditorComposing(): boolean`
 
@@ -109,7 +111,7 @@ return (
 ```
 
 Pass `options.root` to bind history controls to one root. Pass
-`focusPolicy: 'preserve-dom'` when undo/redo is controlled from external UI and
+`focusPolicy: 'preserve'` when undo/redo is controlled from external UI and
 DOM focus should stay outside the editor.
 
 ## Runtime And Root Hooks
@@ -117,8 +119,8 @@ DOM focus should stay outside the editor.
 Use these when one editor owns multiple roots or external chrome.
 
 - Runtime hooks read the whole editor runtime.
-- View hooks read one root view.
-- Root editor hooks return a command-capable editor view for one root.
+- Root state hooks read one root.
+- Root editor hooks return a command-capable editor for one root.
 
 Prefer `useSlateRootEditor(root)` when UI knows its root. Use
 `useSlateActiveEditor()` only for UI that should follow the current selection.
@@ -130,13 +132,18 @@ Most app code should use `Slate` directly.
 
 #### `useSlateRuntimeState<T>(selector, options?): T`
 
-Subscribe to whole-runtime editor state. The selector runs in a read view and
+Subscribe to whole-runtime editor state. The selector runs in a read boundary and
 re-renders only when the selected value changes.
 
-#### `useSlateViewState<T>(root, selector, options?): T`
+Shared selector options are `deps`, `equalityFn`, `shouldUpdate`, and
+`deferred`. Pass `deps` when the selector closes over props. Use
+`shouldUpdate(change, operations)` to skip commits that cannot affect the
+selected value.
 
-Subscribe to one root view's state. The selector skips commits that cannot
-affect that root.
+#### `useSlateRootState<T>(root, selector, options?): T`
+
+Subscribe to one root's state. The selector skips commits that cannot affect
+that root.
 
 #### `useSlateActiveRoot(): RootKey`
 
@@ -144,14 +151,14 @@ Read the root key that owns the current selection.
 
 #### `useSlateRootEditor(root?, options?): SlateRootEditor`
 
-Create a command-capable editor view for one root.
+Create a command-capable editor for one root.
 
 Use this for root-specific toolbar or sidebar commands. Pass `{ readOnly:
-true }` when the view should only read state.
+true }` when the editor should only read state.
 
 #### `useSlateActiveEditor(): SlateRootEditor`
 
-Create a command-capable editor view for the root that owns the selection.
+Create a command-capable editor for the root that owns the selection.
 
 #### `useSlateRootChrome(root?, options?): SlateRootChromeController`
 
@@ -181,10 +188,13 @@ Resolve the stable child-root key for an element and slot.
 Prefer persisted `childRoots[slot]` when the child root is part of document
 data. The runtime fallback is for ephemeral editor islands.
 
-#### `useSlateViewEffect(effect, options?)`
+#### `useSlateRootEffect(effect, options?)`
 
-Run after Slate flushes mounted root views. Use this when a command or
+Run after Slate flushes mounted roots. Use this when a command or
 measurement needs the live root editor.
+
+Pass `root` to target one root. Pass `deps` for React-style rerun control.
+Omit `deps` when the effect should rerun after every React render.
 
 #### `useSlateCommandCallback(callback, options?): (...args) => result`
 
@@ -197,7 +207,9 @@ const toggleTitle = useSlateCommandCallback(editor => {
 ```
 
 Pass `focus: 'restore-root'` when the command should move focus back to the
-editor root before running.
+editor root before running. Pass `focus: 'none'` to leave focus alone. The
+default is `focus: 'preserve'`. Pass `root` when the command should target a
+known root instead of the editable or active root.
 
 #### `useElement(): Element`
 
@@ -226,6 +238,14 @@ type UseElementSelectedOptions = {
 }
 ```
 
+#### `useSlateNodeRef(runtimeId, options?): (node) => void`
+
+Bind a custom node element to Slate's runtime id, path, and DOM lookup maps.
+
+Use this only when replacing Slate's render primitives with a custom DOM shell.
+Normal renderers should use `SlateElement`, `SlateText`, `SlateLeaf`, or
+`SlatePlaceholder` so the required DOM attributes stay attached.
+
 #### `useNodeSelector<T>(selector, equalityFn?, options?): T`
 
 Subscribe to a value derived from one mounted node.
@@ -247,6 +267,13 @@ Subscribe to decoration/projection data for one mounted runtime target.
 Pass `options.runtimeId` to target a specific runtime node, or call it inside a
 renderer that already has runtime target context.
 
+#### `useSlateProjectionEntries<T>(runtimeId): readonly SlateProjectionEntry<T>[]`
+
+Subscribe to low-level projected range entries for one runtime node. Normal app
+UI should use decoration sources, annotation stores, or widget stores first.
+Use projection entries only when custom inline rendering needs the exact
+projected slices for one mounted runtime id.
+
 #### `useSlateDecorationSource<T>(editor, options): SlateDecorationSource<T>`
 
 Create a provider-owned decoration source from React state.
@@ -266,6 +293,29 @@ return (
   </Slate>
 )
 ```
+
+#### `useSlateRangeDecorationSource<T>(editor, options): SlateDecorationSource<T>`
+
+Create a provider-owned decoration source from Slate ranges.
+
+The hook accepts `SlateRangeDecorationSourceOptions`, reads ranges from the
+current editor snapshot, and converts them to keyed decorations for the
+shared projection runtime. Use it for search matches, diagnostics, or highlight
+data that already lives as Slate ranges.
+
+```tsx
+const searchSource = useSlateRangeDecorationSource(editor, {
+  id: 'search',
+  read: ({ snapshot }) => findSearchRanges(snapshot, query),
+})
+```
+
+#### `useDOMStrategyVirtualOffset(): number`
+
+Read the vertical document offset for the current virtualized row.
+
+Use this inside DOM-strategy renderers that paint projected content against
+absolute document coordinates. Normal editor UI should not need it.
 
 #### `useSlateAnnotationStore<TData, TProjection>(editor, annotationsOrOptions): SlateAnnotationStore<TData, TProjection>`
 

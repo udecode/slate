@@ -267,5 +267,5 @@ provider, draw remote cursors, or define a CRDT merge policy. Those belong in
 adapter packages that can prove their behavior against Slate's operation and
 browser contracts.
 
-You now have the contract those adapters build on: commits for observation,
-operations for replay, tags for routing, and local runtime ids for projection.
+Collaboration adapters build on commits for observation, operations for replay,
+tags for routing, and local runtime ids for projection.

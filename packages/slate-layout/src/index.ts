@@ -472,10 +472,6 @@ export type SlatePageLayout = {
   subscribe: (listener: () => void) => () => void
 }
 
-export type SlateLayoutSnapshot = SlatePageLayoutSnapshot
-
-export type SlateLayout = SlatePageLayout
-
 const PAGE_PRESETS: Record<SlatePagePreset, { height: number; width: number }> =
   {
     a4: { height: 1123, width: 794 },
@@ -3175,7 +3171,7 @@ export const createSlateLayout = <
 >(
   editor: SlateEditor<Value>,
   getOptions: () => SlateLayoutOptions<TSettings>
-): SlateLayout => {
+): SlatePageLayout => {
   const fallbackEngine = canUseCanvasTextMeasurement()
     ? pretextPageLayoutEngine()
     : createEstimatedPageLayoutEngine()

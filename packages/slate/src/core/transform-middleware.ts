@@ -1,6 +1,5 @@
 import type {
   Editor,
-  EditorCommandResult,
   EditorPublicTransformMiddlewareKey,
   EditorTransformMiddlewareArgs,
   Value,
@@ -149,7 +148,7 @@ export const executeTransformMiddleware = <
   key: TKey,
   args: EditorTransformMiddlewareArgs<V>[TKey],
   applyDefault: (args: EditorTransformMiddlewareArgs<V>[TKey]) => void
-): EditorCommandResult => {
+): boolean => {
   if (isApplyingTransformDefault(editor)) {
     profileTransformDuration(`transform-${key}-nested-default`, () =>
       applyDefault(args)

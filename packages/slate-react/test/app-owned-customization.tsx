@@ -4,7 +4,6 @@ import { type Descendant, type EditorUpdateOptions, NodeApi } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
-  createDecorationSource,
   createReactEditor,
   Editable,
   EditableElement,
@@ -13,6 +12,7 @@ import {
   useSlateDecorationSource,
   useSlateRangeDecorationSource,
 } from '../src'
+import { createDecorationSource } from '../src/decoration-source'
 
 const createChildren = (left = 'alpha', right = 'beta'): Descendant[] => [
   {

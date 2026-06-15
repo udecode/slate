@@ -40,10 +40,14 @@ Options: `{loose?: boolean}`
 
 - `loose?`: When `true`, it checks if the properties of the `Text` object are equal except for the `text` property (i.e. the `String` value of the `Text`). When `false` (default), checks all properties including `text`.
 
-#### `TextApi.isText(value: any) => value is Text`
+#### `TextApi.isText(value: unknown) => value is Text`
 
 Check if a `value` implements the `Text` interface.
 
-#### `TextApi.isTextList(value: any): value is Text[]`
+#### `TextApi.isTextList(value: unknown): value is Text[]`
 
 Check if `value` is an `Array` of only `Text` objects.
+
+#### `TextApi.isTextProps(props: unknown) => props is Partial<Text>`
+
+Check if a value is an object that can be used as partial `Text` props.

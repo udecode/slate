@@ -138,8 +138,6 @@ export const DOMCoverageBoundaryRange = ({
   )
 }
 
-export type DOMCoverageSelfBoundaryProps = DOMCoverageBoundaryBaseProps
-
 export const DOMCoverageSelfBoundary = ({
   boundaryId,
   children,
@@ -150,7 +148,7 @@ export const DOMCoverageSelfBoundary = ({
   onMaterialize,
   reason = 'app-hidden',
   selectionPolicy = 'skip',
-}: DOMCoverageSelfBoundaryProps) => {
+}: DOMCoverageBoundaryBaseProps) => {
   const editor = useEditor()
   const ownerPath = useContext(ElementPathContext)
   const ownerRuntimeId = useContext(NodeRuntimeIdContext)

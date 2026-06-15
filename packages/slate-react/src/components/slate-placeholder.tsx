@@ -60,6 +60,12 @@ export const getSlatePlaceholderStyle = (
   ...style,
 })
 
+/**
+ * Render non-editable placeholder content inside an editable surface.
+ *
+ * The placeholder is aria-hidden, pointer-inert, and styled to overlay the
+ * empty editable block without becoming editor content.
+ */
 export const SlatePlaceholder = ({
   as = 'span',
   children,

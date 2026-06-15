@@ -1,8 +1,10 @@
+/** Evidence strength for a browser or device proof artifact. */
 export type ProofEvidenceClass =
   | 'automated-direct'
   | 'automated-proxy'
   | 'manual-device-blocking'
 
+/** Stable mobile proof scenario identifiers used by browser transports. */
 export type BrowserMobileScenarioId =
   | 'setup'
   | 'placeholder-input'
@@ -11,6 +13,7 @@ export type BrowserMobileScenarioId =
   | 'empty-rebuild'
   | 'remove-range'
 
+/** Debug shape extracted from a rendered placeholder marker. */
 export type DebugPlaceholderShape = {
   hasBr: boolean
   hasFEFF: boolean
@@ -18,6 +21,7 @@ export type DebugPlaceholderShape = {
   text: string
 }
 
+/** Browser debug payload used by mobile and agent-browser proof evaluators. */
 export type DebugSnapshot = {
   blockTexts: string
   domSelection: string
@@ -26,13 +30,18 @@ export type DebugSnapshot = {
   slateSelection: string
 }
 
+/** Result of checking placeholder input behavior from a debug snapshot. */
 export type PlaceholderInputEvaluation = {
   issues: string[]
   ok: boolean
   snapshot: DebugSnapshot
 }
 
-export type ImeInputEvaluation = PlaceholderInputEvaluation
+export type ImeInputEvaluation = {
+  issues: string[]
+  ok: boolean
+  snapshot: DebugSnapshot
+}
 
 export type SplitJoinEvaluation = {
   issues: string[]
@@ -44,7 +53,15 @@ export type SplitJoinEvaluation = {
   }
 }
 
-export type EmptyRebuildEvaluation = SplitJoinEvaluation
+export type EmptyRebuildEvaluation = {
+  issues: string[]
+  ok: boolean
+  snapshot: {
+    blockCount: number
+    blockTexts: string[]
+    selection: string
+  }
+}
 
 type AgentBrowserBatchItem = {
   command: string[]
@@ -89,6 +106,7 @@ const isDebugSnapshot = (value: unknown): value is DebugSnapshot => {
   )
 }
 
+/** Parse and validate a serialized browser debug snapshot. */
 export const parseDebugSnapshot = (raw: string): DebugSnapshot => {
   const parsed = JSON.parse(raw) as unknown
 
@@ -99,6 +117,7 @@ export const parseDebugSnapshot = (raw: string): DebugSnapshot => {
   return parsed
 }
 
+/** Parse raw agent-browser batch JSON output. */
 export const parseAgentBrowserBatch = (
   raw: string
 ): AgentBrowserBatchItem[] => {
@@ -111,6 +130,7 @@ export const parseAgentBrowserBatch = (
   return parsed as AgentBrowserBatchItem[]
 }
 
+/** Extract the last debug snapshot string from agent-browser batch output. */
 export const extractAgentBrowserDebugSnapshot = (raw: string) => {
   const batch = parseAgentBrowserBatch(raw)
   const last = batch.at(-1)
@@ -125,12 +145,14 @@ export const extractAgentBrowserDebugSnapshot = (raw: string) => {
   return parseDebugSnapshot(debugText)
 }
 
+/** Extract a debug snapshot from an Appium execute response. */
 export const extractAppiumDebugSnapshot = (raw: string) => {
   return parseDebugSnapshot(
     JSON.stringify(extractAppiumJsonValue<DebugSnapshot>(raw))
   )
 }
 
+/** Evaluate IME input behavior from a browser debug snapshot. */
 export const evaluateImeInput = (
   snapshot: DebugSnapshot,
   expectedText = 'sushi'
@@ -165,7 +187,11 @@ export const evaluateImeInput = (
   }
 }
 
-export const evaluatePlaceholderInput = evaluateImeInput
+/** Evaluate placeholder input behavior from a browser debug snapshot. */
+export const evaluatePlaceholderInput = (
+  snapshot: DebugSnapshot,
+  expectedText = 'sushi'
+): PlaceholderInputEvaluation => evaluateImeInput(snapshot, expectedText)
 
 export const evaluateSplitJoin = (
   snapshot: {

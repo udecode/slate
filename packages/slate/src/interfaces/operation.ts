@@ -1,6 +1,5 @@
 import {
   type DescendantIn,
-  isObject,
   NodeApi,
   type NodeProps,
   type Path,
@@ -10,6 +9,7 @@ import {
   type Value,
 } from '..'
 import { getSelectionPatchInverseRoot } from '../internal/root-location'
+import { isObject } from '../utils/is-object'
 
 export type RootedOperationFields = {
   root?: string
@@ -168,99 +168,101 @@ export interface OperationInterface {
    * Check if a value is an `InsertNodeOperation` object.
    */
   isInsertNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is InsertNodeOperation<V>
 
   /**
    * Check if a value is an `InsertTextOperation` object.
    */
-  isInsertTextOperation: (value: any) => value is InsertTextOperation
+  isInsertTextOperation: (value: unknown) => value is InsertTextOperation
 
   /**
    * Check if a value is a `MergeNodeOperation` object.
    */
   isMergeNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is MergeNodeOperation<V>
 
   /**
    * Check if a value is a `MoveNodeOperation` object.
    */
-  isMoveNodeOperation: (value: any) => value is MoveNodeOperation
+  isMoveNodeOperation: (value: unknown) => value is MoveNodeOperation
 
   /**
    * Check if a value is a `NodeOperation` object.
    */
   isNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is NodeOperation<V>
 
   /**
    * Check if a value is an `Operation` object.
    */
-  isOperation: <V extends Value = Value>(value: any) => value is Operation<V>
+  isOperation: <V extends Value = Value>(
+    value: unknown
+  ) => value is Operation<V>
 
   /**
    * Check if a value is a list of `Operation` objects.
    */
   isOperationList: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is Operation<V>[]
 
   /**
    * Check if a value is a `RemoveNodeOperation` object.
    */
   isRemoveNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is RemoveNodeOperation<V>
 
   /**
    * Check if a value is a `RemoveTextOperation` object.
    */
-  isRemoveTextOperation: (value: any) => value is RemoveTextOperation
+  isRemoveTextOperation: (value: unknown) => value is RemoveTextOperation
 
   /**
    * Check if a value is a `ReplaceChildrenOperation` object.
    */
   isReplaceChildrenOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is ReplaceChildrenOperation<V>
 
   /**
    * Check if a value is a `ReplaceFragmentOperation` object.
    */
   isReplaceFragmentOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is ReplaceFragmentOperation<V>
 
   /**
    * Check if a value is a `SelectionOperation` object.
    */
-  isSelectionOperation: (value: any) => value is SelectionOperation
+  isSelectionOperation: (value: unknown) => value is SelectionOperation
 
   /**
    * Check if a value is a `SetNodeOperation` object.
    */
   isSetNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is SetNodeOperation<V>
 
   /**
    * Check if a value is a `SetSelectionOperation` object.
    */
-  isSetSelectionOperation: (value: any) => value is SetSelectionOperation
+  isSetSelectionOperation: (value: unknown) => value is SetSelectionOperation
 
   /**
    * Check if a value is a `SplitNodeOperation` object.
    */
   isSplitNodeOperation: <V extends Value = Value>(
-    value: any
+    value: unknown
   ) => value is SplitNodeOperation<V>
 
   /**
    * Check if a value is a `TextOperation` object.
    */
-  isTextOperation: (value: any) => value is TextOperation
+  isTextOperation: (value: unknown) => value is TextOperation
 
   /**
    * Invert an operation, returning a new operation that will exactly undo the
@@ -270,7 +272,7 @@ export interface OperationInterface {
 }
 
 const isOperationType = <V extends Value, TType extends Operation<V>['type']>(
-  value: any,
+  value: unknown,
   type: TType
 ): value is Extract<Operation<V>, { type: TType }> =>
   OperationApi.isOperation<V>(value) && value.type === type
@@ -281,32 +283,32 @@ const hasValidOperationRoot = (value: { root?: unknown }) =>
 // eslint-disable-next-line no-redeclare
 export const OperationApi: OperationInterface = {
   isInsertNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is InsertNodeOperation<V> {
     return isOperationType<V, 'insert_node'>(value, 'insert_node')
   },
 
-  isInsertTextOperation(value: any): value is InsertTextOperation {
+  isInsertTextOperation(value: unknown): value is InsertTextOperation {
     return isOperationType<Value, 'insert_text'>(value, 'insert_text')
   },
 
   isMergeNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is MergeNodeOperation<V> {
     return isOperationType<V, 'merge_node'>(value, 'merge_node')
   },
 
-  isMoveNodeOperation(value: any): value is MoveNodeOperation {
+  isMoveNodeOperation(value: unknown): value is MoveNodeOperation {
     return isOperationType<Value, 'move_node'>(value, 'move_node')
   },
 
   isNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is NodeOperation<V> {
     return OperationApi.isOperation(value) && value.type.endsWith('_node')
   },
 
-  isOperation<V extends Value = Value>(value: any): value is Operation<V> {
+  isOperation<V extends Value = Value>(value: unknown): value is Operation<V> {
     if (!isObject(value)) {
       return false
     }
@@ -351,6 +353,7 @@ export const OperationApi: OperationInterface = {
       case 'replace_children':
         return (
           PathApi.isPath(value.path) &&
+          typeof value.index === 'number' &&
           Number.isInteger(value.index) &&
           value.index >= 0 &&
           NodeApi.isNodeList(value.children) &&
@@ -384,7 +387,7 @@ export const OperationApi: OperationInterface = {
   },
 
   isOperationList<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is Operation<V>[] {
     return (
       Array.isArray(value) &&
@@ -393,48 +396,48 @@ export const OperationApi: OperationInterface = {
   },
 
   isRemoveNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is RemoveNodeOperation<V> {
     return isOperationType<V, 'remove_node'>(value, 'remove_node')
   },
 
-  isRemoveTextOperation(value: any): value is RemoveTextOperation {
+  isRemoveTextOperation(value: unknown): value is RemoveTextOperation {
     return isOperationType<Value, 'remove_text'>(value, 'remove_text')
   },
 
   isReplaceChildrenOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is ReplaceChildrenOperation<V> {
     return isOperationType<V, 'replace_children'>(value, 'replace_children')
   },
 
   isReplaceFragmentOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is ReplaceFragmentOperation<V> {
     return isOperationType<V, 'replace_fragment'>(value, 'replace_fragment')
   },
 
-  isSelectionOperation(value: any): value is SelectionOperation {
+  isSelectionOperation(value: unknown): value is SelectionOperation {
     return OperationApi.isOperation(value) && value.type.endsWith('_selection')
   },
 
   isSetNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is SetNodeOperation<V> {
     return isOperationType<V, 'set_node'>(value, 'set_node')
   },
 
-  isSetSelectionOperation(value: any): value is SetSelectionOperation {
+  isSetSelectionOperation(value: unknown): value is SetSelectionOperation {
     return isOperationType<Value, 'set_selection'>(value, 'set_selection')
   },
 
   isSplitNodeOperation<V extends Value = Value>(
-    value: any
+    value: unknown
   ): value is SplitNodeOperation<V> {
     return isOperationType<V, 'split_node'>(value, 'split_node')
   },
 
-  isTextOperation(value: any): value is TextOperation {
+  isTextOperation(value: unknown): value is TextOperation {
     return OperationApi.isOperation(value) && value.type.endsWith('_text')
   },
 

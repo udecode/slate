@@ -1,4 +1,4 @@
-import type { Operation, Range, SnapshotChange } from 'slate'
+import type { EditorCommit, Operation, Range } from 'slate'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -20,10 +20,10 @@ import {
 
 describe('selection runtime', () => {
   const createChange = (
-    change: Pick<SnapshotChange, 'childrenChanged' | 'selectionChanged'> &
+    change: Pick<EditorCommit, 'childrenChanged' | 'selectionChanged'> &
       Partial<
         Pick<
-          SnapshotChange,
+          EditorCommit,
           | 'command'
           | 'fullDocumentChanged'
           | 'rootRuntimeIdsChanged'
@@ -31,7 +31,7 @@ describe('selection runtime', () => {
           | 'topLevelOrderChanged'
         >
       >
-  ) => change as SnapshotChange
+  ) => change as EditorCommit
 
   const createInputController = () =>
     createEditableInputController({
@@ -370,7 +370,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let scheduled: (() => void) | null = null
     let syncCalls = 0
@@ -409,7 +409,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let scheduled: (() => void) | null = null
     let cleanupCalls = 0
@@ -459,7 +459,7 @@ describe('selection runtime', () => {
     inputController.state.activeIntent = 'text-insert'
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -558,7 +558,7 @@ describe('selection runtime', () => {
     const inputController = createInputController()
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -604,7 +604,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -667,7 +667,7 @@ describe('selection runtime', () => {
     const inputController = createInputController()
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 

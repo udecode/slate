@@ -9,11 +9,13 @@ import {
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
+/** Options for mouse interaction on root-level chrome outside editable text. */
 export type UseSlateRootChromeOptions = {
   disabled?: boolean
   selection?: 'end' | 'restore'
 }
 
+/** Props and root metadata for root-level mouse interaction chrome. */
 export type SlateRootChromeController = {
   props: {
     'data-slate-root-chrome': RootKey

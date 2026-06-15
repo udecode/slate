@@ -1,9 +1,9 @@
 import { type RefObject, useMemo } from 'react'
+import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type { EditableInputController } from './input-controller'
-import type { RuntimeAndroidInputManager } from './runtime-android-engine'
 import {
   createRuntimeSelectionChangeHandler,
   createRuntimeSelectionChangeScheduler,
@@ -18,9 +18,7 @@ export const useEditableRootSelectionImport = ({
   processing,
   readOnly,
 }: {
-  androidInputManagerRef: RefObject<
-    RuntimeAndroidInputManager | null | undefined
-  >
+  androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   domRepairQueueRef: RefObject<DOMRepairQueue | null>
   editor: ReactRuntimeEditor
   inputController: EditableInputController

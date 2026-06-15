@@ -317,10 +317,6 @@ export type EditorTransactionNodesApi<V extends Value = Value> =
       nodes: T | T[],
       options?: NodeInsertNodesOptions<T>
     ) => void
-    insertMany: <T extends ElementOrTextIn<V>>(
-      nodes: T | T[],
-      options?: NodeInsertNodesOptions<T>
-    ) => void
     lift: <T extends NodeIn<V>>(options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -616,7 +612,7 @@ export interface BaseEditor<
   ) => EditorApiValueFromExtension<TExtension>
   read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
   subscribe: (listener: SnapshotListener<any>) => () => void
-  subscribeCommit: (listener: CommitListener<any>) => () => void
+  subscribeCommit: (listener: (commit: EditorCommit<any>) => void) => () => void
   update: BivariantMethod<
     [
       fn: (
@@ -785,7 +781,7 @@ export interface EditorTransformApi<V extends Value = Value> {
 
 export type EditorTransformNext<TArgs extends object> = (
   overrides?: Partial<TArgs>
-) => EditorCommandResult
+) => boolean
 
 export type EditorPublicTransformMiddlewareKey = Exclude<
   keyof EditorTransformApi,
@@ -945,7 +941,7 @@ export type EditorTransformMiddlewareMap<
       TEditor,
       EditorTransformMiddlewareArgs<ValueOf<TEditor>>[K]
     >
-  ) => EditorCommandResult
+  ) => boolean
 }
 
 type EmptyQueryMiddlewareArgs = Record<never, never>
@@ -1198,15 +1194,13 @@ export type EditorSnapshot<V extends Value = Value> = {
   version: number
 }
 
-export type SnapshotChangeClass =
+export type EditorCommitClass =
   | 'text'
   | 'selection'
   | 'mark'
   | 'state'
   | 'structural'
   | 'replace'
-
-export type OperationClass = SnapshotChangeClass
 
 export type SnapshotDirtyScope = 'none' | 'paths' | 'all'
 
@@ -1218,11 +1212,7 @@ export type SnapshotInput<V extends Value = Value> = {
 
 export type SnapshotListener<V extends Value = Value> = (
   snapshot: EditorSnapshot<V>,
-  change?: SnapshotChange<V>
-) => void
-
-export type CommitListener<V extends Value = Value> = (
-  change: SnapshotChange<V>
+  change?: EditorCommit<V>
 ) => void
 
 export type EditorCommitSource =
@@ -1243,8 +1233,6 @@ export type EditorUpdateOptions = {
   skipNormalize?: boolean
   tag?: EditorUpdateTagInput
 }
-
-export type EditorApplyOperationsOptions = EditorUpdateOptions
 
 export type EditorOperationDirtinessOptions<V extends Value = Value> = {
   command?: EditorCommitCommand | null
@@ -1306,11 +1294,9 @@ export type EditorCommandContext<
   editor: TEditor
 }
 
-export type EditorCommandResult = boolean
-
 export type EditorCommandNext<TCommand extends EditorCommand> = (
   command?: TCommand
-) => EditorCommandResult
+) => boolean
 
 export type EditorCommandHandler<
   TCommand extends EditorCommand,
@@ -1318,7 +1304,7 @@ export type EditorCommandHandler<
 > = (
   context: EditorCommandContext<TCommand, TEditor>,
   next: EditorCommandNext<TCommand>
-) => EditorCommandResult
+) => boolean
 
 export type EditorOperationContext<TEditor extends BaseEditor<any> = Editor> = {
   editor: TEditor
@@ -1754,7 +1740,7 @@ export type EditorCommit<V extends Value = Value> = {
   affectedSelectionRuntimeIds: readonly RuntimeId[] | null
   affectedTextRuntimeIds: readonly RuntimeId[] | null
   childrenChanged: boolean
-  classes: readonly OperationClass[]
+  classes: readonly EditorCommitClass[]
   command: EditorCommitCommand | null
   decorationImpactRuntimeIds: readonly RuntimeId[] | null
   dirty: DirtyRegion
@@ -1791,8 +1777,6 @@ export type EditorCommit<V extends Value = Value> = {
   tags: readonly EditorUpdateTag[]
   version: number
 }
-
-export type SnapshotChange<V extends Value = Value> = EditorCommit<V>
 
 export interface EditorAboveOptions<T extends Ancestor> {
   at?: Location
@@ -2021,7 +2005,7 @@ export interface EditorStaticApi {
     editor: Editor<V>,
     operations: readonly Operation<V>[],
     options?: EditorOperationDirtinessOptions<V>
-  ) => SnapshotChange<V>
+  ) => EditorCommit<V>
 
   /**
    * Get the latest committed transaction metadata.
@@ -2190,7 +2174,7 @@ export interface EditorStaticApi {
   /**
    * Check if a value is an `Editor` object.
    */
-  isEditor: (value: any, options?: EditorIsEditorOptions) => value is Editor
+  isEditor: (value: unknown, options?: EditorIsEditorOptions) => value is Editor
 
   /**
    * Check if a value is a read-only `Element` object.
@@ -2469,7 +2453,7 @@ export interface EditorStaticApi {
 
   subscribeCommit: <V extends Value>(
     editor: Editor<V>,
-    listener: CommitListener<V>
+    listener: (commit: EditorCommit<V>) => void
   ) => () => void
 
   subscribeSource: <V extends Value>(

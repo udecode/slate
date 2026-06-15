@@ -12,12 +12,12 @@ import {
 } from 'slate-dom/internal'
 import { vi } from 'vitest'
 import {
-  createDecorationSource,
   createReactEditor,
   Editable,
   type EditableDOMStrategyMetrics,
   Slate,
 } from '../src'
+import { createDecorationSource } from '../src/decoration-source'
 import { createLayoutVirtualizerSizeMap } from '../src/dom-strategy/use-virtualized-root-plan'
 import { syncEditableDOMSelectionToEditor } from '../src/editable/selection-controller'
 import { didSyncTextPathToDOM } from '../src/hooks/use-slate-node-ref'
@@ -507,9 +507,7 @@ test('Editable domStrategy experimental virtualized mode can use layout-backed i
         type: 'virtualized',
         threshold: 1,
       }}
-      editor={editor}
-      id="dom-strategy-virtualized-layout"
-      layout={{
+      domStrategyLayout={{
         getVirtualizedTopLevelItems: () => [
           { index: 0, size: 20, start: 0 },
           { index: 1, size: 80, start: 20 },
@@ -517,6 +515,8 @@ test('Editable domStrategy experimental virtualized mode can use layout-backed i
           { index: 3, size: 80, start: 120 },
         ],
       }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout"
       style={{ height: 48, overflowY: 'auto' }}
     />
   )
@@ -572,9 +572,7 @@ test('Editable domStrategy experimental virtualized mode preserves layout gaps b
         type: 'virtualized',
         threshold: 1,
       }}
-      editor={editor}
-      id="dom-strategy-virtualized-layout-gap"
-      layout={{
+      domStrategyLayout={{
         getVirtualizedPageItems: () => [
           {
             index: 0,
@@ -618,6 +616,8 @@ test('Editable domStrategy experimental virtualized mode preserves layout gaps b
           { index: 3, size: 80, start: 160 },
         ],
       }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout-gap"
       style={{ height: 240, overflowY: 'auto' }}
     />
   )
@@ -660,9 +660,7 @@ test('Editable domStrategy experimental virtualized mode materializes layout-bac
         type: 'virtualized',
         threshold: 1,
       }}
-      editor={editor}
-      id="dom-strategy-virtualized-layout-scroll"
-      layout={{
+      domStrategyLayout={{
         getVirtualizedTopLevelItems: () => [
           { index: 0, size: 20, start: 0 },
           { index: 1, size: 80, start: 20 },
@@ -674,6 +672,8 @@ test('Editable domStrategy experimental virtualized mode materializes layout-bac
           { index: 7, size: 80, start: 320 },
         ],
       }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout-scroll"
       style={{ height: 48, overflowY: 'auto' }}
     />
   )

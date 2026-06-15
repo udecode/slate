@@ -534,10 +534,6 @@ const withViewTransaction = <V extends Value>(
         runImplicitSelectionMutation(options, () =>
           transaction.nodes.insert(nodes, options)
         ),
-      insertMany: (nodes, options) =>
-        runImplicitSelectionMutation(options, () =>
-          transaction.nodes.insertMany(nodes, options)
-        ),
       lift: (options) =>
         runImplicitSelectionMutation(options, () =>
           transaction.nodes.lift(options)
@@ -791,6 +787,7 @@ const createViewRuntime = <V extends Value>(
       withRootRead(editor, viewState, () => baseRuntime.void(...args)),
   })
 
+/** Create a root editor runtime around a new Slate editor. */
 export const createEditorRuntime = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -811,6 +808,7 @@ export const createEditorRuntime = <
   })
 }
 
+/** Create a root-scoped editor view from an existing runtime. */
 export const createEditorView = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],

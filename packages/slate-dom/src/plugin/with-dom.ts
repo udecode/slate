@@ -289,6 +289,7 @@ export const installDOM = <
   return e
 }
 
+/** Install DOM clipboard, selection, focus, and node-resolution behavior. */
 export const dom = (options: DOMEditorOptions = {}) =>
   defineEditorExtension({
     name: 'dom',

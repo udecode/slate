@@ -40,19 +40,21 @@ type SlateChange = {
 }
 ```
 
+`SlateChange` is the React callback detail for the provider root. Use it when
+React UI needs the root value plus commit flags. Use `editor.subscribeCommit`
+when infrastructure needs every raw commit.
+
 Pass `editor` for the top-level provider. Use the `root`-only form only inside
 an existing Slate runtime, when a nested provider should bind its callbacks and
 context to another root.
 
 ### `editor`
 
-Pass the editor created with `createReactEditor` or `useSlateEditor`.
+Pass the editor created with `useSlateEditor`.
 
 ```tsx
 const MyEditor = () => {
-  const [editor] = useState(() =>
-    createReactEditor<CustomValue>({ initialValue })
-  )
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
   return <Slate editor={editor}>...</Slate>
 }
@@ -60,6 +62,9 @@ const MyEditor = () => {
 
 Seed the editor with `initialValue` when the editor is created. `<Slate>` does
 not take an `initialValue` prop.
+
+Use `createReactEditor` when an editor must be created outside a React
+component or inside a custom hook that owns the same one-shot lifetime.
 
 Use editor APIs for later document replacement. `initialValue` is not a
 controlled value prop.
@@ -78,8 +83,9 @@ Render `Editable` and any editor UI inside the provider.
 ### `onChange`
 
 Use `onChange` when React UI needs current-root value, selection, marks, or the
-full `SlateChange` object. Use `editor.subscribe(...)` for state-field changes,
-operation replay, and persistence services.
+full `SlateChange` object. Use `editor.subscribe(...)` for persistence services
+that need a committed snapshot plus a change summary, including state-field
+changes.
 
 ```tsx
 <Slate
@@ -99,7 +105,8 @@ operation replay, and persistence services.
 ```
 
 Use `editor.subscribeCommit(...)` for low-level commit subscribers that do not
-belong in React render props.
+belong in React render props, such as collaboration adapters, operation replay,
+and instrumentation.
 
 Use `onValueChange` when a React component only cares about provider-root value
 changes.
@@ -178,7 +185,7 @@ diagnostics, and code highlights.
 const searchSource = useSlateDecorationSource(editor, {
   id: 'search',
   read: ({ snapshot }) => findSearchMatches(snapshot, query),
-})
+});
 
 <Slate decorationSources={[searchSource]} editor={editor}>
   <Editable renderSegment={renderSearchMatch} />
@@ -202,12 +209,16 @@ const annotations = comments.map((comment) => ({
     status: comment.status,
     tone: comment.tone,
   },
-}))
+}));
 
-const annotationStore = useSlateAnnotationStore(editor, annotations)
+const annotationStore = useSlateAnnotationStore(editor, annotations);
 
 <Slate annotationStore={annotationStore} editor={editor}>
   <Editable renderSegment={renderCommentSegment} />
   <CommentsSidebar />
 </Slate>
 ```
+
+Widget stores are hook-owned. Create them with `useSlateWidgetStore` and pass
+the store directly to `useSlateWidgets` or `useSlateWidget`; `Slate` does not
+take a `widgetStore` prop.

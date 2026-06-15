@@ -1,5 +1,5 @@
 import {
-  type EditorApplyOperationsOptions,
+  type EditorUpdateOptions,
   type Operation,
   type Path,
   type Range,
@@ -47,7 +47,7 @@ import {
 export type SlateBrowserHandle = {
   applyOperations: (
     operations: readonly Operation[],
-    options?: EditorApplyOperationsOptions
+    options?: EditorUpdateOptions
   ) => void
   createRangeRef: (
     selection: Range,

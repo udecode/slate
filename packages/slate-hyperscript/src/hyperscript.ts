@@ -1,4 +1,5 @@
-import { type Element, isObject, createEditor as makeEditor } from 'slate'
+import { type Element, createEditor as makeEditor } from 'slate'
+import { isObject } from 'slate/internal'
 import {
   createAnchor,
   createCursor,

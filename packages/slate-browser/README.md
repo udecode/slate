@@ -8,9 +8,22 @@ product surface of Slate itself.
 Stable package surface:
 
 - `slate-browser/core`
-  - pure selection helpers
+  - pure selection helpers: `serializePoint`, `serializeRange`, `isCollapsed`
+  - IME and placeholder proof classifiers: `evaluateImeInput`,
+    `evaluatePlaceholderInput`
+  - release-proof helpers: `assertSlateBrowserReleaseProof`,
+    `validateSlateBrowserReleaseProof`, `createReleaseDisciplineProofArtifact`,
+    `createBrowserMobileReleaseProofArtifact`,
+    `createPersistentBrowserSoakProofArtifact`
+  - first-party parity contracts:
+    `assertSlateBrowserFirstPartyParityContracts`
+  - plugin proof contracts: `defineSlateBrowserPluginContract`,
+    `createSlateBrowserPluginContractRegistry`
+  - debug snapshot parsers for agent-browser and Appium proof artifacts
 - `slate-browser/browser`
-  - DOM selection and zero-width helpers
+  - DOM selection snapshots: `takeDOMSelectionSnapshot`,
+    `takeEditorSelectionSnapshot`
+  - zero-width placeholder inspection: `inspectZeroWidthPlaceholder`
 - `slate-browser/playwright`
   - start here for browser proof work
   - editor-first Playwright harness

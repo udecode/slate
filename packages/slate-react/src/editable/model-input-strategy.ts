@@ -350,8 +350,8 @@ export const applyModelOwnedBeforeInputOperation = ({
             : null
 
       if (textCommand) {
-        // Only insertText operations use the native functionality, for now.
-        // Potentially expand to single character deletes, as well.
+        // Native ownership is limited to insertText. Single-character deletes
+        // need their own browser contract before joining this path.
         if (native && (!selection || !RangeApi.isExpanded(selection))) {
           return null
         }

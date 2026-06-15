@@ -13,6 +13,6 @@ type Location = Path | Point | Range
 
 ### Check methods
 
-#### `LocationApi.isLocation(value: any) => value is Location`
+#### `LocationApi.isLocation(value: unknown) => value is Location`
 
 Check if a value implements the `Location` interface.

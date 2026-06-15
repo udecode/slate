@@ -894,7 +894,7 @@ export type EditableDecorate<T = unknown> = (
   editor: Editor
 ) => readonly EditableDecoration<T>[]
 
-export type EditableLayout = {
+export type EditableDOMStrategyLayout = {
   getVirtualizedPageItems?: () => readonly VirtualizedPageLayoutItem[] | null
   getVisibleVirtualizedPageItems?: () =>
     | readonly VirtualizedPageLayoutItem[]
@@ -924,12 +924,12 @@ export type EditableProps<
   decorateRuntimeScope?: SlateProjectionRuntimeScope
   disableDefaultStyles?: boolean
   id?: string
-  layout?: EditableLayout | null
   /**
    * DOM strategy for large documents. `virtualized` is experimental and
    * must use the object form: `{ type: 'virtualized', ... }`.
    */
   domStrategy?: DOMStrategyOptions | null
+  domStrategyLayout?: EditableDOMStrategyLayout | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
@@ -1663,8 +1663,8 @@ const EditableInner = <T, TElement extends SlateElementNode>({
   disableDefaultStyles = false,
   enableVirtualizedRendering = false,
   id,
-  layout,
   domStrategy,
+  domStrategyLayout,
   onBeforeInput,
   onDOMBeforeInput,
   onKeyDown,
@@ -1934,10 +1934,12 @@ const EditableInner = <T, TElement extends SlateElementNode>({
   )
   const virtualizedScrollRootReady =
     virtualizedDOMStrategyConfig != null && virtualizedScrollElement != null
-  const virtualizedPageItems = layout?.getVirtualizedPageItems?.() ?? null
+  const virtualizedPageItems =
+    domStrategyLayout?.getVirtualizedPageItems?.() ?? null
   const visibleVirtualizedPageItems =
-    layout?.getVisibleVirtualizedPageItems?.() ?? null
-  const virtualizedLayoutItems = layout?.getVirtualizedTopLevelItems?.() ?? null
+    domStrategyLayout?.getVisibleVirtualizedPageItems?.() ?? null
+  const virtualizedLayoutItems =
+    domStrategyLayout?.getVirtualizedTopLevelItems?.() ?? null
   const virtualizedPlan = useVirtualizedRootPlan({
     config: enableVirtualizedRendering ? virtualizedDOMStrategyConfig : null,
     enabled: enableVirtualizedRendering && virtualizedScrollRootReady,
@@ -2460,7 +2462,7 @@ const EditableInner = <T, TElement extends SlateElementNode>({
                     : null
             }
             id={id}
-            ignoreBlankEditableRootClicks={layout != null}
+            ignoreBlankEditableRootClicks={domStrategyLayout != null}
             onBeforeInput={onBeforeInput}
             onDOMBeforeInput={onDOMBeforeInput}
             onDOMStrategyMetrics={onDOMStrategyMetrics}
@@ -2704,6 +2706,12 @@ const EditableNonVirtualized = <T, TElement extends SlateElementNode>(
   props: EditableProps<T, TElement>
 ) => <EditableInner {...props} />
 
+/**
+ * Render the editable content area for one Slate root.
+ *
+ * `Editable` owns DOM strategy, renderers, events, selection sync, and optional
+ * root scoping. Pass `root` to mount the editor surface for a specific root.
+ */
 export const Editable = <T, TElement extends SlateElementNode>(
   props: EditableProps<T, TElement>
 ) => {

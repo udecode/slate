@@ -35,8 +35,7 @@ package manager.
 ## Quick Start
 
 ```tsx
-import { useState } from 'react'
-import { Editable, Slate, createReactEditor } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 type CustomText = { text: string }
 type ParagraphElement = { type: 'paragraph'; children: CustomText[] }
@@ -50,9 +49,7 @@ const initialValue: CustomValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() =>
-    createReactEditor<CustomValue>({ initialValue })
-  )
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
   return (
     <Slate
@@ -85,8 +82,8 @@ app needs the full persisted document with named roots and state fields.
   browser input, void shells, hidden content, and large-document rendering owned
   by the editable runtime.
 - **Projection architecture.** Decorations, annotations, widgets, diagnostics,
-  and search highlights share projection stores instead of forcing every overlay
-  through one render callback.
+  and search highlights share projection infrastructure instead of forcing every
+  overlay through one render callback.
 - **Explicit proof infrastructure.** `slate-browser` owns browser proof helpers,
   native selection assertions, clipboard/IME helpers, screenshots, generated
   stress replay, and proof-scope classifiers.
@@ -97,7 +94,7 @@ app needs the full persisted document with named roots and state fields.
 | --- | --- |
 | `slate` | Core editor, document model, operations, transactions, state fields, transforms, refs, and extension runtime. |
 | `slate-dom` | DOM bridge, clipboard bridge, selection conversion, hotkeys, and contenteditable coverage helpers. |
-| `slate-react` | React editor factory, `<Slate>`, `<Editable>`, rendering primitives, hooks, projection stores, annotations, widgets, and DOM strategies. |
+| `slate-react` | React editor factory, `<Slate>`, `<Editable>`, rendering primitives, hooks, decoration sources, annotations, widgets, and DOM strategies. |
 | `slate-history` | Undo/redo history extension exposed through `state.history` and `tx.history`. |
 | `slate-hyperscript` | JSX-style test/document creation helpers. |
 | `slate-layout` | Experimental page layout and page-level rendering helpers. |

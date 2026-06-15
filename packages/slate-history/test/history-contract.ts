@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
 import type {
@@ -70,6 +71,21 @@ const write = (
 }
 
 describe('slate-history contract', () => {
+  it('documents React-owned history setup through useSlateEditor', () => {
+    const docs = readFileSync(
+      new URL(
+        '../../../docs/libraries/slate-history/history-extension-setup.md',
+        import.meta.url
+      ),
+      'utf8'
+    )
+
+    assert.match(docs, /import \{ createEditor \} from 'slate'/)
+    assert.match(docs, /import \{ useSlateEditor \} from 'slate-react'/)
+    assert.match(docs, /const editor = useSlateEditor\(\{/)
+    assert.doesNotMatch(docs, /createReactEditor/)
+  })
+
   it('keeps History.isHistory true before edits and across edit, undo, and redo', () => {
     const editor = historyTestEditor()
 

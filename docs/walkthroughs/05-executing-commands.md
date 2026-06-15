@@ -56,11 +56,10 @@ functions that receive an editor.
 Use `Editable onKeyDown` for keyboard shortcuts that belong to one editor UI:
 
 ```tsx
-import { useState } from 'react'
-import { Editable, Slate, createReactEditor } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -182,10 +181,9 @@ const markdownBlocks = defineEditorExtension({
 })
 
 const App = () => {
-  const [editor] = useState(() => {
-    const editor = createReactEditor({ initialValue })
-    editor.extend(markdownBlocks)
-    return editor
+  const editor = useSlateEditor({
+    extensions: [markdownBlocks],
+    initialValue,
   })
 
   return (

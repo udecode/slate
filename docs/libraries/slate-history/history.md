@@ -43,7 +43,7 @@ interface Batch {
 
 ## Static Methods
 
-#### `History.isHistory(value: any): value is History`
+#### `History.isHistory(value: unknown): value is History`
 
 Returns `true` if the passed in `value` is a `History` object and acts as a
 type guard.

@@ -10,8 +10,8 @@ interface Editor<TExtensions extends readonly unknown[] = []> {
   api: Readonly<InstalledApiGroups<TExtensions>>
   getApi(extension: EditorExtension): unknown
   read<T>(fn: (state: EditorState) => T): T
-  subscribe(listener: EditorListener): () => void
-  subscribeCommit(listener: EditorCommitListener): () => void
+  subscribe(listener: SnapshotListener): () => void
+  subscribeCommit(listener: (commit: EditorCommit) => void): () => void
   update(
     fn: (tx: EditorTransaction, context: EditorUpdateContext) => void,
     options?: EditorUpdateOptions

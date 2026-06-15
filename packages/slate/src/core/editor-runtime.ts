@@ -11,7 +11,6 @@ import type {
   Text,
 } from '../interfaces'
 import type {
-  CommitListener,
   Editor,
   EditorAboveOptions,
   EditorCommit,
@@ -33,7 +32,6 @@ import type {
   EditorUpdateTransaction,
   RuntimeId,
   Selection,
-  SnapshotChange,
   SnapshotListener,
   Value,
 } from '../interfaces/editor'
@@ -105,7 +103,7 @@ export type InternalEditorSnapshotRuntime<V extends Value = Value> = {
   getOperationDirtiness: (
     operations: readonly Operation<V>[],
     options?: EditorOperationDirtinessOptions<V>
-  ) => SnapshotChange<V>
+  ) => EditorCommit<V>
   getOperations: (startIndex?: number) => readonly Operation<V>[]
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
   getRuntimeId: (path: Path) => RuntimeId | null
@@ -116,7 +114,7 @@ export type InternalEditorSnapshotRuntime<V extends Value = Value> = {
 export type InternalEditorTransactionRuntime<V extends Value = Value> = {
   read: <T>(fn: (state: EditorStateView<V>) => T) => T
   subscribe: (listener: SnapshotListener<V>) => () => void
-  subscribeCommit: (listener: CommitListener<V>) => () => void
+  subscribeCommit: (listener: (commit: EditorCommit<V>) => void) => () => void
   subscribeSource: (
     source: EditorCommitSource,
     listener: SnapshotListener<V>

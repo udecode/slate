@@ -1,11 +1,11 @@
 import {
   type EditorStatePatch,
-  isObject,
   type Operation,
   OperationApi,
   type Range,
   type Value,
 } from 'slate'
+import { isObject } from 'slate/internal'
 
 export interface Batch<V extends Value = Value> {
   /** Operations captured in one undo or redo unit. */
@@ -33,7 +33,7 @@ export const History = {
    * Check if a value is a `History` object.
    */
 
-  isHistory(value: any): value is History {
+  isHistory(value: unknown): value is History {
     return (
       isObject(value) &&
       Array.isArray(value.redos) &&

@@ -10,6 +10,7 @@ import {
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
+  type SlateChange,
   useElementSelected,
 } from '../src'
 import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
@@ -40,6 +41,9 @@ type EditableDOMBeforeInputProps = ComponentProps<
 type EditableHasDOMStrategy = 'domStrategy' extends keyof EditableProps
   ? true
   : false
+type EditableHasDOMStrategyLayout =
+  'domStrategyLayout' extends keyof EditableProps ? true : false
+type EditableHasLayout = 'layout' extends keyof EditableProps ? true : false
 type EditableHasRenderingStrategy =
   'renderingStrategy' extends keyof EditableProps ? true : false
 type EditableHasOnDOMStrategyMetrics =
@@ -51,9 +55,24 @@ type EditableHasOnCommand = 'onCommand' extends keyof ComponentProps<
 >
   ? true
   : false
+type SlateHasWidgetStore = 'widgetStore' extends keyof ComponentProps<
+  typeof Slate
+>
+  ? true
+  : false
+type SlateChangeHasCommit = 'commit' extends keyof SlateChange ? true : false
+type SlateChangeHasSnapshot = 'snapshot' extends keyof SlateChange
+  ? true
+  : false
+type SlateChangeHasValueChanged = 'valueChanged' extends keyof SlateChange
+  ? true
+  : false
+type SlateChangeHasUpdate = 'update' extends keyof SlateChange ? true : false
 type EditableAutoCompleteAcceptsBoolean =
   boolean extends NonNullable<EditableProps['autoComplete']> ? true : false
 type EditableExposesDOMStrategy = ExpectTrue<EditableHasDOMStrategy>
+type EditableExposesDOMStrategyLayout = ExpectTrue<EditableHasDOMStrategyLayout>
+type EditableDoesNotExposeLayout = ExpectFalse<EditableHasLayout>
 type EditableDoesNotExposeRenderingStrategy =
   ExpectFalse<EditableHasRenderingStrategy>
 type EditableExposesOnDOMStrategyMetrics =
@@ -61,6 +80,11 @@ type EditableExposesOnDOMStrategyMetrics =
 type EditableDoesNotExposeOnRenderingStrategyMetrics =
   ExpectFalse<EditableHasOnRenderingStrategyMetrics>
 type EditableDoesNotExposeOnCommand = ExpectFalse<EditableHasOnCommand>
+type SlateDoesNotExposeWidgetStore = ExpectFalse<SlateHasWidgetStore>
+type SlateChangeExposesCommit = ExpectTrue<SlateChangeHasCommit>
+type SlateChangeExposesSnapshot = ExpectTrue<SlateChangeHasSnapshot>
+type SlateChangeExposesValueChanged = ExpectTrue<SlateChangeHasValueChanged>
+type SlateChangeDoesNotExposeUpdate = ExpectFalse<SlateChangeHasUpdate>
 type EditableRejectsBooleanAutoComplete =
   ExpectFalse<EditableAutoCompleteAcceptsBoolean>
 
@@ -69,10 +93,17 @@ void (null as unknown as RenderElementDoesNotExposeIndex)
 void (null as unknown as RenderVoidDoesNotExposePath)
 void (null as unknown as EditableDOMBeforeInputProps)
 void (null as unknown as EditableExposesDOMStrategy)
+void (null as unknown as EditableExposesDOMStrategyLayout)
+void (null as unknown as EditableDoesNotExposeLayout)
 void (null as unknown as EditableDoesNotExposeRenderingStrategy)
 void (null as unknown as EditableExposesOnDOMStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnRenderingStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnCommand)
+void (null as unknown as SlateDoesNotExposeWidgetStore)
+void (null as unknown as SlateChangeExposesCommit)
+void (null as unknown as SlateChangeExposesSnapshot)
+void (null as unknown as SlateChangeExposesValueChanged)
+void (null as unknown as SlateChangeDoesNotExposeUpdate)
 void (null as unknown as EditableRejectsBooleanAutoComplete)
 
 const listSourceFiles = (roots: readonly string[]) => {
@@ -154,6 +185,127 @@ const allowedSlateInternalImportFiles = new Set([
   'packages/slate-react/src/editable/runtime-selection-state.ts',
 ])
 
+const expectedSlateReactRuntimeRootExports = [
+  'Editable',
+  'EditableElement',
+  'Slate',
+  'SlateElement',
+  'SlateLeaf',
+  'SlatePlaceholder',
+  'SlateRuntime',
+  'SlateText',
+  'createReactEditor',
+  'defaultScrollSelectionIntoView',
+  'react',
+  'useDOMStrategyVirtualOffset',
+  'useDecorationSelector',
+  'useEditor',
+  'useEditorComposing',
+  'useEditorFocused',
+  'useEditorReadOnly',
+  'useEditorSelection',
+  'useEditorSelector',
+  'useEditorState',
+  'useElement',
+  'useElementPath',
+  'useElementSelected',
+  'useNodeSelector',
+  'useSetStateField',
+  'useSlateActiveEditor',
+  'useSlateActiveRoot',
+  'useSlateAnnotation',
+  'useSlateAnnotationStore',
+  'useSlateAnnotations',
+  'useSlateChildRoot',
+  'useSlateCommandCallback',
+  'useSlateContentRoot',
+  'useSlateDecorationSource',
+  'useSlateEditor',
+  'useSlateHistory',
+  'useSlateNodeRef',
+  'useSlateProjectionEntries',
+  'useSlateRangeDecorationSource',
+  'useSlateRootChrome',
+  'useSlateRootEditor',
+  'useSlateRootEffect',
+  'useSlateRootState',
+  'useSlateRuntime',
+  'useSlateRuntimeState',
+  'useSlateWidget',
+  'useSlateWidgetStore',
+  'useSlateWidgets',
+  'useStateFieldValue',
+  'useTextSelector',
+]
+
+const documentedAsGroupedRootTypeExports = [
+  'CreateReactEditorOptions',
+  'DOMStrategyType',
+  'DOMTextSyncOptions',
+  'EditableDecorate',
+  'EditableDOMBeforeInputHandler',
+  'EditableDOMCoverageBoundaryMaterializePayload',
+  'EditableDOMCoverageBoundaryPlaceholderContext',
+  'EditableDOMCoverageBoundaryProps',
+  'EditableDOMCoverageBoundaryScope',
+  'EditableDOMStrategyCohort',
+  'EditableDOMStrategyDegradationMode',
+  'EditableDOMStrategyEffectiveType',
+  'EditableDOMStrategyMetricsBase',
+  'EditableHandlerResult',
+  'EditableInputEventContext',
+  'EditableKeyDownContext',
+  'EditorDecorationSelectorContext',
+  'EditorDecorationSelectorOptions',
+  'EditorNodeSelectorContext',
+  'EditorRuntimeSelectorOptions',
+  'EditorSelectorOptions',
+  'EditorStateSelectorOptions',
+  'EditorTextSelectorContext',
+  'ReactApi',
+  'ReactEditorOptions',
+  'SlateAnnotationProjectionData',
+  'SlateAnnotationRefreshOptions',
+  'SlateAnnotationStoreMetrics',
+  'SlateAnnotationStoreProjector',
+  'SlateCommandFocusPolicy',
+  'SlateCustomSourceDirtiness',
+  'SlateDecoration',
+  'SlateDecorationSourceOptions',
+  'SlateDecorationSourceReadContext',
+  'SlateHistoryFocusPolicy',
+  'SlateProjection',
+  'SlateProjectionRefreshListener',
+  'SlateProjectionRefreshResult',
+  'SlateProjectionSlice',
+  'SlateProjectionSource',
+  'SlateProjectionStore',
+  'SlateProjectionStoreMetrics',
+  'SlateProjectionStoreOptions',
+  'SlateProjectionStoreRefreshOptions',
+  'SlateRangeDecoration',
+  'SlateRangeProjection',
+  'SlateRuntimeProps',
+  'SlateRuntimeStateSelectorOptions',
+  'SlateSourceDirtinessClass',
+  'SlateSourceDirtinessContext',
+  'SlateWidgetStoreMetrics',
+  'SlateWidgetStoreProjector',
+  'StateFieldSetter',
+  'UseElementSelectedMode',
+  'UseSlateCommandCallbackOptions',
+  'UseSlateContentRootOptions',
+  'UseSlateDecorationSourceOptions',
+  'UseSlateEditorOptions',
+  'UseSlateHistoryOptions',
+  'UseSlateRangeDecorationSourceOptions',
+  'UseSlateRootChromeOptions',
+  'UseSlateRootEditorOptions',
+  'UseSlateRootEffectOptions',
+  'UseSlateRuntimeOptions',
+  'UseStateFieldValueOptions',
+] as const
+
 type SurfaceInventory = Record<
   string,
   {
@@ -199,7 +351,44 @@ const expectSurfaceInventory = (
   ).toBe(true)
 }
 
+const getRootTypeExports = () => {
+  const packageIndex = readFileSync(
+    resolve(packageRoot, 'src/index.ts'),
+    'utf8'
+  )
+  const typeExports = new Set<string>()
+  const exportBlockPattern = /export\s*(type)?\s*\{([\s\S]*?)\}\s*from/g
+
+  for (const match of packageIndex.matchAll(exportBlockPattern)) {
+    const isTypeBlock = match[1] === 'type'
+    const members = match[2] ?? ''
+
+    for (const rawMember of members.split(',')) {
+      let member = rawMember.trim()
+
+      if (!member) continue
+      if (!isTypeBlock && !member.startsWith('type ')) continue
+
+      member = member.replace(/^type\s+/, '').trim()
+      typeExports.add(
+        member
+          .split(/\s+as\s+/)
+          .at(-1)!
+          .trim()
+      )
+    }
+  }
+
+  return [...typeExports].sort((left, right) => left.localeCompare(right))
+}
+
 describe('slate-react surface contract', () => {
+  test('public root runtime values stay exact', () => {
+    expect(Object.keys(SlateReact).sort()).toEqual(
+      expectedSlateReactRuntimeRootExports
+    )
+  })
+
   test('Editable exposes native beforeinput context without public command handlers', () => {
     const editor = createReactEditor({
       initialValue: [{ type: 'paragraph', children: [{ text: 'test' }] }],
@@ -478,7 +667,7 @@ describe('slate-react surface contract', () => {
       expect(contents).toMatch(/\buseSlateAnnotations\b/)
       expect(contents).toMatch(/\bannotationStore=/)
       expect(contents).not.toMatch(
-        /(?:createSlateProjectionStore|ProjectionContext|projection-store|useSlateProjections|from 'slate-react\/src)/
+        /(?:createSlateProjectionStore|ProjectionContext|projection-store|useSlateProjectionEntries|from 'slate-react\/src)/
       )
     }
   })
@@ -508,6 +697,8 @@ describe('slate-react surface contract', () => {
     expect(docs.editable).toMatch(/\bEditable\.decorate\b/)
     expect(docs.slate).toMatch(/\bdecorationSources\b/)
     expect(docs.slate).toMatch(/\buseSlateDecorationSource\b/)
+    expect(docs.slate).toContain('Widget stores are hook-owned.')
+    expect(docs.slate).toContain('`widgetStore` prop')
     expect(docs.annotations).toMatch(/\buseSlateAnnotationStore\b/)
     expect(docs.annotations).toMatch(/\buseSlateAnnotations\b/)
     expect(docs.annotations).toMatch(/\bdeps: \[comments\]/)
@@ -535,8 +726,23 @@ describe('slate-react surface contract', () => {
       .join('\n')
 
     expect(docs).toMatch(/\brenderElement\b/)
+    expect(docs).toMatch(/\buseSlateEditor\b/)
+    expect(docs).not.toMatch(/\bcreateReactEditor\b/)
+    expect(docs).not.toMatch(/\buseState\(\(\) =>/)
     expect(docs).not.toMatch(/\buseCallback\b/)
     expect(docs).not.toMatch(/\beditableRenderers\b/)
+  })
+
+  test('typescript concept docs teach React value generics through useSlateEditor', () => {
+    const docs = readFileSync(
+      resolve(repoRoot, 'docs/concepts/12-typescript.md'),
+      'utf8'
+    )
+
+    expect(docs).toMatch(/\buseSlateEditor<CustomValue>/)
+    expect(docs).toMatch(/\btype CustomEditor = ReactEditor<CustomValue>/)
+    expect(docs).not.toMatch(/\bcreateReactEditor\b/)
+    expect(docs).not.toMatch(/\buseState\(\(\) =>/)
   })
 
   test('adapter static namespaces stay out of the public root at runtime', () => {
@@ -579,6 +785,42 @@ describe('slate-react surface contract', () => {
     }
   })
 
+  test('projection store machinery stays out of the public root at runtime', () => {
+    for (const name of ['createSlateProjectionStore', 'isSlateSourceDirty']) {
+      expect(name in SlateReact).toBe(false)
+    }
+  })
+
+  test('raw overlay store constructors stay out of the public root at runtime', () => {
+    for (const name of [
+      'createSlateAnnotationStore',
+      'createSlateWidgetStore',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+  })
+
+  test('raw decoration source constructors stay out of the public root at runtime', () => {
+    for (const name of [
+      'composeDecorationSources',
+      'createDecorationSource',
+      'createRangeDecorationSource',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+  })
+
+  test('text rendering internals stay out of the public root at runtime', () => {
+    for (const name of [
+      'DefaultPlaceholder',
+      'EditableText',
+      'TextString',
+      'ZeroWidthString',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+  })
+
   test('React hook aliases stay out of the public root at runtime', () => {
     for (const name of [
       'useComposing',
@@ -589,7 +831,9 @@ describe('slate-react surface contract', () => {
       'useSlateSelection',
       'useSlateSelector',
       'useSlateStatic',
-      'useSlateRootState',
+      'useSlateViewState',
+      'useSlateViewEffect',
+      'useSlateProjections',
     ]) {
       expect(name in SlateReact).toBe(false)
     }
@@ -603,6 +847,7 @@ describe('slate-react surface contract', () => {
       'useEditorSelector',
       'useElement',
       'useElementSelected',
+      'useSlateProjectionEntries',
     ]) {
       expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
         'function'
@@ -610,19 +855,325 @@ describe('slate-react surface contract', () => {
     }
   })
 
-  test('hook docs explain runtime, view, and root editor names without aliases', () => {
+  test('hook docs explain runtime and root editor names without aliases', () => {
     const hooks = readFileSync(
       resolve(repoRoot, 'docs/libraries/slate-react/hooks.md'),
       'utf8'
     )
 
     expect(hooks).toContain('Runtime hooks read the whole editor runtime.')
-    expect(hooks).toContain('View hooks read one root view.')
     expect(hooks).toContain(
-      'Root editor hooks return a command-capable editor view for one root.'
+      'Use `useSlateEditor` to create an editor; use `useEditor` inside descendants'
+    )
+    expect(hooks).toContain('useSlateProjectionEntries<T>(runtimeId)')
+    expect(hooks).toContain(
+      'UI should use decoration sources, annotation stores, or widget stores first.'
+    )
+    expect(hooks).toContain('Root state hooks read one root.')
+    expect(hooks).toContain(
+      'Root editor hooks return a command-capable editor for one root.'
+    )
+    expect(hooks).toContain(
+      'Shared selector options are `deps`, `equalityFn`, `shouldUpdate`, and'
     )
     expect(hooks).toContain('Prefer `useSlateRootEditor(root)`')
-    expect(hooks).not.toContain('useSlateRootState')
+    expect(hooks).toContain('Pass `{ readOnly:')
+    expect(hooks).toContain('Pass `root` to target one root.')
+    expect(hooks).toContain("`focusPolicy: 'preserve'`")
+    expect(hooks).toContain("default is `focus: 'preserve'`.")
+    expect(hooks).not.toContain('preserve-dom')
+    expect(hooks).not.toContain('useSlateViewState')
+    expect(hooks).not.toContain('useSlateViewEffect')
+  })
+
+  test('package README names the current runtime and root hook family', () => {
+    const readme = readFileSync(resolve(packageRoot, 'Readme.md'), 'utf8')
+
+    expect(readme).toContain(
+      'Start with `useSlateEditor`, `Slate`, and `Editable`.'
+    )
+    expect(readme).toContain(
+      'The lower-level `createReactEditor` factory installs'
+    )
+    expect(readme).toContain('Use it outside React component ownership')
+    for (const name of [
+      'useSlateRuntimeState',
+      'useSlateRootState',
+      'useSlateRootEditor',
+      'useSlateActiveEditor',
+      'useSlateCommandCallback',
+      'useSlateRootEffect',
+    ]) {
+      expect(readme).toContain(name)
+    }
+    expect(readme).not.toContain('useSlateViewState')
+    expect(readme).not.toContain('useSlateViewEffect')
+  })
+
+  test('public hook source JSDoc keeps the beta hover contract explicit', () => {
+    const hookSources = {
+      editor: readFileSync(
+        resolve(packageRoot, 'src/hooks/use-slate-editor.ts'),
+        'utf8'
+      ),
+      history: readFileSync(
+        resolve(packageRoot, 'src/hooks/use-slate-history.ts'),
+        'utf8'
+      ),
+      runtime: readFileSync(
+        resolve(packageRoot, 'src/hooks/use-slate-runtime.tsx'),
+        'utf8'
+      ),
+      stateField: readFileSync(
+        resolve(packageRoot, 'src/hooks/use-state-field.ts'),
+        'utf8'
+      ),
+    }
+
+    expect(hookSources.editor).toContain('component or custom hook')
+    expect(hookSources.editor).toContain('`initialValue` seeds the editor once')
+    expect(hookSources.editor).toContain('Use `createReactEditor`')
+    expect(hookSources.history).toContain('active or fixed root')
+    expect(hookSources.history).toContain('`canUndo` / `canRedo`')
+    expect(hookSources.history).toContain('`focusPolicy`')
+    expect(hookSources.runtime).toContain('Use this for toolbar, sidebar')
+    expect(hookSources.runtime).toContain('Root-scoped selectors skip commits')
+    expect(hookSources.runtime).toContain("focus: 'restore-root'")
+    expect(hookSources.stateField).toContain('committed dirty')
+    expect(hookSources.stateField).toContain('preserves DOM selection')
+  })
+
+  test('all public hook exports carry source JSDoc', () => {
+    const indexSource = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const exportPattern = /export \{([^}]+)\} from '([^']+)'/g
+    const missing: string[] = []
+
+    for (const match of indexSource.matchAll(exportPattern)) {
+      const [, rawNames, sourceSpecifier] = match
+      const hookNames = rawNames
+        .split(',')
+        .map((name) => name.trim().replace(/^type\s+/, ''))
+        .map((name) => name.split(/\s+as\s+/)[0]?.trim() ?? '')
+        .filter((name) => name.startsWith('use'))
+
+      if (hookNames.length === 0) {
+        continue
+      }
+
+      const sourceBase = resolve(packageRoot, 'src', sourceSpecifier)
+      const sourcePath = existsSync(`${sourceBase}.tsx`)
+        ? `${sourceBase}.tsx`
+        : `${sourceBase}.ts`
+      const source = readFileSync(sourcePath, 'utf8')
+
+      for (const hookName of hookNames) {
+        const declaration = new RegExp(
+          `export\\s+(?:const|function)\\s+${hookName}\\b`
+        )
+        const declarationIndex = source.search(declaration)
+
+        if (declarationIndex === -1) {
+          missing.push(`${hookName}: missing public declaration`)
+          continue
+        }
+
+        const beforeDeclaration = source.slice(
+          Math.max(0, declarationIndex - 600),
+          declarationIndex
+        )
+
+        if (!/\/\*\*[\s\S]*?\*\/\s*$/.test(beforeDeclaration)) {
+          missing.push(
+            `${hookName}: missing immediate source JSDoc in ${relative(
+              repoRoot,
+              sourcePath
+            )}`
+          )
+        }
+      }
+    }
+
+    expect(missing).toEqual([])
+  })
+
+  test('public component value exports carry source JSDoc', () => {
+    const indexSource = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const exportPattern = /export \{([^}]+)\} from '([^']+)'/g
+    const missing: string[] = []
+
+    for (const match of indexSource.matchAll(exportPattern)) {
+      const [, rawNames, sourceSpecifier] = match
+      const valueNames = rawNames
+        .split(',')
+        .map((name) => name.trim().replace(/^type\s+/, ''))
+        .map((name) => name.split(/\s+as\s+/)[0]?.trim() ?? '')
+        .filter((name) => /^[A-Z]/.test(name))
+
+      if (valueNames.length === 0) {
+        continue
+      }
+
+      const sourceBase = resolve(packageRoot, 'src', sourceSpecifier)
+      const sourcePath = existsSync(`${sourceBase}.tsx`)
+        ? `${sourceBase}.tsx`
+        : `${sourceBase}.ts`
+      const source = readFileSync(sourcePath, 'utf8')
+
+      for (const valueName of valueNames) {
+        const declaration = new RegExp(
+          `export\\s+(?:const|function|class)\\s+${valueName}\\b`
+        )
+        const declarationIndex = source.search(declaration)
+
+        if (declarationIndex === -1) {
+          continue
+        }
+
+        const beforeDeclaration = source.slice(
+          Math.max(0, declarationIndex - 600),
+          declarationIndex
+        )
+
+        if (!/\/\*\*[\s\S]*?\*\/\s*$/.test(beforeDeclaration)) {
+          missing.push(
+            `${valueName}: missing immediate source JSDoc in ${relative(
+              repoRoot,
+              sourcePath
+            )}`
+          )
+        }
+      }
+    }
+
+    expect(missing).toEqual([])
+  })
+
+  test('public type exports carry source JSDoc', () => {
+    const indexSource = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const exportPattern = /export \{([^}]+)\} from '([^']+)'/g
+    const missing: string[] = []
+
+    for (const match of indexSource.matchAll(exportPattern)) {
+      const [, rawNames, sourceSpecifier] = match
+      const typeNames = rawNames
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name.startsWith('type '))
+        .map((name) => name.replace(/^type\s+/, ''))
+        .map((name) => name.split(/\s+as\s+/)[0]?.trim() ?? '')
+
+      if (typeNames.length === 0) {
+        continue
+      }
+
+      const sourceBase = resolve(packageRoot, 'src', sourceSpecifier)
+      const sourcePath = existsSync(`${sourceBase}.tsx`)
+        ? `${sourceBase}.tsx`
+        : `${sourceBase}.ts`
+      const source = readFileSync(sourcePath, 'utf8')
+
+      for (const typeName of typeNames) {
+        const declaration = new RegExp(
+          `export\\s+(?:interface|type)\\s+${typeName}\\b`
+        )
+        const declarationIndex = source.search(declaration)
+
+        if (declarationIndex === -1) {
+          missing.push(`${typeName}: missing public type declaration`)
+          continue
+        }
+
+        const beforeDeclaration = source.slice(
+          Math.max(0, declarationIndex - 600),
+          declarationIndex
+        )
+
+        if (!/\/\*\*[\s\S]*?\*\/\s*$/.test(beforeDeclaration)) {
+          missing.push(
+            `${typeName}: missing immediate source JSDoc in ${relative(
+              repoRoot,
+              sourcePath
+            )}`
+          )
+        }
+      }
+    }
+
+    expect(missing).toEqual([])
+  })
+
+  test('library README routes readers to runtime and root hooks', () => {
+    const readme = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/README.md'),
+      'utf8'
+    )
+
+    expect(readme).toContain('subscribe to editor state, runtime state, roots')
+    expect(readme).toContain('runtime/root hooks and widget hooks')
+    expect(readme).not.toContain('useSlateViewState')
+    expect(readme).not.toContain('useSlateViewEffect')
+  })
+
+  test('slate-react docs name public render primitives and advanced helper hooks', () => {
+    const packageReadme = readFileSync(
+      resolve(packageRoot, 'Readme.md'),
+      'utf8'
+    )
+    const libraryReadme = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/README.md'),
+      'utf8'
+    )
+    const hooks = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/hooks.md'),
+      'utf8'
+    )
+
+    for (const name of [
+      'SlateElement',
+      'SlateText',
+      'SlateLeaf',
+      'SlatePlaceholder',
+    ]) {
+      expect(packageReadme).toContain(name)
+      expect(libraryReadme).toContain(name)
+    }
+
+    for (const name of [
+      'useSlateNodeRef',
+      'useDOMStrategyVirtualOffset',
+      'useSlateRangeDecorationSource',
+    ]) {
+      expect(packageReadme).toContain(name)
+      expect(libraryReadme).toContain(name)
+      expect(hooks).toContain(name)
+    }
+
+    expect(hooks).toContain('SlateRangeDecorationSourceOptions')
+  })
+
+  test('undocumented root type exports stay explicitly classified', () => {
+    const docs = [
+      ...listSourceFiles(['docs/libraries/slate-react']),
+      resolve(packageRoot, 'Readme.md'),
+    ]
+      .map((absolutePath) => readFileSync(absolutePath, 'utf8'))
+      .join('\n')
+    const undocumentedTypeExports = getRootTypeExports().filter((name) => {
+      const pattern = new RegExp(`\\b${name}\\b`)
+
+      return !pattern.test(docs)
+    })
+
+    expect(undocumentedTypeExports).toEqual(documentedAsGroupedRootTypeExports)
   })
 
   test('public root exports canonical Editable and render prop names without aliases', () => {
@@ -630,21 +1181,77 @@ describe('slate-react surface contract', () => {
       resolve(packageRoot, 'src/index.ts'),
       'utf8'
     )
+    const editableRootSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable.tsx'),
+      'utf8'
+    )
 
     expect(packageIndex).not.toMatch(/\bas\s+(?:Editable|Render|EditableProps)/)
     expect(packageIndex).not.toMatch(
       /\b(?:EditableTextBlocks|EditableTextBlocksProps|EditableRenderElementProps|EditableRenderVoidProps|EditableTextLeafProps|EditableTextRenderTextProps|EditableTextRenderPlaceholderProps)\b/
     )
+    expect(packageIndex).not.toMatch(
+      /\b(?:SlateViewBoundary|useSlateViewSelection)\b/
+    )
+    expect(editableRootSource).not.toMatch(
+      /\bexport interface Render(?:Element|Leaf|Text)Props\b/
+    )
 
-    for (const name of ['EditableTextBlocks', 'useSlateRootState']) {
+    for (const name of [
+      'EditableTextBlocks',
+      'useSlateViewState',
+      'useSlateViewEffect',
+    ]) {
       expect(name in SlateReact).toBe(false)
     }
 
-    for (const name of ['Editable', 'useSlateViewState']) {
+    for (const name of [
+      'Editable',
+      'useSlateRootState',
+      'useSlateRootEffect',
+    ]) {
       expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
         'function'
       )
     }
+  })
+
+  test('public/internal runtime aliases stay hard-cut', () => {
+    const packageIndex = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const annotationStoreSource = readFileSync(
+      resolve(packageRoot, 'src/annotation-store.ts'),
+      'utf8'
+    )
+    const runtimeAndroidSource = readFileSync(
+      resolve(packageRoot, 'src/editable/runtime-android-engine.ts'),
+      'utf8'
+    )
+    const runtimeHooksSource = readFileSync(
+      resolve(packageRoot, 'src/hooks/use-slate-runtime.tsx'),
+      'utf8'
+    )
+    const domCoverageBoundarySource = readFileSync(
+      resolve(packageRoot, 'src/components/dom-coverage-boundary.tsx'),
+      'utf8'
+    )
+
+    expect(packageIndex).not.toContain('SlateAnnotationStoreRefreshOptions')
+    expect(annotationStoreSource).not.toMatch(
+      /type SlateAnnotationStoreRefreshOptions\b/
+    )
+    expect(runtimeAndroidSource).not.toMatch(
+      /type RuntimeAndroidInputManager\b/
+    )
+    expect(domCoverageBoundarySource).not.toMatch(
+      /type DOMCoverageSelfBoundaryProps\b/
+    )
+    expect(runtimeHooksSource).not.toMatch(
+      /type UseSlateRootEditorOptions = Pick<EditorViewOptions/
+    )
+    expect(runtimeHooksSource).toContain('readOnly?: boolean')
   })
 
   test('renderElement slots expose contentBoundary without unstable aliases', () => {
@@ -709,7 +1316,13 @@ describe('slate-react surface contract', () => {
     )?.[1]
 
     expect(editableSource).toContain('domStrategy?: DOMStrategyOptions | null')
+    expect(editableSource).toContain(
+      'domStrategyLayout?: EditableDOMStrategyLayout | null'
+    )
     expect(editableSource).toContain('onDOMStrategyMetrics?:')
+    expect(editableSource).not.toContain('layout?: EditableLayout | null')
+    expect(packageIndex).toContain('EditableDOMStrategyLayout')
+    expect(packageIndex).not.toContain('EditableLayout')
     expect(editableSource).not.toContain(
       'renderingStrategy?: RenderingStrategyOptions | null'
     )
@@ -731,7 +1344,12 @@ describe('slate-react surface contract', () => {
 
     expect(docs).toContain('decorateDirtiness?: SlateSourceDirtiness')
     expect(docs).toContain('decorateRuntimeScope?: SlateProjectionRuntimeScope')
-    expect(docs).toContain('layout?: EditableLayout | null')
+    expect(docs).toContain(
+      'domStrategyLayout?: EditableDOMStrategyLayout | null'
+    )
+    expect(docs).not.toContain('layout?: EditableLayout | null')
+    expect(docs).toContain('Pass `domStrategyLayout` only when')
+    expect(docs).toContain('defaults to `defaultScrollSelectionIntoView`')
     expect(docs).toContain("type: 'virtualized'")
     expect(docs).toContain("'data-slate-runtime-id': RuntimeId")
     expect(docs).toContain('isInline: boolean')
@@ -821,6 +1439,11 @@ describe('slate-react surface contract', () => {
     expect(editableDocs).toContain(
       'Use extension `transforms` for model behavior such as `deleteBackward`, `deleteForward`, and `insertBreak`.'
     )
+    expect(editableDocs).toContain(
+      '`onBeforeInput` is the React form-event hook on the editable root.'
+    )
+    expect(editableDocs).toContain('`onDOMBeforeInput` only when you need')
+    expect(editableDocs).toContain('raw native `InputEvent`')
   })
 
   test('examples infer editable behavior callback types inline', () => {

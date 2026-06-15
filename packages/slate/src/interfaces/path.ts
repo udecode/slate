@@ -117,7 +117,7 @@ export interface PathInterface {
   /**
    * Check is a value implements the `Path` interface.
    */
-  isPath: (value: any) => value is Path
+  isPath: (value: unknown) => value is Path
 
   /**
    * Check if a path is a sibling of another.
@@ -295,7 +295,7 @@ export const PathApi: PathInterface = {
     )
   },
 
-  isPath(value: any): value is Path {
+  isPath(value: unknown): value is Path {
     return Array.isArray(value) && value.every((n) => typeof n === 'number')
   },
 

@@ -4,6 +4,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act, renderHook } from '@testing-library/react'
 import { createEditor, defineStateField } from 'slate'
 
+import * as SlateLayout from '../src'
 import {
   createEstimatedPageLayoutEngine,
   createSlateLayout,
@@ -14,8 +15,8 @@ import {
   getSlatePageLayoutProjection,
   paginateSlatePageLayoutBlocks,
   pretextPageLayoutEngine,
-  type SlateLayoutSnapshot,
   type SlatePageBreakSnapshot,
+  type SlatePageLayoutSnapshot,
   type SlatePageSettings,
 } from '../src'
 import {
@@ -23,6 +24,7 @@ import {
   getPagedEditableMountedPageIndexes,
   getPagedEditableVisiblePageMountItems,
 } from '../src/page-mount-plan'
+import * as SlateLayoutReact from '../src/react'
 import { useSlateLayout } from '../src/react'
 
 const registeredDom = typeof document === 'undefined'
@@ -71,6 +73,45 @@ const pageSettings = defineStateField<SlatePageSettings>({
   history: 'push',
   initial: () => ({ margins: 96, preset: 'a4' }),
   persist: true,
+})
+
+const expectedSlateLayoutRuntimeRootExports = [
+  'createEstimatedPageLayoutEngine',
+  'createSlateLayout',
+  'createSlatePage',
+  'createSlatePageBreakSnapshot',
+  'createSlatePageLayout',
+  'getSlatePageLayoutDecorations',
+  'getSlatePageLayoutFragments',
+  'getSlatePageLayoutGeometry',
+  'getSlatePageLayoutPathKey',
+  'getSlatePageLayoutProjection',
+  'getSlatePagePresetSize',
+  'normalizeSlatePageSettings',
+  'paginateSlatePageLayoutBlocks',
+  'pretextPageLayoutEngine',
+]
+
+const expectedSlateLayoutRuntimeReactExports = [
+  'PagedEditable',
+  'useSlateLayout',
+  'useSlateLayoutFragments',
+  'useSlateLayoutFragmentsAtPath',
+  'useSlateLayoutSnapshot',
+  'useSlatePageLayout',
+  'useSlatePageLayoutSnapshot',
+]
+
+describe('slate-layout public runtime exports', () => {
+  it('keeps public root and React subpath runtime values exact', () => {
+    expect({
+      react: Object.keys(SlateLayoutReact).sort(),
+      root: Object.keys(SlateLayout).sort(),
+    }).toEqual({
+      react: expectedSlateLayoutRuntimeReactExports,
+      root: expectedSlateLayoutRuntimeRootExports,
+    })
+  })
 })
 
 describe('slate-layout public docs', () => {
@@ -403,7 +444,7 @@ describe('createSlatePageLayout', () => {
     const layout = createSlateLayout(editor, () => ({
       page: { margins: 72, preset: 'letter' },
     }))
-    const snapshot: SlateLayoutSnapshot = layout.getSnapshot()
+    const snapshot: SlatePageLayoutSnapshot = layout.getSnapshot()
 
     expect(snapshot.settings).toEqual({ margins: 72, preset: 'letter' })
     expect(snapshot.page.width).toBe(816)

@@ -4,7 +4,7 @@ Undo/redo history extension for Slate editors.
 
 ```ts
 import { createEditor } from 'slate'
-import { history } from 'slate-history'
+import { History, history } from 'slate-history'
 
 const editor = createEditor({
   extensions: [history()],
@@ -14,9 +14,14 @@ const editor = createEditor({
 editor.update((tx) => {
   tx.history.undo()
 })
+
+const stacks = editor.read((state) => state.history.get())
+History.isHistory(stacks)
 ```
 
 Read stacks through `state.history`, write through `tx.history`, and control
 batching through `editor.api.history`.
 
-`createReactEditor` installs history by default.
+`History.isHistory(value)` validates undo/redo stack objects.
+
+`useSlateEditor` installs history by default for Slate React editors.

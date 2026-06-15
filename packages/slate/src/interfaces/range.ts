@@ -1,5 +1,4 @@
 import {
-  isObject,
   type Location,
   LocationApi,
   type Operation,
@@ -9,6 +8,7 @@ import {
   type PointEntry,
 } from '..'
 import type { RangeDirection } from '../types/types'
+import { isObject } from '../utils/is-object'
 
 /**
  * `Range` objects are a set of points that refer to a specific span of a Slate
@@ -92,7 +92,7 @@ export interface RangeInterface {
   /**
    * Check if a value implements the [[Range]] interface.
    */
-  isRange: (value: any) => value is Range
+  isRange: (value: unknown) => value is Range
 
   /**
    * Iterate through all of the point entries in a range.
@@ -204,7 +204,7 @@ export const RangeApi: RangeInterface = {
     return !RangeApi.isBackward(range)
   },
 
-  isRange(value: any): value is Range {
+  isRange(value: unknown): value is Range {
     return (
       isObject(value) &&
       PointApi.isPoint(value.anchor) &&

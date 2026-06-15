@@ -3,15 +3,15 @@ import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 import {
   createReactEditor,
-  createSlateAnnotationStore,
   Slate,
   type SlateAnnotation,
   useEditor,
   useSlateAnnotation,
   useSlateAnnotationStore,
   useSlateAnnotations,
-  useSlateProjections,
+  useSlateProjectionEntries,
 } from '../src'
+import { createSlateAnnotationStore } from '../src/annotation-store'
 
 type CommentData = {
   body?: string
@@ -84,7 +84,7 @@ const AnnotationOverlaySlices = () => {
     CommentData,
     CommentProjection
   >()
-  const projections = useSlateProjections<{
+  const projections = useSlateProjectionEntries<{
     annotationId: string
     kind: string
     tone?: string

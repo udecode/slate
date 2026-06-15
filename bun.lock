@@ -46,6 +46,7 @@
         "slate-dom": "workspace:*",
         "slate-history": "workspace:*",
         "slate-hyperscript": "workspace:*",
+        "slate-layout": "workspace:*",
         "slate-react": "workspace:*",
         "tailwind-merge": "^3.6.0",
         "tailwindcss": "^4.3.0",
@@ -101,7 +102,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.114.3",
+        "slate": ">=0.124.2",
       },
     },
     "packages/slate-hyperscript": {
@@ -111,7 +112,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.114.3",
+        "slate": ">=0.124.2",
       },
     },
     "packages/slate-layout": {

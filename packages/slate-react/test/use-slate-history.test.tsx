@@ -165,7 +165,7 @@ describe('useSlateHistory', () => {
 
     const TitleInput = () => {
       const history = useSlateHistory({
-        focusPolicy: 'preserve-dom',
+        focusPolicy: 'preserve',
         root: 'header',
       })
       headerEditor = useSlateRootEditor('header')

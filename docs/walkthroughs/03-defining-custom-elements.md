@@ -15,7 +15,7 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -66,7 +66,7 @@ Pass the renderer to `Editable`:
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -97,7 +97,7 @@ Use `editor.update(...)` and `tx.nodes.set(...)` to change the selected block.
 import { ElementApi } from 'slate'
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -130,7 +130,7 @@ To make the shortcut toggle, read first, then write:
 import { ElementApi } from 'slate'
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>

@@ -1,7 +1,6 @@
 import type {
   BaseEditor,
   Editor,
-  EditorCommandResult,
   EditorCommitContext,
   EditorExtension,
   EditorExtensionInput,
@@ -68,7 +67,7 @@ type TransformMiddleware<
     TEditor,
     TransformMiddlewareArgs<TEditor, TKey>
   >
-) => EditorCommandResult
+) => boolean
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
 
@@ -455,7 +454,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
           (context, next) => {
             const { type: _type, ...commandArgs } = context.command
             let delegated = false
-            let nextResult: EditorCommandResult = false
+            let nextResult = false
 
             const runNext = (
               overrides: Partial<

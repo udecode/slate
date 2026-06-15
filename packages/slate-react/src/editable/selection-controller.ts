@@ -1073,7 +1073,7 @@ export const resolveEditableImplicitTarget = ({
   request: TargetFreshnessRequest
   scheduleSelectionSync?: (callback: () => void) => void
   syncDOMSelectionToEditor: () => void
-}) => {
+}): Selection => {
   const preferModelSelection =
     isEditableModelSelectionPreferred(inputController)
 

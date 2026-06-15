@@ -30,9 +30,9 @@ import {
   useSlateChildRoot,
   useSlateContentRoot,
   useSlateRootEditor,
+  useSlateRootState,
   useSlateRuntime,
   useSlateRuntimeState,
-  useSlateViewState,
 } from '../src'
 import { didSyncTextPathToDOM } from '../src/hooks/use-slate-node-ref'
 
@@ -129,7 +129,7 @@ describe('SlateRuntime provider contract', () => {
 
     const IslandBody = ({ element }: { element: Element }) => {
       const root = useSlateChildRoot(element, 'body')
-      const text = useSlateViewState(root, rootText)
+      const text = useSlateRootState(root, rootText)
 
       childEditor = useSlateRootEditor(root)
 
@@ -194,7 +194,7 @@ describe('SlateRuntime provider contract', () => {
 
     const ContentRoot = ({ element }: { element: Element }) => {
       const { chrome, root } = useSlateContentRoot(element)
-      const text = useSlateViewState(root, rootText)
+      const text = useSlateRootState(root, rootText)
 
       contentRootEditor = useSlateRootEditor(root)
 
@@ -270,7 +270,7 @@ describe('SlateRuntime provider contract', () => {
 
     const Probe = () => {
       const activeRoot = useSlateActiveRoot()
-      const headerText = useSlateViewState('header', rootText)
+      const headerText = useSlateRootState('header', rootText)
 
       headerEditor = useSlateRootEditor('header')
       headerValues.push(headerText)
@@ -537,7 +537,7 @@ describe('SlateRuntime provider contract', () => {
     expect(result.current).toBe('inner')
   })
 
-  test('useSlateViewState reads a sibling root without prop-drilled editors', async () => {
+  test('useSlateRootState reads a sibling root without prop-drilled editors', async () => {
     let runtime!: ReturnType<typeof useSlateRuntime>
     const headerSelector = vi.fn(rootText)
     const RuntimeWrapper = ({ children }: { children: ReactNode }) => {
@@ -547,7 +547,7 @@ describe('SlateRuntime provider contract', () => {
     }
 
     const { result } = renderHook(
-      () => useSlateViewState('header', headerSelector),
+      () => useSlateRootState('header', headerSelector),
       { wrapper: RuntimeWrapper }
     )
 
@@ -565,7 +565,7 @@ describe('SlateRuntime provider contract', () => {
     expect(headerSelector).toHaveBeenCalledTimes(headerSelectorCount)
   })
 
-  test('useSlateViewState clears selection when focus moves to another root', async () => {
+  test('useSlateRootState clears selection when focus moves to another root', async () => {
     let runtime!: ReturnType<typeof useSlateRuntime>
     const RuntimeWrapper = ({ children }: { children: ReactNode }) => {
       runtime = useSlateRuntime({ initialValue: initialValue() })
@@ -574,7 +574,7 @@ describe('SlateRuntime provider contract', () => {
     }
 
     const { result } = renderHook(
-      () => useSlateViewState('header', (state) => state.selection.get()),
+      () => useSlateRootState('header', (state) => state.selection.get()),
       { wrapper: RuntimeWrapper }
     )
 
@@ -604,12 +604,12 @@ describe('SlateRuntime provider contract', () => {
     expect(result.current).toBeNull()
   })
 
-  test('useSlateViewState treats root as a dependency even with custom deps', () => {
+  test('useSlateRootState treats root as a dependency even with custom deps', () => {
     const selector = vi.fn(rootText)
     const RuntimeWrapper = createRuntimeWrapper()
 
     const { result, rerender } = renderHook(
-      ({ root }) => useSlateViewState(root, selector, { deps: [selector] }),
+      ({ root }) => useSlateRootState(root, selector, { deps: [selector] }),
       {
         initialProps: { root: 'header' },
         wrapper: RuntimeWrapper,
@@ -998,7 +998,7 @@ describe('SlateRuntime provider contract', () => {
     })
   })
 
-  test('useSlateViewState rerenders for mark-only commits in its root', async () => {
+  test('useSlateRootState rerenders for mark-only commits in its root', async () => {
     let headerEditor!: ReturnType<typeof useEditor>
     const headerMarks = vi.fn()
 
@@ -1009,7 +1009,7 @@ describe('SlateRuntime provider contract', () => {
     }
 
     const HeaderMarksProbe = () => {
-      headerMarks(useSlateViewState('header', (state) => state.marks.get()))
+      headerMarks(useSlateRootState('header', (state) => state.marks.get()))
 
       return null
     }
@@ -1099,7 +1099,7 @@ describe('SlateRuntime provider contract', () => {
     ).toHaveLength(1)
   })
 
-  test('sibling Slate root views receive distinct editor view objects', () => {
+  test('sibling Slate roots receive distinct editor view objects', () => {
     const seen: unknown[] = []
     const Probe = () => {
       const editor = useEditor()

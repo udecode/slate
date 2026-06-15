@@ -1,6 +1,7 @@
 import {
   defineEditorExtension,
   type Editor,
+  type EditorCommit,
   type EditorExtensionSetupContext,
   type EditorStatePatch,
   type EditorUpdateTransaction,
@@ -11,7 +12,6 @@ import {
   PointApi,
   type Range,
   RangeApi,
-  type SnapshotChange,
   type Value,
 } from 'slate'
 import {
@@ -335,7 +335,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
           MERGING.delete(editor)
           SPLITTING_ONCE.delete(editor)
         },
-        onCommit({ commit: change }: { commit: SnapshotChange }) {
+        onCommit({ commit: change }: { commit: EditorCommit }) {
           const committedOps = [...(change?.operations ?? [])]
           const committedStatePatches = [
             ...(change?.statePatches ?? []),
@@ -557,7 +557,7 @@ const shouldMergeBatch = (
 const shouldMergeExplicitBatch = (
   operations: readonly Operation[],
   previousBatch: Batch,
-  metadata: SnapshotChange['metadata']
+  metadata: EditorCommit['metadata']
 ): boolean => {
   if (shouldMergeBatch(operations, previousBatch)) {
     return true
@@ -1074,7 +1074,7 @@ const prepareHistoryBatch = <V extends Value>(
   selectionBeforeRoot: string | undefined,
   operations: readonly Operation<V>[],
   statePatches: readonly EditorStatePatch[],
-  metadata: SnapshotChange['metadata']
+  metadata: EditorCommit['metadata']
 ): Batch<V> | null => {
   const firstSaveableIndex = operations.findIndex(shouldSave)
   const getBatchSelectionBeforeRoot = (selection: Range | null) =>
@@ -1151,7 +1151,7 @@ const prepareHistoryBatch = <V extends Value>(
 }
 
 const shouldSaveCommit = (
-  change: SnapshotChange | undefined,
+  change: EditorCommit | undefined,
   operations: readonly Operation[],
   statePatches: readonly EditorStatePatch[]
 ): boolean => {
@@ -1178,7 +1178,7 @@ const shouldSaveCommit = (
 }
 
 const shouldRebaseHistory = (
-  change: SnapshotChange | undefined,
+  change: EditorCommit | undefined,
   operations: readonly Operation[]
 ): boolean => !change?.tags.includes('historic') && shouldSaveBatch(operations)
 

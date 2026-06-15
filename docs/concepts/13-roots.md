@@ -87,7 +87,7 @@ return (
 )
 ```
 
-Use `useSlateViewState(root, selector)` for UI that reads one root view without
+Use `useSlateRootState(root, selector)` for UI that reads one root without
 subscribing to every editor change. Use `useSlateRootEditor(root)` for commands
 that must run against a specific root.
 

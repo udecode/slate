@@ -1,15 +1,6 @@
 import type React from 'react'
 import { useCallback, useMemo, useRef } from 'react'
-import {
-  type Element,
-  type LeafPosition,
-  NodeApi,
-  type Path,
-  type Range,
-  RangeApi,
-  type RuntimeId,
-  type Text,
-} from 'slate'
+import { NodeApi, type Path, type Range, RangeApi, type RuntimeId } from 'slate'
 import {
   CAN_USE_DOM,
   type DOMRange,
@@ -36,57 +27,6 @@ import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { useSlateViewSelectionPresence } from '../view-selection-decoration'
 import { RestoreDOM } from './restore-dom/restore-dom'
-
-/**
- * `RenderElementProps` are passed to the `renderElement` handler.
- */
-
-export interface RenderElementProps<TElement extends Element = any> {
-  children: any
-  element: TElement
-  attributes: {
-    'data-slate-node': 'element'
-    'data-slate-inline'?: true
-    'data-slate-void'?: true
-    dir?: 'rtl'
-    ref: any
-  }
-}
-
-/**
- * `RenderLeafProps` are passed to the `renderLeaf` handler.
- */
-
-export interface RenderLeafProps<TText extends Text = any> {
-  children: any
-  /**
-   * The leaf node with any applied decorations.
-   * If no decorations are applied, it will be identical to the `text` property.
-   */
-  leaf: TText
-  text: TText
-  attributes: {
-    'data-slate-leaf': true
-    'data-slate-leaf-end'?: number
-    'data-slate-leaf-start'?: number
-  }
-  /**
-   * The position of the leaf within the Text node, only present when the text node is split by decorations.
-   */
-  leafPosition?: LeafPosition
-}
-
-/**
- * `RenderTextProps` are passed to the `renderText` handler.
- */
-export interface RenderTextProps {
-  text: Text
-  children: any
-  attributes: {
-    'data-slate-node': 'text'
-    ref: any
-  }
-}
 
 /**
  * `EditableProps` are passed to the `<Editable>` component.
@@ -642,11 +582,9 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
             data-slate-root={editorRoot}
             {...editableEventBindingsWithDropCursor}
             {...rootInteractionEventBindings}
-            // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
-            // have to use hacks to make these replacement-based features work.
-            // For SSR situations HAS_BEFORE_INPUT_SUPPORT is false and results in prop
-            // mismatch warning app moves to browser. Pass-through consumer props when
-            // not CAN_USE_DOM (SSR) and default to falsy value
+            // Browsers without `beforeinput` need a separate replacement-input
+            // implementation. During SSR, pass through consumer props to avoid a
+            // hydration mismatch; in the browser, default to a falsy value.
             spellCheck={
               HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
                 ? attributes.spellCheck

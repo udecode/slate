@@ -8,11 +8,11 @@ import {
   resetRangeRefDrafts,
 } from '../editor/range-ref'
 import type {
-  CommitListener,
   CreateEditorOptions,
   DirtyRegion,
   Editor,
   EditorCommit,
+  EditorCommitClass,
   EditorCommitCommand,
   EditorCommitContext,
   EditorCommitHandler,
@@ -36,11 +36,9 @@ import type {
   EditorUpdateOptions,
   EditorUpdateTag,
   EditorUpdateTransaction,
-  OperationClass,
   RootKey,
   RuntimeId,
   Selection,
-  SnapshotChange,
   SnapshotIndex,
   SnapshotInput,
   SnapshotListener,
@@ -190,7 +188,10 @@ const CURRENT_MARKS = new WeakMap<Editor, EditorMarks | null>()
 const CURRENT_SELECTION = new WeakMap<Editor, Selection>()
 const CURRENT_SELECTION_ROOT = new WeakMap<Editor, string>()
 const LISTENERS = new WeakMap<Editor, Set<SnapshotListener>>()
-const COMMIT_LISTENERS = new WeakMap<Editor, Set<CommitListener>>()
+const COMMIT_LISTENERS = new WeakMap<
+  Editor,
+  Set<(commit: EditorCommit) => void>
+>()
 const SOURCE_LISTENERS = new WeakMap<
   Editor,
   Map<EditorCommitSource, Set<SnapshotListener>>
@@ -1795,7 +1796,7 @@ export const getOperationDirtiness = (
     statePatches?: readonly EditorStatePatch[]
     tags?: readonly EditorUpdateTag[]
   } = {}
-): SnapshotChange => {
+): EditorCommit => {
   const hasTextOperation = operations.some(
     (op) => op.type === 'insert_text' || op.type === 'remove_text'
   )
@@ -2696,8 +2697,6 @@ const getUpdateView = <
     nodes: Object.freeze({
       ...state.nodes,
       insert: (nodes, options) =>
-        runMutation(options, () => transforms.insertNodes(nodes, options)),
-      insertMany: (nodes, options) =>
         runMutation(options, () => transforms.insertNodes(nodes, options)),
       lift: (options) =>
         runMutation(options, () => transforms.liftNodes(options)),
@@ -3741,11 +3740,11 @@ const getCurrentRootSnapshot = (
 
 const getListenerSnapshot = (
   editor: Editor,
-  _change?: SnapshotChange
+  _change?: EditorCommit
 ): EditorSnapshot =>
   withEditorRootChildren(editor, MAIN_ROOT_KEY, () => getSnapshot(editor))
 
-const withUnknownRuntimeImpact = (change: SnapshotChange): SnapshotChange =>
+const withUnknownRuntimeImpact = (change: EditorCommit): EditorCommit =>
   Object.freeze({
     ...change,
     affectedNodeRuntimeIds: null,
@@ -3775,8 +3774,8 @@ const withUnknownRuntimeImpact = (change: SnapshotChange): SnapshotChange =>
 const withTransactionViewState = (
   editor: Editor,
   transactionSnapshot: TransactionSnapshot,
-  change: SnapshotChange
-): SnapshotChange => {
+  change: EditorCommit
+): EditorCommit => {
   const marksBefore = cloneValue(transactionSnapshot.marks)
   const marksAfter = cloneValue(getCurrentMarks(editor))
   const selectionBefore = cloneValue(transactionSnapshot.selection)
@@ -4468,7 +4467,7 @@ const buildCommitRuntimeDirtiness = ({
   selectionImpactRuntimeIds,
   touchedRuntimeIds,
 }: {
-  classes: readonly OperationClass[]
+  classes: readonly EditorCommitClass[]
   decorationImpactRuntimeIds: readonly RuntimeId[] | null
   dirtyPaths: readonly Path[]
   dirtyScope: 'none' | 'paths' | 'all'
@@ -4651,7 +4650,7 @@ const getDecorationImpactRuntimeIds = ({
   selectionImpactRuntimeIds,
   touchedRuntimeIds,
 }: {
-  classes: readonly OperationClass[]
+  classes: readonly EditorCommitClass[]
   dirtyPaths: readonly Path[]
   nextIndex: RuntimeIndexLike
   previousIndex: RuntimeIndexLike
@@ -4691,7 +4690,7 @@ const getNodeImpactRuntimeIds = ({
   previousIndex,
   touchedRuntimeIds,
 }: {
-  classes: readonly OperationClass[]
+  classes: readonly EditorCommitClass[]
   dirtyPaths: readonly Path[]
   nextIndex: RuntimeIndexLike
   operations: readonly Operation[]
@@ -4762,7 +4761,7 @@ export const buildSnapshotChange = ({
   reason: 'replace' | null
   statePatches?: readonly EditorStatePatch[]
   tags?: readonly EditorUpdateTag[]
-}): SnapshotChange => {
+}): EditorCommit => {
   const hasTextOperation = profileCoreDuration(
     'build-snapshot-change:classify-text',
     () =>
@@ -4942,7 +4941,7 @@ export const buildSnapshotChange = ({
   )
 }
 
-export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
+export const notifyListeners = (editor: Editor, change?: EditorCommit) => {
   const listeners = LISTENERS.get(editor)
   const sourceListeners = SOURCE_LISTENERS.get(editor)
   const extensionCommitListeners = change
@@ -4976,7 +4975,7 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
         if (listener.length >= 2) {
           listener(change, getSnapshotForListeners())
         } else {
-          ;(listener as (commit: SnapshotChange) => void)(change)
+          ;(listener as (commit: EditorCommit) => void)(change)
         }
       }
     })
@@ -5021,7 +5020,7 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
 
 const materializeAfterCommitHandlers = (
   editor: Editor,
-  commit: SnapshotChange,
+  commit: EditorCommit,
   handlers: readonly TransactionAfterCommitHandler[]
 ): MaterializedAfterCommitHandler[] => {
   const snapshots = new Map<string, EditorSnapshot>()
@@ -5134,7 +5133,7 @@ const hasSourceListeners = (editor: Editor) => {
 }
 
 const getSourcesForChange = (
-  change: SnapshotChange
+  change: EditorCommit
 ): readonly EditorCommitSource[] => {
   const sources: EditorCommitSource[] = ['commit']
 
@@ -5736,10 +5735,11 @@ export const subscribe = <V extends Value>(
 
 export const subscribeCommit = <V extends Value>(
   editor: Editor<V>,
-  listener: CommitListener<V>
+  listener: (commit: EditorCommit<V>) => void
 ) => {
-  const typedListener = listener as CommitListener
-  const listeners = COMMIT_LISTENERS.get(editor) ?? new Set<CommitListener>()
+  const typedListener = listener as (commit: EditorCommit) => void
+  const listeners =
+    COMMIT_LISTENERS.get(editor) ?? new Set<(commit: EditorCommit) => void>()
   listeners.add(typedListener)
   COMMIT_LISTENERS.set(editor, listeners)
 

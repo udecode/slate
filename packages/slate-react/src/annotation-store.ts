@@ -1,14 +1,14 @@
 import type {
+  EditorCommit,
   Range,
   RuntimeId,
   Editor as SlateEditor,
-  SnapshotChange,
 } from 'slate'
 import { Editor } from './editable/runtime-editor-api'
 import type {
   SlateProjectionEntry,
   SlateProjectionStore,
-} from './hooks/use-slate-projections'
+} from './hooks/use-slate-projection-entries'
 
 export interface SlateAnnotationAnchor {
   /** Resolve the annotation against the current committed editor snapshot. */
@@ -59,8 +59,6 @@ export type SlateAnnotationRefreshOptions = Readonly<{
   ids?: readonly string[]
   reason?: 'annotation' | 'external' | 'refresh'
 }>
-
-export type SlateAnnotationStoreRefreshOptions = SlateAnnotationRefreshOptions
 
 export type SlateAnnotationStoreMetrics = Readonly<{
   annotationProjectCount: number
@@ -730,7 +728,7 @@ const buildAnnotationRuntimeIds = (
 }
 
 const getCandidateAnnotationIds = (
-  change: SnapshotChange | undefined,
+  change: EditorCommit | undefined,
   runtimeIdsByAnnotationId: ReadonlyMap<string, ReadonlySet<RuntimeId>>
 ) => {
   if (!change) {
@@ -780,7 +778,7 @@ const countProjectedAnnotations = <
     return annotation?.range ? count + 1 : count
   }, 0)
 
-const shouldRefreshForEditorChange = (change: SnapshotChange | undefined) => {
+const shouldRefreshForEditorChange = (change: EditorCommit | undefined) => {
   if (!change) {
     return true
   }

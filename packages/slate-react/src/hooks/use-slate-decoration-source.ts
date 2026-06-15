@@ -11,6 +11,7 @@ import {
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { SlateSourceDirtiness } from '../projection-store'
 
+/** Hook options for computed decoration sources. */
 export type UseSlateDecorationSourceOptions<T = unknown> =
   SlateDecorationSourceOptions<T> & {
     /**
@@ -19,6 +20,7 @@ export type UseSlateDecorationSourceOptions<T = unknown> =
     deps?: readonly unknown[]
   }
 
+/** Hook options for range-backed decoration sources. */
 export type UseSlateRangeDecorationSourceOptions<T = unknown> =
   SlateRangeDecorationSourceOptions<T> & {
     /**

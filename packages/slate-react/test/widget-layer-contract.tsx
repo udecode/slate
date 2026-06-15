@@ -4,13 +4,13 @@ import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
-  createSlateWidgetStore,
   Slate,
   type SlateWidget,
   useEditorSelector,
   useSlateWidget,
   useSlateWidgetStore,
 } from '../src'
+import { createSlateWidgetStore } from '../src/widget-store'
 
 const createChildren = () => [
   {

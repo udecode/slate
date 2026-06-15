@@ -107,7 +107,7 @@ Check if a path is a descendant of another.
 
 Check if a path is the parent of another.
 
-#### `PathApi.isPath(value: any) => value is Path`
+#### `PathApi.isPath(value: unknown) => value is Path`
 
 Check is a value implements the `Path` interface.
 

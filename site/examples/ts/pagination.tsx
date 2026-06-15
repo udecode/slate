@@ -1666,7 +1666,7 @@ const PaginationSurface = ({
             tx.nodes.remove({ at: [tableIndex, index] })
           }
         } else {
-          tx.nodes.insertMany(
+          tx.nodes.insert(
             createPaginationTableRows(nextTableRows).slice(
               table.children.length
             ),
@@ -1711,7 +1711,7 @@ const PaginationSurface = ({
         ).flat()
 
         if (nextStressBlocks.length > 0) {
-          tx.nodes.insertMany(nextStressBlocks, { at: [nonStressCount] })
+          tx.nodes.insert(nextStressBlocks, { at: [nonStressCount] })
         }
       })
     },

@@ -24,7 +24,7 @@ Use `tx.marks.toggle(...)` inside `editor.update(...)`.
 import { ElementApi } from 'slate'
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -97,7 +97,7 @@ Pass both renderers to `Editable`:
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>

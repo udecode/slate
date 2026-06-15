@@ -3,9 +3,9 @@ import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
 import { Component, type ReactNode, useLayoutEffect } from 'react'
 import {
+  type EditorCommit,
   type Operation,
   type RuntimeId,
-  type SnapshotChange,
   TextApi,
 } from 'slate'
 import { Editor } from 'slate/internal'
@@ -450,7 +450,7 @@ describe('slate-react provider hooks contract', () => {
     const targetRuntimeId = Editor.getSnapshot(editor).index.pathToId['1.0']
     const selector = jest.fn(() => Editor.getLastCommit(editor)?.version ?? 0)
     const shouldUpdate = jest.fn(
-      (_operations?: readonly Operation[], change?: SnapshotChange) =>
+      (_operations?: readonly Operation[], change?: EditorCommit) =>
         Boolean(
           change?.selectionImpactRuntimeIds?.includes(targetRuntimeId ?? '')
         )
@@ -507,8 +507,8 @@ describe('slate-react provider hooks contract', () => {
     const blockRuntimeId = snapshot.index.pathToId['0']
     const textRuntimeId = snapshot.index.pathToId['0.0']
     const selector = jest.fn((state) => state.selection.get())
-    const seenChanges: SnapshotChange[] = []
-    const shouldUpdate = jest.fn((change?: SnapshotChange) => {
+    const seenChanges: EditorCommit[] = []
+    const shouldUpdate = jest.fn((change?: EditorCommit) => {
       if (change) {
         seenChanges.push(change)
       }

@@ -9,6 +9,7 @@ import {
 } from '../widget-store'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
+/** React-state projector used to refresh a widget store. */
 export type SlateWidgetStoreProjector<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
