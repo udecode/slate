@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { isRecord } from '../src/core/record'
 import { SUPPORTED_YJS_UNDO_MANAGER_VERSION } from '../src/core/undo-manager-adapter'
@@ -22,6 +22,7 @@ type PackageJson = {
   readonly exports?: PackageExports
   readonly optionalDependencies?: DependencyMap
   readonly peerDependencies?: DependencyMap
+  readonly scripts?: DependencyMap
 }
 
 type TsConfigJson = {
@@ -126,8 +127,13 @@ const readPackageJson = (path: string): PackageJson => {
     exports: readPackageExports(record),
     optionalDependencies: readDependencyMap(record, 'optionalDependencies'),
     peerDependencies: readDependencyMap(record, 'peerDependencies'),
+    scripts: readDependencyMap(record, 'scripts'),
   }
 }
+
+const yjsCollaborationBenchmarkPath =
+  '../../../scripts/benchmarks/core/current/yjs-collaboration.mjs'
+const benchmarkStatsPath = '../../../scripts/benchmarks/shared/stats.mjs'
 
 const readTsConfigJson = (path: string): TsConfigJson => {
   const record = readJsonRecord(path)
@@ -181,6 +187,157 @@ describe('@slate/yjs package config contract', () => {
       assert.equal(dependencies?.['@hocuspocus/provider'], undefined)
       assert.equal(dependencies?.['y-websocket'], undefined)
     }
+  })
+
+  it('keeps restored long-running Yjs soak scripts manual-only', () => {
+    const rootPackage = readPackageJson('../../../package.json')
+    const scripts = rootPackage.scripts ?? {}
+    const manualSoakScripts = [
+      '../../../scripts/proof/yjs-collaboration-soak.mjs',
+      '../../../scripts/proof/yjs-hocuspocus-persistent-room-soak.mjs',
+      '../../../scripts/proof/persistent-browser-soak.mjs',
+      '../../../scripts/proof/yjs-hocuspocus-production-soak.mjs',
+    ]
+
+    assert.equal(scripts['test:yjs-collaboration-soak'], undefined)
+    assert.equal(scripts['test:yjs-hocuspocus-persistent-room-soak'], undefined)
+    assert.equal(scripts['test:persistent-soak'], undefined)
+    assert.equal(scripts['test:yjs-hocuspocus-production-soak'], undefined)
+
+    for (const manualSoakScript of manualSoakScripts) {
+      assert.equal(existsSync(new URL(manualSoakScript, import.meta.url)), true)
+    }
+
+    for (const script of Object.values(scripts)) {
+      assert.equal(
+        script.includes('scripts/proof/yjs-collaboration-soak.mjs'),
+        false
+      )
+      assert.equal(
+        script.includes(
+          'scripts/proof/yjs-hocuspocus-persistent-room-soak.mjs'
+        ),
+        false
+      )
+      assert.equal(
+        script.includes('scripts/proof/persistent-browser-soak.mjs'),
+        false
+      )
+      assert.equal(
+        script.includes('scripts/proof/yjs-hocuspocus-production-soak.mjs'),
+        false
+      )
+    }
+  })
+
+  it('keeps fast checks free of long-running proof gates', () => {
+    const rootPackage = readPackageJson('../../../package.json')
+    const scripts = rootPackage.scripts ?? {}
+    const fastScriptNames = [
+      'check',
+      'lint',
+      'typecheck',
+      'test',
+      'test:bun',
+      'test:vitest',
+    ]
+    const forbiddenFastCheckFragments = [
+      'test:integration',
+      'test:integration-local',
+      'test:release-proof',
+      'test:persistent-soak',
+      'test:mobile-device-proof',
+      'test:yjs-collaboration-soak',
+      'test:yjs-hocuspocus-persistent-room-soak',
+      'scripts/proof/',
+      'playwright test playwright/integration',
+    ]
+
+    for (const scriptName of fastScriptNames) {
+      const script = scripts[scriptName]
+
+      assert.equal(typeof script, 'string', `${scriptName} script must exist.`)
+
+      for (const fragment of forbiddenFastCheckFragments) {
+        assert.equal(
+          script.includes(fragment),
+          false,
+          `${scriptName} must not include ${fragment}.`
+        )
+      }
+    }
+
+    assert.match(scripts['check:full'] ?? '', /\btest:release-proof\b/)
+    assert.match(scripts['check:full'] ?? '', /\btest:integration-local\b/)
+  })
+
+  it('keeps Yjs collaboration benchmark phase metrics explicit', () => {
+    const rootPackage = readPackageJson('../../../package.json')
+    const scripts = rootPackage.scripts ?? {}
+    const benchmarkSource = readFileSync(
+      new URL(yjsCollaborationBenchmarkPath, import.meta.url),
+      'utf8'
+    )
+    const requiredMetricNames = [
+      'yjs_collaboration_worst_p95_ms',
+      'yjs_collaboration_worst_work_p95_ms',
+      'yjs_collaboration_worst_verification_p95_ms',
+      'yjs_large_doc_local_edit_p95_ms',
+      'yjs_large_doc_remote_apply_p95_ms',
+      'yjs_large_doc_remote_encode_p95_ms',
+      'yjs_large_doc_remote_sync_p95_ms',
+      'yjs_correctness_failures',
+    ]
+
+    assert.equal(
+      scripts['bench:core:yjs-collaboration:local'],
+      'bun ./scripts/benchmarks/core/current/yjs-collaboration.mjs'
+    )
+
+    for (const metricName of requiredMetricNames) {
+      assert.match(benchmarkSource, new RegExp(`\\b${metricName}:`))
+    }
+
+    assert.match(benchmarkSource, /phaseLanes:\s*\{/)
+    assert.match(
+      benchmarkSource,
+      /for \(const \[name, value\] of Object\.entries\(metrics\)\)/
+    )
+    assert.match(benchmarkSource, /METRIC \$\{name\}=\$\{value\}/)
+  })
+
+  it('keeps Yjs benchmark artifacts diagnostic enough for perf decisions', () => {
+    const benchmarkSource = readFileSync(
+      new URL(yjsCollaborationBenchmarkPath, import.meta.url),
+      'utf8'
+    )
+    const statsSource = readFileSync(
+      new URL(benchmarkStatsPath, import.meta.url),
+      'utf8'
+    )
+    const requiredSummaryFields = [
+      'samples',
+      'mean',
+      'median',
+      'p75',
+      'p95',
+      'p99',
+      'min',
+      'max',
+    ]
+
+    for (const field of requiredSummaryFields) {
+      assert.match(statsSource, new RegExp(`\\b${field}:`))
+    }
+
+    assert.match(benchmarkSource, /artifactVersion:\s*1/)
+    assert.match(benchmarkSource, /thresholdPolicy:\s*\{/)
+    assert.match(benchmarkSource, /releaseGate:\s*false/)
+    assert.match(benchmarkSource, /repeatRunsRequiredBeforeEnforcement:\s*3/)
+    assert.match(
+      benchmarkSource,
+      /tmp\/slate-yjs-collaboration-benchmark\.json/
+    )
   })
 
   it('keeps package exports aligned with built entrypoints', () => {

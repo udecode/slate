@@ -210,6 +210,33 @@ const syncPeerToConnectedPeers = (source, peers) => {
   }
 }
 
+const syncPeerToConnectedPeersWithTiming = (source, peers) => {
+  let applyDuration = 0
+  let encodeDuration = 0
+
+  if (!getYjsState(source).connected()) {
+    return { applyDuration, encodeDuration }
+  }
+
+  for (const target of peers) {
+    if (source === target || !getYjsState(target).connected()) {
+      continue
+    }
+
+    const encodeStart = performance.now()
+    const update = encodePeerUpdateForTarget(source, target)
+
+    encodeDuration += performance.now() - encodeStart
+
+    const applyStart = performance.now()
+
+    Y.applyUpdate(target.doc, update, source)
+    applyDuration += performance.now() - applyStart
+  }
+
+  return { applyDuration, encodeDuration }
+}
+
 const syncConnectedPeers = (peers) => {
   for (const source of peers) {
     syncPeerToConnectedPeers(source, peers)
@@ -386,21 +413,53 @@ const measureReconnect = () =>
   })
 
 const measureLargeDocSync = () =>
-  measurePhased({
-    setup: () => ({
-      peers: createSeededPeers({ blocks: largeBlocks, prefix: 'large' }),
-    }),
-    verify: ({ peers }) => {
+  (() => {
+    const localEditSamples = []
+    const remoteApplySamples = []
+    const remoteEncodeSamples = []
+    const remoteSyncSamples = []
+    const totalSamples = []
+    const verificationSamples = []
+    const workSamples = []
+
+    for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
+      const peers = createSeededPeers({ blocks: largeBlocks, prefix: 'large' })
+
+      const localEditStart = performance.now()
+      insertDistributedText(peers[0], largeOps, largeBlocks, 'l')
+      const localEditDuration = performance.now() - localEditStart
+
+      const remoteSyncStart = performance.now()
+      const remoteTiming = syncPeerToConnectedPeersWithTiming(peers[0], peers)
+      const remoteSyncDuration = performance.now() - remoteSyncStart
+      const workDuration = localEditDuration + remoteSyncDuration
+
+      const verificationStart = performance.now()
       assertPeerTexts(peers)
       assertPeersNoRootSnapshot(peers)
-    },
-    work: ({ peers }) => {
-      insertDistributedText(peers[0], largeOps, largeBlocks, 'l')
-      syncPeerToConnectedPeers(peers[0], peers)
+      const verificationDuration = performance.now() - verificationStart
 
-      return { peers }
-    },
-  })
+      if (iteration > 0) {
+        localEditSamples.push(localEditDuration)
+        remoteApplySamples.push(remoteTiming.applyDuration)
+        remoteEncodeSamples.push(remoteTiming.encodeDuration)
+        remoteSyncSamples.push(remoteSyncDuration)
+        workSamples.push(workDuration)
+        verificationSamples.push(verificationDuration)
+        totalSamples.push(workDuration + verificationDuration)
+      }
+    }
+
+    return {
+      localEdit: summarize(localEditSamples),
+      remoteApply: summarize(remoteApplySamples),
+      remoteEncode: summarize(remoteEncodeSamples),
+      remoteSync: summarize(remoteSyncSamples),
+      total: summarize(totalSamples),
+      verification: summarize(verificationSamples),
+      work: summarize(workSamples),
+    }
+  })()
 
 const measuredLanes = {
   multiEditorSync: measureMultiEditorSync(),
@@ -421,6 +480,10 @@ const workLanes = {
   awarenessUpdatesWorkMs: measuredLanes.awarenessUpdates.work,
   reconnectWorkMs: measuredLanes.reconnect.work,
   largeDocSyncWorkMs: measuredLanes.largeDocSync.work,
+  largeDocLocalEditMs: measuredLanes.largeDocSync.localEdit,
+  largeDocRemoteApplyMs: measuredLanes.largeDocSync.remoteApply,
+  largeDocRemoteEncodeMs: measuredLanes.largeDocSync.remoteEncode,
+  largeDocRemoteSyncMs: measuredLanes.largeDocSync.remoteSync,
 }
 
 const verificationLanes = {
@@ -445,6 +508,10 @@ const metrics = {
     verificationLanes.reconnectVerificationMs.p95,
   yjs_large_doc_sync_p95_ms: lanes.largeDocSyncMs.p95,
   yjs_large_doc_sync_work_p95_ms: workLanes.largeDocSyncWorkMs.p95,
+  yjs_large_doc_local_edit_p95_ms: workLanes.largeDocLocalEditMs.p95,
+  yjs_large_doc_remote_apply_p95_ms: workLanes.largeDocRemoteApplyMs.p95,
+  yjs_large_doc_remote_encode_p95_ms: workLanes.largeDocRemoteEncodeMs.p95,
+  yjs_large_doc_remote_sync_p95_ms: workLanes.largeDocRemoteSyncMs.p95,
   yjs_large_doc_sync_verification_p95_ms:
     verificationLanes.largeDocSyncVerificationMs.p95,
   yjs_collaboration_worst_p95_ms: Math.max(

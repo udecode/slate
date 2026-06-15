@@ -116,6 +116,10 @@ export type YjsTraceFallback =
 
 export type YjsTraceEntry = {
   readonly fallback?: YjsTraceFallback
+  /** Number of top-level Slate children read from Yjs during a full import. */
+  readonly importedChildren?: number
+  /** Describes the import strategy used when Yjs state is read into Slate. */
+  readonly importKind?: 'full-read-replace'
   readonly mode: YjsTraceMode
   readonly operationType?: string
 }

@@ -185,7 +185,7 @@ describe('scenario helpers', () => {
       'playwright/stress/generated-editing.test.ts'
     )
     expect(scripts['test:stress']).toContain('PLAYWRIGHT_RETRIES=0')
-    expect(scripts['test:release-proof']).toContain('test:persistent-soak')
+    expect(scripts['test:release-proof']).not.toContain('test:persistent-soak')
     expect(scripts['test:release-proof']).not.toContain(
       'test:mobile-device-proof:raw'
     )

@@ -534,7 +534,11 @@ export class YjsController {
 
     const children = readSlateValueFromYjs(this.root)
 
-    this.traceEntries.push({ mode })
+    this.traceEntries.push({
+      importedChildren: children.length,
+      importKind: 'full-read-replace',
+      mode,
+    })
     this.editorAdapter.replaceValue(
       children,
       this.awarenessAdapter.currentSelection()

@@ -13,7 +13,6 @@ export type SlateBrowserReleaseClaim =
   | 'ios-safari-device-browser-text-input'
   | 'ios-safari-device-browser-ime-commit'
   | 'native-mobile-clipboard'
-  | 'persistent-browser-caret-soak'
   | 'release-discipline-guards'
 
 export type SlateBrowserMobileReleaseCapability =
@@ -31,16 +30,6 @@ export type SlateBrowserMobileDeviceProofArtifact = {
   transport: BrowserMobileTransportId
 }
 
-export type SlateBrowserPersistentSoakProofArtifact = {
-  browserName: string
-  iterations: number
-  kind: 'persistent-browser-soak'
-  passed: boolean
-  profilePersistence: 'ephemeral' | 'persistent'
-  replayable: boolean
-  scenario: string
-}
-
 export type SlateBrowserReleaseDisciplineProofArtifact = {
   guards: string[]
   kind: 'release-discipline'
@@ -49,14 +38,12 @@ export type SlateBrowserReleaseDisciplineProofArtifact = {
 
 export type SlateBrowserReleaseProofArtifact =
   | SlateBrowserMobileDeviceProofArtifact
-  | SlateBrowserPersistentSoakProofArtifact
   | SlateBrowserReleaseDisciplineProofArtifact
 
 export type SlateBrowserReleaseProofOptions = {
   artifacts: readonly SlateBrowserReleaseProofArtifact[]
   claims: readonly SlateBrowserReleaseClaim[]
   requiredDisciplineGuards?: readonly string[]
-  requiredSoakIterations?: number
 }
 
 export type SlateBrowserReleaseProofResult = {
@@ -99,26 +86,6 @@ export const createBrowserMobileReleaseProofArtifact = ({
     transport,
   }
 }
-
-export const createPersistentBrowserSoakProofArtifact = ({
-  browserName,
-  iterations,
-  passed,
-  profilePersistence,
-  replayable,
-  scenario,
-}: Omit<
-  SlateBrowserPersistentSoakProofArtifact,
-  'kind'
->): SlateBrowserPersistentSoakProofArtifact => ({
-  browserName,
-  iterations,
-  kind: 'persistent-browser-soak',
-  passed,
-  profilePersistence,
-  replayable,
-  scenario,
-})
 
 export const createReleaseDisciplineProofArtifact = ({
   guards,
@@ -173,27 +140,6 @@ const validateMobileClaim = (
   }
 }
 
-const validatePersistentSoak = (
-  issues: string[],
-  artifacts: readonly SlateBrowserReleaseProofArtifact[],
-  requiredSoakIterations: number
-) => {
-  const artifact = artifacts.find(
-    (candidate) =>
-      candidate.kind === 'persistent-browser-soak' &&
-      candidate.passed &&
-      candidate.profilePersistence === 'persistent' &&
-      candidate.replayable &&
-      candidate.iterations >= requiredSoakIterations
-  )
-
-  if (!artifact) {
-    issues.push(
-      `Missing persistent browser soak proof with at least ${requiredSoakIterations} replayable iterations`
-    )
-  }
-}
-
 const validateReleaseDiscipline = (
   issues: string[],
   artifacts: readonly SlateBrowserReleaseProofArtifact[],
@@ -234,7 +180,6 @@ export const validateSlateBrowserReleaseProof = ({
   artifacts,
   claims,
   requiredDisciplineGuards = SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS,
-  requiredSoakIterations = 5,
 }: SlateBrowserReleaseProofOptions): SlateBrowserReleaseProofResult => {
   const issues: string[] = []
 
@@ -285,9 +230,6 @@ export const validateSlateBrowserReleaseProof = ({
           'ios-safari',
           'native-mobile-clipboard'
         )
-        break
-      case 'persistent-browser-caret-soak':
-        validatePersistentSoak(issues, artifacts, requiredSoakIterations)
         break
       case 'release-discipline-guards':
         validateReleaseDiscipline(issues, artifacts, requiredDisciplineGuards)

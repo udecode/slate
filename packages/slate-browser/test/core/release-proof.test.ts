@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import {
   assertSlateBrowserReleaseProof,
   createBrowserMobileReleaseProofArtifact,
-  createPersistentBrowserSoakProofArtifact,
   createReleaseDisciplineProofArtifact,
   SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS,
   type SlateBrowserMobileDeviceProofArtifact,
@@ -11,7 +10,7 @@ import {
 } from '../../src/core'
 
 describe('release proof helpers', () => {
-  test('accepts direct Appium mobile proof and persistent browser soak artifacts', () => {
+  test('accepts direct Appium mobile proof and release discipline artifacts', () => {
     const artifacts = [
       createBrowserMobileReleaseProofArtifact({
         passed: true,
@@ -22,14 +21,6 @@ describe('release proof helpers', () => {
         passed: true,
         scenario: 'inline-edge-ime',
         transport: 'appium-ios',
-      }),
-      createPersistentBrowserSoakProofArtifact({
-        browserName: 'chromium',
-        iterations: 5,
-        passed: true,
-        profilePersistence: 'persistent',
-        replayable: true,
-        scenario: 'richtext-warm-toolbar-mark-arrow-conformance',
       }),
       createReleaseDisciplineProofArtifact({
         guards: [...SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS],
@@ -45,7 +36,6 @@ describe('release proof helpers', () => {
           'android-chrome-device-browser-ime-commit',
           'ios-safari-device-browser-text-input',
           'ios-safari-device-browser-ime-commit',
-          'persistent-browser-caret-soak',
           'release-discipline-guards',
         ],
       })
@@ -117,28 +107,6 @@ describe('release proof helpers', () => {
     expect(result.issues).toEqual([
       'Missing automated-direct release proof for android-chrome native-mobile-clipboard',
       'Missing automated-direct release proof for ios-safari native-mobile-clipboard',
-    ])
-  })
-
-  test('requires persistent profile replay for browser soak claims', () => {
-    const result = validateSlateBrowserReleaseProof({
-      artifacts: [
-        createPersistentBrowserSoakProofArtifact({
-          browserName: 'chromium',
-          iterations: 50,
-          passed: true,
-          profilePersistence: 'ephemeral',
-          replayable: true,
-          scenario: 'richtext-warm-toolbar-mark-arrow-conformance',
-        }),
-      ],
-      claims: ['persistent-browser-caret-soak'],
-      requiredSoakIterations: 10,
-    })
-
-    expect(result.ok).toBe(false)
-    expect(result.issues).toEqual([
-      'Missing persistent browser soak proof with at least 10 replayable iterations',
     ])
   })
 
