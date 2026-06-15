@@ -255,6 +255,10 @@ Use `queries.fragment.get` to sanitize copied or dragged Slate fragments, such
 as removing local preview marks before DOM clipboard serialization. Product
 formats belong in those extension policies, not in Slate core.
 
+Slate's core fragment insertion stays structural. Grid-aware table paste, such
+as mapping copied cells onto existing target cells by row and column, belongs in
+the table extension's clipboard or fragment policy.
+
 ## Slot Reference
 
 Start with `elements`, `state`, and `tx`. Reach for the other slots only when

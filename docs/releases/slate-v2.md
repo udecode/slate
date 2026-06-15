@@ -495,7 +495,7 @@ collaboration, export, and selection case.
 | Collaboration adapters              | Slate keeps operations, commits, state patches, and collaboration-friendly model truth; Yjs adapter work is a later lane.                  |
 | Universal huge-document superiority | The product gate is green when the owned benchmark passes; broad cross-editor superiority stays diagnostic and scoped.                     |
 | Pagination/page layout              | `slate-layout` is experimental until product proof covers browser geometry, export, tables, images, collaboration, and selection behavior. |
-| Table-fragment merge policy         | Deferred policy lane unless explicitly reopened.                                                                                           |
+| Table-fragment merge policy         | Core fragment insertion is structural. Table-grid positional paste belongs in a table extension clipboard or fragment policy.              |
 
 ---
 

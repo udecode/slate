@@ -156,6 +156,11 @@ Options:
 #### `tx.fragment.insert(fragment: Node[], options?)`
 
 Insert a fragment at `options.at` or the transaction target.
+Slate's default insertion policy is structural. When a fragment contains nested
+blocks that match the active structural container, the first compatible source
+block can merge into the active block and later source siblings stay as inserted
+siblings. Product-specific positional behavior, such as multi-cell table-grid
+paste, belongs in an extension clipboard/fragment policy.
 
 Options:
 

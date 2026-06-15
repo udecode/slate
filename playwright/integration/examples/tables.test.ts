@@ -7,6 +7,9 @@ import {
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
 
+const encodeSlateFragment = (fragment: unknown) =>
+  globalThis.btoa(encodeURIComponent(JSON.stringify(fragment)))
+
 test.describe('table example', () => {
   test.beforeEach(async ({ page }) => {
     await installSlateReactRenderProfiler(page)
@@ -295,6 +298,60 @@ test.describe('table example', () => {
       await editor.assert.selection({
         anchor: { path: [1, 0, 0, 0], offset: 'Pasted'.length },
         focus: { path: [1, 0, 0, 0], offset: 'Pasted'.length },
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('pastes a Slate table fragment structurally without positional grid merge', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    const slateFragment = encodeSlateFragment([
+      {
+        children: [
+          {
+            children: [
+              {
+                children: [{ text: 'New 1' }],
+                type: 'table-cell',
+              },
+              {
+                children: [{ text: 'New 2' }],
+                type: 'table-cell',
+              },
+            ],
+            type: 'table-row',
+          },
+        ],
+        type: 'table',
+      },
+    ])
+
+    try {
+      await editor.selection.collapse({ path: [1, 0, 1, 0], offset: 5 })
+      await editor.clipboard.pasteEventPayload({
+        slateFragment,
+        text: 'New 1\tNew 2',
+      })
+
+      await expect
+        .poll(() =>
+          editor.root
+            .locator('tr')
+            .first()
+            .locator('td')
+            .evaluateAll((cells) => cells.map((cell) => cell.textContent ?? ''))
+        )
+        .toEqual(['', 'HumanNew 1', 'New 2', 'Dog', 'Cat'])
+      await editor.assert.selection({
+        anchor: { path: [1, 0, 2, 0], offset: 'New 2'.length },
+        focus: { path: [1, 0, 2, 0], offset: 'New 2'.length },
       })
       runtimeErrors.assertNone()
     } finally {
