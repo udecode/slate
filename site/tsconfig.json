@@ -16,6 +16,9 @@
     "incremental": true,
     "paths": {
       "@/*": ["./*"],
+      "@slate/yjs": ["../packages/slate-yjs/src/index.ts"],
+      "@slate/yjs/core": ["../packages/slate-yjs/src/core/index.ts"],
+      "@slate/yjs/react": ["../packages/slate-yjs/src/react/index.ts"],
       "slate": ["../packages/slate/src/index.ts"],
       "slate-browser/*": ["../packages/slate-browser/src/*"],
       "slate-dom": ["../packages/slate-dom/src/index.ts"],

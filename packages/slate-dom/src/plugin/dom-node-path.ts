@@ -39,6 +39,12 @@ export const resolveMountedDOMPath = <V extends Value>(
   editor: DOMEditor<V>,
   element: HTMLElement
 ): Path | null => {
+  const runtimePath = getSlateDOMRuntimePath(editor, element)
+
+  if (runtimePath && Editor.hasPath(editor, runtimePath)) {
+    return runtimePath
+  }
+
   const attributePath = parseSlateDOMPath(
     element.getAttribute('data-slate-path')
   )
@@ -47,9 +53,7 @@ export const resolveMountedDOMPath = <V extends Value>(
     return attributePath
   }
 
-  const runtimePath = getSlateDOMRuntimePath(editor, element)
-
-  return runtimePath && Editor.hasPath(editor, runtimePath) ? runtimePath : null
+  return null
 }
 
 export const findMountedDOMNodeByPath = <V extends Value>(

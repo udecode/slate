@@ -227,6 +227,62 @@ Keeping those owners separate is what lets Plate, CRDT adapters, custom
 storage, and local-only editors share the same raw Slate substrate without
 making the editor object grow adapter-specific namespaces.
 
+## Hocuspocus transport
+
+`@slate/yjs` accepts a `YjsProviderLike`. Hocuspocus stays at the application
+edge: wrap its provider so `provider.document` is exposed as `doc`, then pass
+that adapter to `createYjsExtension`.
+
+Run the local Hocuspocus server:
+
+```sh
+bun start:yjs
+```
+
+Then run the examples site and open `/examples/yjs-hocuspocus`:
+
+```sh
+bun serve
+```
+
+The server mirrors the Potion deployment shape without requiring Potion's
+Prisma document table. It loads and stores binary Yjs snapshots under
+`.tmp/yjs-documents` and writes a JSON debug view of the Slate value next to
+each snapshot.
+
+```dotenv
+SLATE_YJS_PORT=4444
+SLATE_YJS_HOST=0.0.0.0
+SLATE_YJS_PATH=/yjs
+SLATE_YJS_TIMEOUT=10000
+SLATE_YJS_DEBOUNCE=2000
+SLATE_YJS_MAX_DEBOUNCE=10000
+SLATE_YJS_STORAGE_DIR=.tmp/yjs-documents
+
+NEXT_PUBLIC_SLATE_YJS_URL=ws://localhost:4444/yjs
+NEXT_PUBLIC_SLATE_YJS_ROOM=slate-yjs-hocuspocus-demo
+```
+
+Redis is optional for local development and useful when scaling more than one
+Hocuspocus instance:
+
+```dotenv
+SLATE_YJS_REDIS_ENABLED=1
+SLATE_YJS_REDIS_HOST=127.0.0.1
+SLATE_YJS_REDIS_PORT=6379
+```
+
+For local auth smoke tests, set a server token and pass the matching public
+demo token:
+
+```dotenv
+SLATE_YJS_AUTH_TOKEN=local-write-token
+NEXT_PUBLIC_SLATE_YJS_TOKEN=local-write-token
+```
+
+Real products should mint short-lived tokens server-side. Do not ship a write
+token as a public browser variable.
+
 ## Extension helpers
 
 Extensions can add grouped `state` and `tx` helpers for higher-level behavior.

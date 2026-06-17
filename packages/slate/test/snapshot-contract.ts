@@ -3343,11 +3343,16 @@ it('supports split_node on a text path and keeps the original id on the left bra
   })
 
   const after = Editor.getSnapshot(editor)
+  const commit = Editor.getLastCommit(editor)
 
   assert.equal(after.children[0].children[0].text, 'alp')
   assert.equal(after.children[0].children[1].text, 'ha')
   assert.equal(after.index.pathToId['0.0'], leftId)
   assert.notEqual(after.index.pathToId['0.1'], leftId)
+  assert.equal(commit?.structureChanged, true)
+  assert.equal(commit?.textChanged, true)
+  assert.deepEqual(commit?.dirtyTextRuntimeIds, [leftId])
+  assert.deepEqual(commit?.textDirtyRuntimeIds, [leftId])
   assert.deepEqual(after.selection, {
     anchor: { path: [0, 1], offset: 0 },
     focus: { path: [0, 1], offset: 0 },

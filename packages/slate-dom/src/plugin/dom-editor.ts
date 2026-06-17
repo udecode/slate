@@ -518,18 +518,26 @@ const resolveSlatePointFromDOMCoverageBoundary = (
 }
 
 const resolveSlateTextPoint = ({
+  editor,
   exactMatch,
   offset,
   path,
   slateNode,
 }: {
+  editor: DOMEditor<any>
   exactMatch: boolean
   offset: number
   path: Path
   slateNode: Node
 }): Point | null => {
   if (!TextApi.isText(slateNode)) {
-    return { path, offset }
+    if (!Editor.hasPath(editor, path)) {
+      return null
+    }
+
+    return Editor.point(editor, path, {
+      edge: offset <= 0 ? 'start' : 'end',
+    })
   }
 
   const textLength = slateNode.text.length
@@ -1725,6 +1733,7 @@ export const DOMEditor: DOMEditorInterface = {
           state.nodes.get(fallbackPath)
         )
         const point = resolveSlateTextPoint({
+          editor,
           exactMatch,
           offset,
           path: fallbackPath,
@@ -1738,6 +1747,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     const point = resolveSlateTextPoint({
+      editor,
       exactMatch,
       offset,
       path,

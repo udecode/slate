@@ -30,11 +30,9 @@ export {
 export {
   assertSlateBrowserReleaseProof,
   createBrowserMobileReleaseProofArtifact,
-  createPersistentBrowserSoakProofArtifact,
   createReleaseDisciplineProofArtifact,
   SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS,
   type SlateBrowserMobileDeviceProofArtifact,
-  type SlateBrowserPersistentSoakProofArtifact,
   type SlateBrowserReleaseClaim,
   type SlateBrowserReleaseDisciplineProofArtifact,
   type SlateBrowserReleaseProofArtifact,

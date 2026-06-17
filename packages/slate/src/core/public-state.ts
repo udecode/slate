@@ -135,6 +135,7 @@ import {
   getOperationScopePaths,
   getSelectionImpactRuntimeIds,
   operationChangesTopLevelOrder,
+  operationChangesTextContent,
   operationTouchesOnlyTopLevelPaths,
   uniqPaths,
   uniqRuntimeIds,
@@ -985,6 +986,9 @@ export const getOperationDirtiness = (
   const hasReplaceFragmentOperation = operations.some(
     (op) => op.type === 'replace_fragment'
   )
+  const hasStructuralTextOperation = operations.some(
+    operationChangesTextContent
+  )
   const classes =
     reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
@@ -1000,7 +1004,9 @@ export const getOperationDirtiness = (
             )
           ? (['text'] as const)
           : operations.length > 0
-            ? (['structural'] as const)
+            ? hasStructuralTextOperation
+              ? (['structural', 'text'] as const)
+              : (['structural'] as const)
             : statePatches.length > 0
               ? (['state'] as const)
               : (['mark'] as const)
@@ -3129,6 +3135,10 @@ export const buildSnapshotChange = ({
     'build-snapshot-change:classify-fragment',
     () => operations.some((op) => op.type === 'replace_fragment')
   )
+  const hasStructuralTextOperation = profileCoreDuration(
+    'build-snapshot-change:classify-structural-text',
+    () => operations.some(operationChangesTextContent)
+  )
   const classes = profileCoreDuration('build-snapshot-change:classes', () =>
     reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
@@ -3144,7 +3154,9 @@ export const buildSnapshotChange = ({
             )
           ? (['text'] as const)
           : operations.length > 0
-            ? (['structural'] as const)
+            ? hasStructuralTextOperation
+              ? (['structural', 'text'] as const)
+              : (['structural'] as const)
             : statePatches.length > 0
               ? (['state'] as const)
               : (['mark'] as const)

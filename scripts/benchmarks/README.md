@@ -48,6 +48,7 @@ Current live family owners:
 - editor store/public snapshot surface
 - refs/projection
 - history retained memory
+- Yjs collaboration
 
 ### `core/compare`
 
@@ -130,6 +131,7 @@ Current artifact owners:
 - `tmp/slate-history-retained-memory.json`
 - `tmp/slate-editor-store-benchmark.json`
 - `tmp/slate-refs-projection-benchmark.json`
+- `tmp/slate-yjs-collaboration-benchmark.json`
 - `tmp/slate-normalization-compare-benchmark.json`
 - `tmp/slate-core-observation-benchmark.json`
 - `tmp/slate-core-huge-document-benchmark.json`
@@ -150,6 +152,7 @@ bun run bench:core:node-transforms:local
 bun run bench:core:text-selection:local
 bun run bench:core:editor-store:local
 bun run bench:core:refs-projection:local
+bun run bench:core:yjs-collaboration:local
 bun run bench:core:clipboard-large-payload:local
 bun run bench:core:normalization:compare:local
 bun run bench:core:observation:compare:local

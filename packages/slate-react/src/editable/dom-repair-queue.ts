@@ -445,6 +445,9 @@ export const createDOMRepairQueue = ({
           !!nativeInput.target &&
           !!liveDOMPath &&
           PathApi.equals(liveDOMPath, nativeInput.target.path)
+        const capturedInsertStillOwnsDOMTarget =
+          !!nativeInput.target?.preferCapturedInsert &&
+          targetPathStillOwnsDOMSelection
         const targetTextHostStillOwnsPathlessDOMSelection =
           !!nativeInput.target &&
           !!liveDOMTextHost &&
@@ -484,6 +487,7 @@ export const createDOMRepairQueue = ({
           shouldReplaceExpandedSelection ||
           targetInsertStillOwnsSamePathDOMSelection ||
           capturedInsertStillOwnsDOMSelection ||
+          capturedInsertStillOwnsDOMTarget ||
           targetInsertStillOwnsPathlessEditorSelection ||
           capturedInsertStillOwnsVirtualizedPath ||
           !nativeInput.target ||

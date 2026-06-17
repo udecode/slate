@@ -51,6 +51,8 @@ const EXAMPLE_IMPORTERS: Record<
   styling: () => import('../../examples/ts/styling'),
   'synced-blocks': () => import('../../examples/ts/synced-blocks'),
   tables: () => import('../../examples/ts/tables'),
+  'yjs-collaboration': () => import('../../examples/ts/yjs-collaboration'),
+  'yjs-hocuspocus': () => import('../../examples/ts/yjs-hocuspocus'),
 }
 
 const EXAMPLES: ExampleTuple[] = EXAMPLE_NAMES_AND_PATHS.map(([name, path]) => [

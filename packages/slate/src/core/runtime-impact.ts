@@ -243,6 +243,10 @@ export const operationChangesTopLevelOrder = (
   }
 }
 
+export function operationChangesTextContent(operation: Operation): boolean {
+  return operation.type === 'split_node' && operation.path.length > 1
+}
+
 export const getOperationScopePaths = (
   operations: readonly Operation[]
 ): Path[] =>
@@ -282,6 +286,13 @@ export const getTextOperationPaths = (
     operation.type === 'insert_text' || operation.type === 'remove_text'
       ? [operation.path]
       : []
+  )
+
+const getStructuralTextOperationPaths = (
+  operations: readonly Operation[]
+): Path[] =>
+  operations.flatMap((operation) =>
+    operationChangesTextContent(operation) ? [operation.path] : []
   )
 
 const getTextElementPaths = (operations: readonly Operation[]): Path[] =>
@@ -500,6 +511,14 @@ export const buildCommitRuntimeDirtiness = ({
     }
   }
 
+  const structuralTextRuntimeIds =
+    changeClass === 'structural'
+      ? getRuntimeIdsForPaths(
+          getStructuralTextOperationPaths(operations),
+          previousIndex,
+          nextIndex
+        )
+      : []
   const dirtyTextRuntimeIds =
     changeClass === 'text'
       ? getRuntimeIdsForPaths(
@@ -507,7 +526,7 @@ export const buildCommitRuntimeDirtiness = ({
           previousIndex,
           nextIndex
         )
-      : []
+      : structuralTextRuntimeIds
   const dirtyElementRuntimeIds =
     changeClass === 'structural'
       ? null
@@ -524,7 +543,9 @@ export const buildCommitRuntimeDirtiness = ({
     affectedProjectionRuntimeIds: decorationImpactRuntimeIds,
     affectedSelectionRuntimeIds: selectionImpactRuntimeIds,
     affectedTextRuntimeIds:
-      changeClass === 'text' ? dirtyTextRuntimeIds : ([] as RuntimeId[]),
+      changeClass === 'text' || structuralTextRuntimeIds.length > 0
+        ? dirtyTextRuntimeIds
+        : ([] as RuntimeId[]),
     dirtyElementRuntimeIds,
     dirtyTextRuntimeIds,
     dirtyTopLevelRanges: getTopLevelRanges(scopePaths),
@@ -540,7 +561,9 @@ export const buildCommitRuntimeDirtiness = ({
     structuralDirtyRuntimeIds:
       changeClass === 'structural' ? null : ([] as RuntimeId[]),
     textDirtyRuntimeIds:
-      changeClass === 'text' ? dirtyTextRuntimeIds : ([] as RuntimeId[]),
+      changeClass === 'text' || structuralTextRuntimeIds.length > 0
+        ? dirtyTextRuntimeIds
+        : ([] as RuntimeId[]),
     topLevelOrderChanged,
   }
 }
