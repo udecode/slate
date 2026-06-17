@@ -6,7 +6,11 @@
   "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -25,7 +29,7 @@
     "slate": "workspace:*"
   },
   "peerDependencies": {
-    "slate": ">=0.114.3"
+    "slate": ">=0.124.2"
   },
   "keywords": [
     "editor",

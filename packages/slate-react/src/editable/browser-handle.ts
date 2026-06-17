@@ -1,5 +1,5 @@
 import {
-  type EditorApplyOperationsOptions,
+  type EditorUpdateOptions,
   type Operation,
   type Path,
   type Range,
@@ -11,7 +11,7 @@ import {
   didSyncTextPathToDOM,
   getSlateNodeElementByPath,
 } from '../hooks/use-slate-node-ref'
-import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   createSlateViewBoundaryGraph,
   type SlateViewBoundaryGraphNodeInput,
@@ -35,6 +35,7 @@ import {
 } from './mutation-controller'
 import { getProjectedNativeAffordanceMatrix } from './projected-native-affordance'
 import { Editor } from './runtime-editor-api'
+import { readRuntimeText } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
   executeEditableSelectionImport,
@@ -46,7 +47,7 @@ import {
 export type SlateBrowserHandle = {
   applyOperations: (
     operations: readonly Operation[],
-    options?: EditorApplyOperationsOptions
+    options?: EditorUpdateOptions
   ) => void
   createRangeRef: (
     selection: Range,
@@ -55,12 +56,15 @@ export type SlateBrowserHandle = {
   deleteBackward: () => void
   deleteForward: () => void
   deleteFragment: () => void
+  clearSettledPendingNativeTextInputRepair: () => boolean
   focus: () => void
   getKernelTrace: () => unknown[]
+  getHistory: () => unknown
   getInputState: () => unknown
   getLastCommit: () => unknown
   getBlockText: (index: number) => string | null
   getBlockTexts: () => string[]
+  getDOMSelection: () => Range | null
   getElementByPath: (path: Path) => HTMLElement | null
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
   getProjectedNativeAffordanceMatrix: () => unknown
@@ -70,12 +74,17 @@ export type SlateBrowserHandle = {
   getViewSelection: () => unknown
   importDOMSelection: () => Range | null
   insertBreak: () => void
-  insertData: (payload: { html?: string | null; text?: string }) => void
+  insertData: (payload: {
+    html?: string | null
+    slateFragment?: string | null
+    text?: string | null
+  }) => void
   insertText: (text: string) => void
   redo: () => void
   resolveRangeRef: (id: string) => Range | null
   selectAll: () => void
   selectRange: (selection: Range) => void
+  setNativeDOMSelection: (selection: Range) => boolean
   scrollPathIntoView: (
     path: Path,
     align?: EditableDOMStrategyScrollAlign
@@ -97,6 +106,50 @@ export type SlateBrowserHandleElement = HTMLDivElement & {
 
 type RefBox<T> = {
   current: T
+}
+
+const createBrowserHandleDataTransfer = ({
+  html,
+  slateFragment,
+  text,
+}: {
+  html?: string | null
+  slateFragment?: string | null
+  text?: string | null
+}): DataTransfer => {
+  const records = new Map<string, string>()
+
+  if (html) {
+    records.set('text/html', html)
+  }
+  if (text) {
+    records.set('text/plain', text)
+  }
+  if (slateFragment) {
+    records.set('application/x-slate-fragment', slateFragment)
+  }
+
+  return {
+    clearData: (format?: string) => {
+      if (format) {
+        records.delete(format)
+      } else {
+        records.clear()
+      }
+    },
+    dropEffect: 'none',
+    effectAllowed: 'all',
+    files: [] as unknown as FileList,
+    getData: (format: string) => records.get(format) ?? '',
+    get types() {
+      return [...records.keys()]
+    },
+    items: [] as unknown as DataTransferItemList,
+    setData: (format: string, value: string) => {
+      records.set(format, value)
+    },
+    setDragImage: () => {},
+  } as unknown as DataTransfer
 }
 
 export const attachSlateBrowserHandle = ({
@@ -253,6 +306,70 @@ export const attachSlateBrowserHandle = ({
     deleteFragment: () => {
       runCommand({ kind: 'delete-fragment' })
     },
+    clearSettledPendingNativeTextInputRepair: () => {
+      const pathKey = inputController.state.pendingNativeTextInputRepairPathKey
+      const offset = inputController.state.pendingNativeTextInputRepairOffset
+
+      if (!pathKey || offset == null) {
+        return true
+      }
+
+      const modelSelection = readRuntimeSelection(editor)
+
+      if (
+        !modelSelection ||
+        !RangeApi.isCollapsed(modelSelection) ||
+        modelSelection.anchor.path.join(',') !== pathKey ||
+        modelSelection.anchor.offset !== offset
+      ) {
+        return false
+      }
+
+      const root = ReactEditor.findDocumentOrShadowRoot(editor)
+      const selection = 'getSelection' in root ? root.getSelection() : null
+
+      if (!selection || selection.rangeCount === 0) {
+        return false
+      }
+
+      const domRange = ReactEditor.resolveSlateRange(editor, selection, {
+        exactMatch: false,
+      })
+
+      if (
+        !domRange ||
+        !RangeApi.isCollapsed(domRange) ||
+        domRange.anchor.path.join(',') !== pathKey ||
+        domRange.anchor.offset !== offset
+      ) {
+        return false
+      }
+
+      const anchorNode = selection.anchorNode
+      const anchorElement =
+        anchorNode && anchorNode.nodeType === Node.TEXT_NODE
+          ? anchorNode.parentElement
+          : anchorNode instanceof Element
+            ? anchorNode
+            : null
+      const textHost = anchorElement?.closest('[data-slate-node="text"]')
+      const slateText = readRuntimeText(editor, domRange.anchor.path)?.text
+      const domText = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+
+      if (
+        !textHost ||
+        textHost.getAttribute('data-slate-path') !== pathKey ||
+        slateText == null ||
+        domText !== slateText
+      ) {
+        return false
+      }
+
+      inputController.state.pendingNativeTextInputRepairOffset = null
+      inputController.state.pendingNativeTextInputRepairPathKey = null
+
+      return true
+    },
     focus: () => {
       setEditableModelSelectionPreference({
         inputController,
@@ -265,6 +382,40 @@ export const attachSlateBrowserHandle = ({
       forceRender()
     },
     getKernelTrace: () => [...getEditableKernelTrace(editor)],
+    getHistory: () =>
+      editor.read((state) => {
+        const history = (
+          state as {
+            history?: {
+              redos?: () => readonly unknown[]
+              undos?: () => readonly unknown[]
+            }
+          }
+        ).history
+        const summarizeBatch = (batch: unknown) => {
+          const record = batch as {
+            operations?: readonly Record<string, unknown>[]
+            statePatches?: readonly unknown[]
+          }
+
+          return {
+            operations:
+              record.operations?.map((operation) => ({
+                offset: operation.offset,
+                path: operation.path,
+                root: operation.root,
+                text: operation.text,
+                type: operation.type,
+              })) ?? [],
+            statePatchCount: record.statePatches?.length ?? 0,
+          }
+        }
+
+        return {
+          redos: history?.redos?.().map(summarizeBatch) ?? [],
+          undos: history?.undos?.().map(summarizeBatch) ?? [],
+        }
+      }),
     getLastCommit: () => Editor.getLastCommit(editor),
     getElementByPath: (path) => getSlateNodeElementByPath(editor, path),
     getPathByRuntimeId: (runtimeId) =>
@@ -298,6 +449,8 @@ export const attachSlateBrowserHandle = ({
         inputController.state.pendingNativeTextInputRepairPathKey ?? null,
       preferModelSelection:
         inputController.preferModelSelectionForInputRef.current,
+      recentTextInputRepairEcho:
+        inputController.state.recentTextInputRepairEcho ?? null,
       selectionChangeOrigin: inputController.state.selectionChangeOrigin,
       selectionSource: inputController.state.selectionSource,
     }),
@@ -314,6 +467,22 @@ export const attachSlateBrowserHandle = ({
       Editor.getSnapshot(editor).children.map((_child, index) =>
         Editor.string(editor, [index])
       ),
+    getDOMSelection: () => {
+      const root = ReactEditor.findDocumentOrShadowRoot(editor)
+      const selection = 'getSelection' in root ? root.getSelection() : null
+
+      if (!selection || selection.rangeCount === 0) {
+        return null
+      }
+
+      try {
+        return ReactEditor.resolveSlateRange(editor, selection, {
+          exactMatch: false,
+        })
+      } catch {
+        return null
+      }
+    },
     getText: () => Editor.string(editor, []),
     getViewSelection: () => readSlateViewSelection(editor),
     importDOMSelection: () => {
@@ -327,6 +496,7 @@ export const attachSlateBrowserHandle = ({
             preferModelSelection: false,
             selectionSource: 'dom-current',
           })
+          writeSlateViewSelection(editor, null)
           inputController.state.isUpdatingSelection = false
           inputController.state.selectionChangeOrigin = 'native-user'
           syncEditorSelectionFromDOM({
@@ -365,17 +535,12 @@ export const attachSlateBrowserHandle = ({
     insertBreak: () => {
       runCommand({ kind: 'insert-break', variant: 'paragraph' })
     },
-    insertData: ({ html, text }) => {
-      const data = new DataTransfer()
-
-      if (html) {
-        data.setData('text/html', html)
-      }
-
-      if (text) {
-        data.setData('text/plain', text)
-      }
-
+    insertData: ({ html, slateFragment, text }) => {
+      const data = createBrowserHandleDataTransfer({
+        html,
+        slateFragment,
+        text,
+      })
       runCommand({ data, kind: 'insert-data' })
     },
     insertText: (text) => {
@@ -442,6 +607,7 @@ export const attachSlateBrowserHandle = ({
       })
       inputController.state.isUpdatingSelection = true
       inputController.state.selectionChangeOrigin = 'browser-handle'
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(selection)
       })
@@ -468,6 +634,66 @@ export const attachSlateBrowserHandle = ({
             previousIsUpdatingSelection
         }
       })
+    },
+    setNativeDOMSelection: (selection) => {
+      const domRange = editor.api.dom.resolveDOMRange(selection)
+
+      if (!domRange) {
+        return false
+      }
+
+      const currentElement = getCurrentHandleElement()
+      const rootNode = currentElement.getRootNode() as Document | ShadowRoot
+      const ShadowRootConstructor =
+        currentElement.ownerDocument.defaultView?.ShadowRoot
+      const nativeSelection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : currentElement.ownerDocument.getSelection()
+
+      if (!nativeSelection) {
+        return false
+      }
+
+      currentElement.focus({ preventScroll: true })
+      const documentSelection = currentElement.ownerDocument.getSelection()
+      const selectionCandidates = [
+        nativeSelection,
+        documentSelection === nativeSelection ? null : documentSelection,
+      ].filter((candidate): candidate is Selection => !!candidate)
+      const applyNativeSelection = (candidate: Selection) => {
+        candidate.removeAllRanges()
+
+        if (
+          RangeApi.isBackward(selection) &&
+          !RangeApi.isCollapsed(selection)
+        ) {
+          const range = currentElement.ownerDocument.createRange()
+
+          range.setStart(domRange.endContainer, domRange.endOffset)
+          range.collapse(true)
+          candidate.addRange(range)
+          candidate.extend(domRange.startContainer, domRange.startOffset)
+        } else {
+          candidate.addRange(domRange)
+        }
+
+        return candidate.rangeCount > 0
+      }
+
+      if (!selectionCandidates.some(applyNativeSelection)) {
+        return false
+      }
+
+      currentElement.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      if (ShadowRootConstructor && rootNode instanceof ShadowRootConstructor) {
+        rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      }
+
+      return true
     },
     scrollPathIntoView: (path, align = 'center') =>
       scrollPathIntoView?.(path, align) ?? false,

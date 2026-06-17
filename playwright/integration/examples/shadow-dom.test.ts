@@ -21,6 +21,28 @@ const focusTextboxEnd = async (textbox: Locator) => {
   })
 }
 
+const getShadowNativeSelection = async (textbox: Locator) =>
+  textbox.evaluate((element: Element) => {
+    const root = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in root
+        ? root.getSelection()
+        : element.ownerDocument.getSelection()
+    const anchorNode = selection?.anchorNode ?? null
+    const focusNode = selection?.focusNode ?? null
+
+    return {
+      anchorOffset: selection?.anchorOffset ?? null,
+      anchorText: anchorNode?.textContent ?? null,
+      containsAnchor: !!anchorNode && element.contains(anchorNode),
+      containsFocus: !!focusNode && element.contains(focusNode),
+      focusOffset: selection?.focusOffset ?? null,
+      focusText: focusNode?.textContent ?? null,
+      isCollapsed: selection?.isCollapsed ?? null,
+      text: selection?.toString() ?? null,
+    }
+  })
+
 const selectEnd = async (
   editor: ReturnType<typeof createSlateBrowserEditorHarness>
 ) => {
@@ -142,12 +164,46 @@ test.describe('shadow-dom example', () => {
     assertNoIllegalKernelTransitions(result)
   })
 
+  test('sets the native caret through slate-browser DOM helpers inside shadow DOM', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM ranges'
+    )
+    test.skip(
+      browserName === 'webkit',
+      'WebKit drops programmatic native ranges inside nested shadow DOM'
+    )
+
+    const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
+    const innerShadow = outerShadow.locator('> div')
+    const textbox = innerShadow.getByRole('textbox')
+    const editor = createSlateBrowserEditorHarness(page, 'shadow-dom', textbox)
+    const offset = 4
+    const text = ' DOM'
+
+    await expect(textbox).toHaveCount(1)
+    await editor.dom.collapseAtTextPath({ path: [0, 0], offset })
+    await page.keyboard.type(text, { delay: 0 })
+
+    await expect
+      .poll(() => editor.get.text())
+      .toBe(`This${text} Editor is rendered within a nested Shadow DOM.`)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: offset + text.length },
+      focus: { path: [0, 0], offset: offset + text.length },
+    })
+  })
+
   test('keeps shadow DOM ArrowLeft movement model-owned inside the shadow root', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM keyboard ranges'
+    )
 
     const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
     const innerShadow = outerShadow.locator('> div')
@@ -164,31 +220,38 @@ test.describe('shadow-dom example', () => {
         anchor: { path: [0, 0], offset: 50 },
         focus: { path: [0, 0], offset: 50 },
       })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'horizontal',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'horizontal',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'horizontal',
+              ownership: 'model-owned',
+              reason: 'model-horizontal-inline-void',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'horizontal',
-            ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void',
-          }),
-        }),
-      ])
-    )
+        ])
+      )
   })
 
   test('deletes RTL text with Backspace inside shadow DOM', async ({
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM keyboard ranges'
+    )
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit shadow DOM selectAll handle does not sync selection for RTL delete proof'
+    )
 
     const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
     const innerShadow = outerShadow.locator('> div')
@@ -209,6 +272,18 @@ test.describe('shadow-dom example', () => {
     await editor.assert.text(rtlText)
 
     await editor.selection.collapse({ path: [0, 0], offset: rtlText.length })
+    await expect
+      .poll(() => getShadowNativeSelection(textbox))
+      .toMatchObject({
+        anchorOffset: rtlText.length,
+        anchorText: rtlText,
+        containsAnchor: true,
+        containsFocus: true,
+        focusOffset: rtlText.length,
+        focusText: rtlText,
+        isCollapsed: true,
+        text: '',
+      })
     await editor.press('Backspace')
 
     await editor.assert.text('שלו')
@@ -216,6 +291,18 @@ test.describe('shadow-dom example', () => {
       anchor: { path: [0, 0], offset: rtlText.length - 1 },
       focus: { path: [0, 0], offset: rtlText.length - 1 },
     })
+    await expect
+      .poll(() => getShadowNativeSelection(textbox))
+      .toMatchObject({
+        anchorOffset: rtlText.length - 1,
+        anchorText: 'שלו',
+        containsAnchor: true,
+        containsFocus: true,
+        focusOffset: rtlText.length - 1,
+        focusText: 'שלו',
+        isCollapsed: true,
+        text: '',
+      })
   })
 
   test('user can type add a new line in editor inside shadow DOM', async ({
@@ -264,6 +351,6 @@ test.describe('shadow-dom example', () => {
     expect(pageErrors, 'Page errors occurred').toEqual([])
 
     await expect(textbox).toContainText('New line text')
-    expect(await editor.get.text()).toContain('New line text')
+    await expect.poll(() => editor.get.text()).toContain('New line text')
   })
 })

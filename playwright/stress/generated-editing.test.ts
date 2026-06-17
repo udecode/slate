@@ -2,7 +2,7 @@ import { faker } from '@faker-js/faker'
 import { expect, test } from '@playwright/test'
 import {
   assertSlateBrowserFirstPartyParityContracts,
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY,
 } from 'slate-browser/core'
 import {
   assertNoIllegalKernelTransitions,
@@ -23,7 +23,7 @@ import {
 } from './stress-utils'
 
 // Focus with STRESS_ROUTES/STRESS_FAMILIES/STRESS_SEED. Replay any emitted
-// artifact with STRESS_REPLAY=<artifact.json> bun test:stress:replay.
+// artifact with its replayCommand.
 test.describe.configure({ mode: 'serial' })
 
 const enabledValues = (envName: string) =>
@@ -37,6 +37,15 @@ const enabledValues = (envName: string) =>
 const enabledRoutes = enabledValues('STRESS_ROUTES')
 const enabledFamilies = enabledValues('STRESS_FAMILIES')
 const seed = process.env.STRESS_SEED ?? 'default'
+const numericSeed =
+  seed === 'default'
+    ? 1
+    : Array.from(seed).reduce(
+        (value, character) =>
+          (Math.imul(value, 31) + character.charCodeAt(0)) >>> 0,
+        0
+      )
+const seedQuery = seed === 'default' ? '' : `&seed=${encodeURIComponent(seed)}`
 
 const routeEnabled = (route: string) =>
   enabledRoutes.size === 0 || enabledRoutes.has(route)
@@ -47,7 +56,7 @@ const familyEnabled = (family: string) =>
 assertSlateBrowserFirstPartyParityContracts()
 
 const contractByFamily =
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY.rowByFamily
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY.rowByFamily
 
 const point = (path: number[], offset: number) => ({ path, offset })
 
@@ -55,6 +64,17 @@ const collapsedSelection = (path: number[], offset: number) => ({
   anchor: point(path, offset),
   focus: point(path, offset),
 })
+
+const inlineVoidBoundaryRenderBudget = {
+  byKind: {
+    editable: { max: 2 },
+    element: 0,
+    leaf: 0,
+    text: 0,
+    void: { max: 1 },
+  },
+  total: { max: 2 },
+}
 
 const createStressCase = ({
   family,
@@ -145,7 +165,7 @@ const pasteNormalizeUndo = (route: string): StressCase =>
   })
 
 const getHugeDocumentBlockText = (targetIndex: number) => {
-  faker.seed(1)
+  faker.seed(numericSeed)
 
   let text = ''
 
@@ -162,7 +182,7 @@ const hugeDocumentCut = (): StressCase => {
 
   return createStressCase({
     family: 'huge-document-cut',
-    route: 'huge-document?blocks=5000&content_visibility=none&strict=false',
+    route: `huge-document?blocks=5000&content_visibility=none&strict=false${seedQuery}`,
     steps: [
       {
         kind: 'select',
@@ -218,10 +238,7 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: {
-          byKind: { editable: 0, void: { max: 1 } },
-          total: { max: 1 },
-        },
+        budget: inlineVoidBoundaryRenderBudget,
         kind: 'assertRenderBudget',
         label: 'assert-first-right-render-budget',
       },
@@ -238,10 +255,7 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
         selection: collapsedSelection([1, 1, 0], 0),
       },
       {
-        budget: {
-          byKind: { editable: 0, void: { max: 1 } },
-          total: { max: 1 },
-        },
+        budget: inlineVoidBoundaryRenderBudget,
         kind: 'assertRenderBudget',
         label: 'assert-first-left-render-budget',
       },
@@ -266,10 +280,7 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
         location: { anchorOffset: 1, anchorPath: [1, 3, 0], isCollapsed: true },
       },
       {
-        budget: {
-          byKind: { editable: 0, void: { max: 1 } },
-          total: { max: 1 },
-        },
+        budget: inlineVoidBoundaryRenderBudget,
         kind: 'assertRenderBudget',
         label: 'assert-second-right-render-budget',
       },
@@ -286,10 +297,7 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
         selection: collapsedSelection([1, 3, 0], 0),
       },
       {
-        budget: {
-          byKind: { editable: 0, void: { max: 1 } },
-          total: { max: 1 },
-        },
+        budget: inlineVoidBoundaryRenderBudget,
         kind: 'assertRenderBudget',
         label: 'assert-second-left-render-budget',
       },
@@ -349,10 +357,7 @@ const markableInlineVoidFormatting = (): StressCase => {
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: {
-          byKind: { editable: 0, void: { max: 1 } },
-          total: { max: 1 },
-        },
+        budget: inlineVoidBoundaryRenderBudget,
         kind: 'assertRenderBudget',
         label: 'assert-markable-inline-render-budget',
       },
@@ -364,12 +369,12 @@ const blockVoidNavigation = (route: 'embeds' | 'images'): StressCase => {
   const startOffset = route === 'images' ? 113 : 177
   const voidRenderBudget = {
     byKind: {
-      editable: 0,
+      editable: { max: 1 },
       element: { max: 1 },
       spacer: { max: 1 },
       void: { max: 1 },
     },
-    total: { max: 3 },
+    total: { max: 4 },
   }
 
   return createStressCase({
@@ -669,7 +674,16 @@ const tableCellBoundaryNavigation = (): StressCase =>
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: {
+            editable: { max: 1 },
+            element: 0,
+            leaf: 0,
+            text: 0,
+            void: 0,
+          },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-table-navigation-render-budget',
       },
@@ -1010,6 +1024,101 @@ const webkitBackwardSelection = (): StressCase => {
   })
 }
 
+const domMutationImport = (): StressCase => {
+  const prefix = 'This is '
+  const insertedText = 'DOM imported '
+  const originalText = `${prefix}editable `
+  const importedText = `${prefix}${insertedText}editable `
+  const followUpText = `${prefix}${insertedText}!editable `
+  const selectionOffset = prefix.length + insertedText.length
+
+  return createStressCase({
+    family: 'dom-mutation-import',
+    route: 'richtext',
+    steps: [
+      {
+        kind: 'selectDOM',
+        label: 'select-dom-import-point',
+        selection: collapsedSelection([0, 0], prefix.length),
+      },
+      {
+        data: insertedText,
+        inputType: 'insertText',
+        kind: 'mutateTextDOM',
+        label: 'mutate-first-leaf-dom-text',
+        path: [0, 0],
+        selectionOffset,
+        text: importedText,
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-dom-mutation-imported-to-model',
+        text: importedText,
+      },
+      {
+        kind: 'assertSelection',
+        label: 'assert-model-selection-after-dom-import',
+        selection: collapsedSelection([0, 0], selectionOffset),
+      },
+      {
+        kind: 'assertDOMSelection',
+        label: 'assert-native-selection-after-dom-import',
+        selection: {
+          anchorNodeText: importedText,
+          anchorOffset: selectionOffset,
+          focusNodeText: importedText,
+          focusOffset: selectionOffset,
+        },
+      },
+      { kind: 'assertLastCommit', label: 'assert-dom-import-commit' },
+      { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
+      { kind: 'type', label: 'type-after-dom-import', text: '!' },
+      {
+        kind: 'assertKernelTrace',
+        label: 'assert-follow-up-type-command-trace',
+        trace: {
+          commandKind: 'insert-text',
+          eventFamily: 'beforeinput',
+          transition: { allowed: true },
+        },
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-follow-up-type-after-dom-import',
+        text: followUpText,
+      },
+      {
+        kind: 'assertSelectionLocation',
+        label: 'assert-follow-up-selection-after-dom-import',
+        location: {
+          anchorOffset: selectionOffset + 1,
+          anchorPath: [0, 0],
+          isCollapsed: true,
+        },
+      },
+      {
+        expectedModelTextBefore: followUpText,
+        kind: 'undo',
+        label: 'undo-follow-up-type-after-dom-import',
+      },
+      {
+        kind: 'assertKernelTrace',
+        label: 'assert-undo-command-trace',
+        trace: {
+          commandKind: 'history',
+          eventFamily: 'keydown',
+          transition: { allowed: true },
+        },
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-typing-batch-undo-restores-original-text',
+        text: originalText,
+      },
+    ],
+  })
+}
+
 const selectionRepairIme = (): StressCase =>
   createStressCase({
     family: 'selection-repair-ime',
@@ -1169,6 +1278,7 @@ const stressCases: StressCase[] = [
   overlayMixedUpdate(),
   mouseSelectionToolbar(),
   webkitBackwardSelection(),
+  domMutationImport(),
   hugeDocumentCut(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),

@@ -11,10 +11,7 @@ import {
 } from 'slate'
 import { Editor } from 'slate/internal'
 import {
-  createDecorationSource,
-  createRangeDecorationSource,
   createReactEditor,
-  createSlateProjectionStore,
   Editable,
   type ReactEditor,
   Slate,
@@ -22,8 +19,12 @@ import {
   type SlateProjection,
   type SlateProjectionSource,
   useDecorationSelector,
-  useSlateProjections,
+  useSlateProjectionEntries,
 } from '../src'
+import {
+  createDecorationSource,
+  createRangeDecorationSource,
+} from '../src/decoration-source'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -31,7 +32,10 @@ import {
 } from '../src/editable/input-controller'
 import { useProjectionDOMRepairBridge } from '../src/editable/projection-repair-bridge'
 import { ProjectionContext } from '../src/projection-context'
-import type { SlateProjectionRefreshListener } from '../src/projection-store'
+import {
+  createSlateProjectionStore,
+  type SlateProjectionRefreshListener,
+} from '../src/projection-store'
 
 type SegmentLike = {
   end: number
@@ -309,6 +313,91 @@ describe('slate-react projections and selection contract', () => {
       { text: 'Hello', decorations: ['search'] },
       { text: ' world!', decorations: [] },
     ])
+  })
+
+  test('projects decorations across inline element boundaries', () => {
+    const editor = createEditor()
+
+    editor.extend({
+      elements: [{ inline: true, type: 'link' }],
+      name: 'inline-decoration-boundary',
+    })
+    Editor.replace(editor, {
+      children: [
+        {
+          children: [
+            {
+              type: 'link',
+              url: '#',
+              children: [{ text: 'abc' }],
+            },
+            { text: 'def' },
+          ],
+        },
+      ],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          decorate={([node, path]) => {
+            if (!TextApi.isText(node)) {
+              return []
+            }
+
+            if (node.text === 'abc') {
+              return [
+                {
+                  data: { search: true },
+                  range: {
+                    anchor: { path, offset: 2 },
+                    focus: { path, offset: 3 },
+                  },
+                },
+              ]
+            }
+
+            if (node.text === 'def') {
+              return [
+                {
+                  data: { search: true },
+                  range: {
+                    anchor: { path, offset: 0 },
+                    focus: { path, offset: 2 },
+                  },
+                },
+              ]
+            }
+
+            return []
+          }}
+          renderElement={({ attributes, children, element }) =>
+            'type' in element && element.type === 'link' ? (
+              <a {...attributes}>{children}</a>
+            ) : (
+              <p {...attributes}>{children}</p>
+            )
+          }
+          renderSegment={renderSegment}
+        />
+      </Slate>
+    )
+
+    expect(getProjectedSegmentMetadata(rendered.container)).toEqual([
+      { text: 'ab', start: 0, end: 2, decorations: [] },
+      { text: 'c', start: 2, end: 3, decorations: ['search'] },
+      { text: 'de', start: 0, end: 2, decorations: ['search'] },
+      { text: 'f', start: 2, end: 3, decorations: [] },
+    ])
+    expect(
+      Array.from(
+        rendered.container.querySelectorAll('a [data-decorations]')
+      ).filter(
+        (segment) =>
+          (segment as HTMLElement).dataset.decorations === '["search"]'
+      )
+    ).toHaveLength(1)
   })
 
   test('keeps overlapping inline payloads multiplicity-safe in one text node', () => {
@@ -862,7 +951,7 @@ describe('slate-react projections and selection contract', () => {
       label: keyof typeof renders
       runtimeId: string
     }) => {
-      const projections = useSlateProjections(runtimeId)
+      const projections = useSlateProjectionEntries(runtimeId)
 
       renders[label] += 1
 
@@ -1227,13 +1316,83 @@ describe('slate-react projections and selection contract', () => {
     }
   })
 
-  test('projection stores created from root views receive runtime source changes', async () => {
+  test('runtime-scoped projection stores avoid projecting full-document ranges into every bucket', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: Array.from({ length: 5 }, (_, index) => ({
+        children: [{ text: `block-${index}` }],
+      })),
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const anchorTextRuntimeId = snapshot.index.pathToId['0.0']
+    const focusTextRuntimeId = snapshot.index.pathToId['4.0']
+    const mountedBlockRuntimeId = snapshot.index.pathToId['2']
+    const mountedTextRuntimeId = snapshot.index.pathToId['2.0']
+    const unmountedTextRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (
+      !anchorTextRuntimeId ||
+      !focusTextRuntimeId ||
+      !mountedBlockRuntimeId ||
+      !mountedTextRuntimeId ||
+      !unmountedTextRuntimeId
+    ) {
+      throw new Error('Expected runtime ids for scoped projection proof')
+    }
+
+    const store = createSlateProjectionStore(
+      editor,
+      () => [
+        {
+          data: { selected: true },
+          key: 'wide-selection',
+          range: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [4, 0], offset: 2 },
+          },
+        },
+      ],
+      {
+        runtimeScope: () => [mountedBlockRuntimeId],
+        sourceId: 'wide-selection',
+      }
+    )
+
+    expect(Object.keys(store.getSnapshot()).sort()).toEqual(
+      [anchorTextRuntimeId, focusTextRuntimeId, mountedTextRuntimeId].sort()
+    )
+    expect(store.getRuntimeSnapshot(unmountedTextRuntimeId)).toEqual([])
+    expect(store.getRuntimeSnapshot(anchorTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 'block-0'.length,
+        start: 1,
+      }),
+    ])
+    expect(store.getRuntimeSnapshot(mountedTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 'block-2'.length,
+        start: 0,
+      }),
+    ])
+    expect(store.getRuntimeSnapshot(focusTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 2,
+        start: 0,
+      }),
+    ])
+    expect(store.getMetrics().projectedRangeCount).toBe(3)
+
+    store.destroy()
+  })
+
+  test('projection stores created from roots receive runtime source changes', async () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [{ children: [{ text: 'Header' }] }],
-          main: [{ children: [{ text: 'Body' }] }],
-        },
+        children: [{ children: [{ text: 'Body' }] }],
+        roots: { header: [{ children: [{ text: 'Header' }] }] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

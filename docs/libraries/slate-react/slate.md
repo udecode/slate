@@ -18,6 +18,8 @@ type SlateBaseProps = {
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
   onChange?: (value: Descendant[], change: SlateChange) => void
+  onSelectionChange?: (selection: Range | null, change: SlateChange) => void
+  onValueChange?: (value: Descendant[], change: SlateChange) => void
   readOnly?: boolean
 }
 
@@ -38,31 +40,34 @@ type SlateChange = {
 }
 ```
 
+`SlateChange` is the React callback detail for the provider root. Use it when
+React UI needs the root value plus commit flags. Use `editor.subscribeCommit`
+when infrastructure needs every raw commit.
+
 Pass `editor` for the top-level provider. Use the `root`-only form only inside
 an existing Slate runtime, when a nested provider should bind its callbacks and
 context to another root.
 
 ### `editor`
 
-Pass the editor created with `createReactEditor` or `useSlateEditor`.
+Pass the editor created with `useSlateEditor`.
 
 ```tsx
-const [editor] = useState(() =>
-  createReactEditor<CustomValue>({ initialValue })
-)
+const MyEditor = () => {
+  const editor = useSlateEditor<CustomValue>({ initialValue })
+
+  return <Slate editor={editor}>...</Slate>
+}
 ```
 
-### `initialValue`
+Seed the editor with `initialValue` when the editor is created. `<Slate>` does
+not take an `initialValue` prop.
 
-Pass the document used to seed the editor when the provider mounts.
+Use `createReactEditor` when an editor must be created outside a React
+component or inside a custom hook that owns the same one-shot lifetime.
 
-```tsx
-<Slate editor={editor}>
-  <Editable />
-</Slate>
-```
-
-Use editor APIs for later document replacement. `initialValue` is not a controlled value prop.
+Use editor APIs for later document replacement. `initialValue` is not a
+controlled value prop.
 
 ### `children`
 
@@ -77,9 +82,10 @@ Render `Editable` and any editor UI inside the provider.
 
 ### `onChange`
 
-Use `onChange` when React UI needs current-root value, selection, or marks
-changes. Use `editor.subscribe(...)` for state-field changes, operation replay,
-and persistence services.
+Use `onChange` when React UI needs current-root value, selection, marks, or the
+full `SlateChange` object. Use `editor.subscribe(...)` for persistence services
+that need a committed snapshot plus a change summary, including state-field
+changes.
 
 ```tsx
 <Slate
@@ -98,14 +104,27 @@ and persistence services.
 </Slate>
 ```
 
-Use `editor.subscribe(...)` for low-level commit subscribers that do not belong in React render props.
+Use `editor.subscribeCommit(...)` for low-level commit subscribers that do not
+belong in React render props, such as collaboration adapters, operation replay,
+and instrumentation.
+
+Use `onValueChange` when a React component only cares about provider-root value
+changes.
+
+```tsx
+<Slate
+  editor={editor}
+  onValueChange={(value) => updateCurrentRootPreview(value)}
+>
+  <Editable />
+</Slate>
+```
 
 ### Saving Provider Root Changes
 
 Use `onChange` and `change.valueChanged` when you only need committed changes
-for the provider root's block array. For `<Slate editor={editor}>`, that is
-`main`. This is the single-root shortcut, not the full document persistence
-path.
+for the provider root's block array. This is the single-root shortcut, not the
+full document persistence path.
 
 ```tsx
 <Slate
@@ -126,10 +145,10 @@ you need named roots or persistent state fields.
 
 ```tsx
 useEffect(() => {
-  return editor.subscribe((_snapshot, commit) => {
-    if (!commit) return
+  return editor.subscribe((_snapshot, change) => {
+    if (!change) return
 
-    if (!commit.childrenChanged && commit.dirtyStateKeys.length === 0) {
+    if (!change.childrenChanged && change.dirtyStateKeys.length === 0) {
       return
     }
 
@@ -145,16 +164,12 @@ persistence shape.
 
 ### Selection Changes
 
-Use `onChange` and `change.selectionChanged` for UI that follows the model selection.
+Use `onSelectionChange` when React UI only cares about model selection changes.
 
 ```tsx
 <Slate
   editor={editor}
-  onChange={(_, change) => {
-    if (!change.selectionChanged) return
-
-    updateToolbar(change.selection)
-  }}
+  onSelectionChange={(selection) => updateToolbar(selection)}
 >
   <Editable />
 </Slate>
@@ -169,7 +184,7 @@ diagnostics, and code highlights.
 const searchSource = useSlateDecorationSource(editor, {
   id: 'search',
   read: ({ snapshot }) => findSearchMatches(snapshot, query),
-})
+});
 
 <Slate decorationSources={[searchSource]} editor={editor}>
   <Editable renderSegment={renderSearchMatch} />
@@ -193,12 +208,16 @@ const annotations = comments.map((comment) => ({
     status: comment.status,
     tone: comment.tone,
   },
-}))
+}));
 
-const annotationStore = useSlateAnnotationStore(editor, annotations)
+const annotationStore = useSlateAnnotationStore(editor, annotations);
 
 <Slate annotationStore={annotationStore} editor={editor}>
   <Editable renderSegment={renderCommentSegment} />
   <CommentsSidebar />
 </Slate>
 ```
+
+Widget stores are hook-owned. Create them with `useSlateWidgetStore` and pass
+the store directly to `useSlateWidgets` or `useSlateWidget`; `Slate` does not
+take a `widgetStore` prop.

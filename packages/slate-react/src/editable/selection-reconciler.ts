@@ -6,6 +6,7 @@ import {
 } from 'react'
 import {
   NodeApi,
+  type Path,
   PathApi,
   type Point,
   type Range,
@@ -16,28 +17,34 @@ import {
   containsShadowAware,
   type DOMElement,
   type DOMRange,
-  EDITOR_TO_ELEMENT,
-  EDITOR_TO_USER_SELECTION,
-  EDITOR_TO_WINDOW,
-  ELEMENT_TO_NODE,
   getDefaultView,
   getSelection,
   IS_ANDROID,
   IS_FIREFOX,
-  IS_FOCUSED,
-  IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
   isDOMElement,
   isDOMNode,
   isDOMText,
-  NODE_TO_ELEMENT,
   TRIPLE_CLICK,
 } from 'slate-dom'
+import {
+  DOMCoverage,
+  EDITOR_TO_ELEMENT,
+  EDITOR_TO_USER_SELECTION,
+  EDITOR_TO_WINDOW,
+  ELEMENT_TO_NODE,
+  IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
+  NODE_TO_ELEMENT,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { writeSlateViewSelection } from '../view-selection'
+import {
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
 import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
 import { createFastDOMSelectionRange } from './fast-dom-selection-range'
@@ -265,7 +272,13 @@ export const attachEditableSelectionChangeListener = ({
   targetDocument,
 }: {
   scheduleOnDOMSelectionChange: () => void
-  state: { pendingDOMSelectionImport: boolean }
+  state: {
+    activeIntent?: EditableInputController['state']['activeIntent']
+    modelSelectionPreference?: EditableInputController['state']['modelSelectionPreference']
+    pendingDOMSelectionImport: boolean
+    selectionChangeOrigin?: EditableInputController['state']['selectionChangeOrigin']
+    selectionSource?: EditableInputController['state']['selectionSource']
+  }
   targetDocument: Document
 }) => {
   const HTMLElementConstructor = targetDocument.defaultView?.HTMLElement
@@ -281,6 +294,14 @@ export const attachEditableSelectionChangeListener = ({
         : null
     const targetTagName = targetElement?.tagName
     if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
+      return
+    }
+    if (
+      state.activeIntent === 'history' &&
+      state.selectionChangeOrigin === 'repair-induced' &&
+      state.selectionSource === 'model-owned' &&
+      state.modelSelectionPreference?.preferModelSelection === true
+    ) {
       return
     }
     state.pendingDOMSelectionImport = true
@@ -523,6 +544,136 @@ const preferModelSelectionForVoidTarget = ({
   return true
 }
 
+export const selectEditableVoidPath = ({
+  editor,
+  inputController,
+  path,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  path: Path
+}) => {
+  if (!Editor.hasPath(editor, path)) {
+    return null
+  }
+
+  const [node] = editor.read((state) => state.nodes.get(path))
+
+  if (!NodeApi.isElement(node) || !Editor.isVoid(editor, node)) {
+    return null
+  }
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'programmatic-export',
+    selectionSource: 'model-owned',
+  })
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+
+  const start = Editor.point(editor, path, { edge: 'start' })
+  const range = Editor.range(editor, start)
+
+  ReactEditor.focus(editor)
+  writeSlateViewSelection(editor, null)
+  editor.update((tx) => {
+    tx.selection.set(range)
+  })
+
+  return path
+}
+
+export const selectEditableVoidTarget = ({
+  editor,
+  inputController,
+  target,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  target: EventTarget | null
+}) => {
+  const voidTarget = isDOMNode(target)
+    ? resolveEditableVoidClickTarget(editor, target)
+    : null
+
+  if (voidTarget) {
+    return selectEditableVoidPath({
+      editor,
+      inputController,
+      path: voidTarget.path,
+    })
+  }
+
+  return null
+}
+
+const exportTripleClickSelectionToDOM = ({
+  editor,
+  inputController,
+  range,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  range: Range
+}) => {
+  const editorElement = EDITOR_TO_ELEMENT.get(editor)
+
+  if (!editorElement) {
+    return
+  }
+
+  const domRange = ReactEditor.resolveDOMRange(editor, range)
+
+  if (!domRange) {
+    return
+  }
+
+  const root = editorElement.getRootNode() as Document | ShadowRoot
+  const domSelection = getSelection(root)
+
+  if (!domSelection) {
+    return
+  }
+
+  inputController.state.isUpdatingSelection = true
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+
+  try {
+    if (RangeApi.isBackward(range)) {
+      domSelection.setBaseAndExtent(
+        domRange.endContainer,
+        domRange.endOffset,
+        domRange.startContainer,
+        domRange.startOffset
+      )
+    } else {
+      domSelection.setBaseAndExtent(
+        domRange.startContainer,
+        domRange.startOffset,
+        domRange.endContainer,
+        domRange.endOffset
+      )
+    }
+  } catch {
+    domSelection.removeAllRanges()
+    domSelection.addRange(domRange)
+  }
+
+  editorElement.ownerDocument.dispatchEvent(
+    new Event('selectionchange', { bubbles: true })
+  )
+  const rootWindow = getDefaultView(editorElement)
+  const resetUpdatingSelection = () => {
+    inputController.state.isUpdatingSelection = false
+  }
+
+  if (rootWindow) {
+    rootWindow.setTimeout(resetUpdatingSelection)
+  } else {
+    setTimeout(resetUpdatingSelection)
+  }
+}
+
 export const applyEditableClick = ({
   editor,
   event,
@@ -550,9 +701,6 @@ export const applyEditableClick = ({
     return
   }
 
-  const voidTarget = isDOMNode(event.target)
-    ? resolveEditableVoidClickTarget(editor, event.target)
-    : null
   const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
     editor,
     inputController,
@@ -569,7 +717,9 @@ export const applyEditableClick = ({
 
   if (!isReactEventHandled({ event, handler: onClick })) {
     const target =
-      voidTarget ?? resolveEditableClickTarget(editor, event.target)
+      (isDOMNode(event.target)
+        ? resolveEditableVoidClickTarget(editor, event.target)
+        : null) ?? resolveEditableClickTarget(editor, event.target)
 
     if (!target) {
       return
@@ -590,10 +740,40 @@ export const applyEditableClick = ({
 
       const range = Editor.range(editor, blockPath)
       writeSlateViewSelection(editor, null)
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        selectionSource: 'model-owned',
+      })
       editor.update((tx) => {
         tx.selection.set(range)
       })
+      exportTripleClickSelectionToDOM({ editor, inputController, range })
       return
+    }
+
+    if (IS_FIREFOX && event.detail === 1) {
+      const range = editor.api.dom.resolveEventRange(event.nativeEvent)
+      const clickedInline =
+        range && RangeApi.isCollapsed(range)
+          ? Editor.above(editor, {
+              at: range.anchor,
+              match: (n) => NodeApi.isElement(n) && Editor.isInline(editor, n),
+            })
+          : null
+
+      if (range && clickedInline) {
+        writeSlateViewSelection(editor, null)
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          selectionSource: 'model-owned',
+        })
+        editor.update((tx) => {
+          tx.selection.set(range)
+        })
+        return
+      }
     }
 
     const start = Editor.point(editor, path, { edge: 'start' })
@@ -632,30 +812,19 @@ export const applyEditableMouseDown = ({
       selectionSource: 'app-owned',
     })
     onMouseDown?.(event)
-    return
+    return null
   }
 
-  const voidTarget = isDOMNode(event.target)
-    ? resolveEditableVoidClickTarget(editor, event.target)
-    : null
-  const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
+  const selectedVoidTarget = selectEditableVoidTarget({
     editor,
     inputController,
     target: event.target,
   })
 
-  if (voidTargetOwnsSelection && voidTarget) {
-    const start = Editor.point(editor, voidTarget.path, { edge: 'start' })
-    const range = Editor.range(editor, start)
-
-    ReactEditor.focus(editor)
-    writeSlateViewSelection(editor, null)
-    editor.update((tx) => {
-      tx.selection.set(range)
-    })
-  }
-
-  if (!voidTargetOwnsSelection) {
+  if (selectedVoidTarget) {
+    event.preventDefault()
+  } else {
+    inputController.state.modelOwnedTextInputGuard = 0
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: false,
@@ -664,6 +833,7 @@ export const applyEditableMouseDown = ({
     inputController.state.selectionChangeOrigin = 'native-user'
   }
   onMouseDown?.(event)
+  return selectedVoidTarget
 }
 
 export const syncSelectionForBeforeInput = ({
@@ -680,6 +850,7 @@ export const syncSelectionForBeforeInput = ({
   pendingNativeTextInputRepairPathKey = null,
   preferModelSelectionForInput,
   root,
+  selectionChangeOrigin = null,
   selection,
 }: {
   allowDOMSelectionImport?: boolean
@@ -695,6 +866,7 @@ export const syncSelectionForBeforeInput = ({
   pendingNativeTextInputRepairPathKey?: string | null
   preferModelSelectionForInput: boolean
   root: Document | ShadowRoot
+  selectionChangeOrigin?: SelectionChangeOrigin | null
   selection: Range | null
 }): {
   native: boolean
@@ -768,13 +940,14 @@ export const syncSelectionForBeforeInput = ({
     }
   }
 
-  // COMPAT: Most deleting forward/backward input types can derive the target
-  // from the current selection, but IME/focus cleanup can provide an expanded
+  // Most deleting forward/backward input types can derive the target from the
+  // current selection, but IME/focus cleanup can provide an expanded
   // beforeinput target range that must become the model delete range.
   let didUseBeforeInputTargetRange = false
   if (allowDOMSelectionImport) {
     const nodeMapDirty = IS_NODE_MAP_DIRTY.get(editor)
-    const [targetRange] = getInputEventTargetRanges(event)
+    const targetRanges = getInputEventTargetRanges(event)
+    const targetRange = targetRanges.length === 1 ? targetRanges[0] : null
     const textHostRange = targetRange
       ? resolveSlateRangeFromDOMTextRange(editor, targetRange, {
           requireCurrentRuntimeBinding: nodeMapDirty,
@@ -793,15 +966,25 @@ export const syncSelectionForBeforeInput = ({
       domSelectionBelongsToEditor &&
       targetRangeBelongsToEditor
     ) {
-      const range =
+      const resolvedRange =
         textHostRange ??
         (nodeMapDirty
           ? null
           : ReactEditor.resolveSlateRange(editor, targetRange, {
               exactMatch: false,
             }))
+      const range = resolvedRange
+      const staleBackwardInsertTextTargetRange =
+        type === 'insertText' &&
+        range &&
+        RangeApi.isCollapsed(range) &&
+        nextSelection &&
+        RangeApi.isCollapsed(nextSelection) &&
+        PathApi.equals(range.anchor.path, nextSelection.anchor.path) &&
+        range.anchor.offset < nextSelection.anchor.offset
       const shouldUseTargetRange =
         range &&
+        !staleBackwardInsertTextTargetRange &&
         !(
           shouldPreferModelSelectionForInput &&
           type === 'insertText' &&
@@ -873,10 +1056,25 @@ export const syncSelectionForBeforeInput = ({
       pendingNativeTextInputRepairOffset != null &&
       pendingNativeTextInputRepairDOMOffset !==
         pendingNativeTextInputRepairOffset
+    const staleBackwardSamePathTextInputDOMSelection =
+      !!range &&
+      RangeApi.isCollapsed(range) &&
+      !!nextSelection &&
+      RangeApi.isCollapsed(nextSelection) &&
+      PathApi.equals(range.anchor.path, nextSelection.anchor.path) &&
+      range.anchor.offset < nextSelection.anchor.offset
+    const staleBackwardTextInputDOMSelection =
+      pendingNativeTextInputRepairOwnsSelection &&
+      staleBackwardSamePathTextInputDOMSelection
+    const staleRepairInducedTextInputDOMSelection =
+      selectionChangeOrigin === 'repair-induced' &&
+      staleBackwardSamePathTextInputDOMSelection
 
     if (
+      staleRepairInducedTextInputDOMSelection ||
       pendingNativeTextInputRepairOwnsDifferentPath ||
-      pendingNativeTextInputRepairOwnsDifferentOffset
+      pendingNativeTextInputRepairOwnsDifferentOffset ||
+      staleBackwardTextInputDOMSelection
     ) {
       nextNative = false
     } else if (
@@ -1132,6 +1330,10 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
+    const selectionHasDOMCoverage =
+      !!selection &&
+      DOMCoverage.getBoundariesForRange(editor, selection).length > 0
+
     if (
       state.pendingDOMSelectionImport &&
       containsShadowAware(
@@ -1143,7 +1345,7 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
-    if (partialDOMBackedSelection) {
+    if (partialDOMBackedSelection && selectionHasDOMCoverage) {
       domSelection.removeAllRanges()
       return
     }
@@ -1151,7 +1353,7 @@ export const useEditableSelectionReconciler = ({
     const clearUpdatingSelection = () => {
       setTimeout(() => {
         state.isUpdatingSelection = false
-      })
+      }, 80)
     }
 
     const setDomSelection = (forceChange?: boolean) => {
@@ -1233,8 +1435,13 @@ export const useEditableSelectionReconciler = ({
         return
       }
 
+      if (readSlateViewSelection(editor)) {
+        return
+      }
+
       if (
         selection &&
+        selectionHasDOMCoverage &&
         applyDOMCoverageSelectionPolicy({
           domSelection,
           editor,
@@ -1309,7 +1516,10 @@ export const useEditableSelectionReconciler = ({
         if (!shouldSkipSelectionScroll(editor)) {
           scrollSelectionIntoView(editor, newDomRange)
         }
-      } else {
+        if (readSlateViewSelection(editor) && !selectionHasDOMCoverage) {
+          writeSlateViewSelection(editor, null)
+        }
+      } else if (!selection) {
         domSelection.removeAllRanges()
       }
 

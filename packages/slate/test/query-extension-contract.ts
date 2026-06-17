@@ -89,6 +89,65 @@ describe('extension query middleware', () => {
     ])
   })
 
+  it('uses fragment query middleware to strip transient copy metadata', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'alpha', transientPreview: true }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 5 },
+      },
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'strip-transient-copy-metadata',
+        queries: {
+          fragment: {
+            get({ next, options }) {
+              return next({ options }).map((node) => ({
+                ...node,
+                children: node.children.map((child) => {
+                  if (!('transientPreview' in child)) {
+                    return child
+                  }
+
+                  const { transientPreview: _transientPreview, ...clean } =
+                    child
+
+                  return clean
+                }),
+              }))
+            },
+          },
+        },
+      })
+    )
+
+    assert.deepEqual(
+      editor.read((state) => state.fragment.get()),
+      [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'alpha' }],
+        },
+      ]
+    )
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'alpha', transientPreview: true }],
+      },
+    ])
+  })
+
   it('provides read-only state to query middleware', () => {
     const editor = createEditor()
     const seenOffsets: number[] = []

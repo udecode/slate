@@ -39,7 +39,7 @@ const MODIFIER_KEYS: Record<ModifierKey, string> = {
   shiftKey: 'Shift',
 }
 
-const KEY_ALIASES: Record<string, string> = {
+const KEY_TOKEN_NAMES: Record<string, string> = {
   add: '+',
   backspace: 'Backspace',
   break: 'Pause',
@@ -66,7 +66,7 @@ const KEY_ALIASES: Record<string, string> = {
   up: 'ArrowUp',
 }
 
-const MODIFIER_ALIASES: Record<string, ModifierKey | 'mod'> = {
+const MODIFIER_TOKEN_NAMES: Record<string, ModifierKey | 'mod'> = {
   alt: 'altKey',
   cmd: 'metaKey',
   command: 'metaKey',
@@ -91,7 +91,7 @@ const resolveModifier = (
   value: string,
   options?: HotkeyMatchOptions
 ): ModifierKey | undefined => {
-  const modifier = MODIFIER_ALIASES[value]
+  const modifier = MODIFIER_TOKEN_NAMES[value]
 
   if (!modifier) return undefined
   if (modifier === 'mod') {
@@ -104,7 +104,7 @@ const resolveModifier = (
 const normalizeKey = (value: string) => {
   const lower = value.toLowerCase()
 
-  return KEY_ALIASES[lower] ?? value
+  return KEY_TOKEN_NAMES[lower] ?? value
 }
 
 const compileHotkey = (

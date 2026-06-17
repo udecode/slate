@@ -1,6 +1,11 @@
 # RangeRef API
 
-`RangeRef` objects keep a specific range synced over time as operations are applied. They are low-level location values used by Slate internals and advanced runtime code. You can access their property `current` for the up-to-date `Range` value. When you no longer need to track this location, call `unref()` to free the resources. The `affinity` refers to the direction the `RangeRef` will go when content is inserted at the edges of the `Range`. `inward` means that the `Range` tends to stay the same size when content is inserted at its edges, and `outward` means that the `Range` tends to grow when content is inserted at its edges.
+`RangeRef` objects keep a specific range synced over time as operations are
+applied. They are low-level location values used by Slate internals and
+advanced runtime code. Read `current` for the up-to-date `Range` value. Call
+`unref()` when you no longer need to track the range. `affinity` controls how
+the range follows insertions at its edges. `inward` keeps the range tight;
+`outward` lets the range grow.
 
 ```typescript
 interface RangeRef {
@@ -27,5 +32,5 @@ It also returns the current value.
 
 #### `RangeRefApi.transform(ref: RangeRef, op: Operation)`
 
-Transform the range refs current value by an `op`.
+Transform the range ref's current value by an `op`.
 The editor calls this as needed, so normally you won't need to.

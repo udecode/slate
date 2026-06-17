@@ -3,13 +3,13 @@
 Slate types custom document models through editor value generics. Define the
 element and text shapes for your editor, create a `Value` from the element
 union, then pass that value to `createEditor<Value>()` or
-`createReactEditor<Value>()`.
+`useSlateEditor<Value>()` when React owns the editor lifetime.
 
 ## Defining Element And Text Types
 
 ```typescript
 import { type ElementOf, type TextOf, type ValueOf } from 'slate'
-import { createReactEditor, type ReactEditor } from 'slate-react'
+import { useSlateEditor, type ReactEditor } from 'slate-react'
 
 type CustomText = { text: string; bold?: true }
 
@@ -25,13 +25,17 @@ type HeadingElement = {
 }
 
 type CustomValue = (ParagraphElement | HeadingElement)[]
-
-const editor = createReactEditor<CustomValue>()
-
 type CustomEditor = ReactEditor<CustomValue>
-type CustomElement = ElementOf<typeof editor>
-type EditorText = TextOf<typeof editor>
-type EditorValue = ValueOf<typeof editor>
+
+const useCustomEditor = () => {
+  const editor = useSlateEditor<CustomValue>()
+
+  type CustomElement = ElementOf<typeof editor>
+  type EditorText = TextOf<typeof editor>
+  type EditorValue = ValueOf<typeof editor>
+
+  return editor
+}
 ```
 
 ## Annotating Initial Values
@@ -39,8 +43,7 @@ type EditorValue = ValueOf<typeof editor>
 Annotate the editor's initial value with your value type.
 
 ```tsx
-import React, { useState } from 'react'
-import { Editable, Slate, createReactEditor } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 type CustomText = { text: string; bold?: true }
 type ParagraphElement = { type: 'paragraph'; children: CustomText[] }
@@ -54,9 +57,7 @@ const initialValue: CustomValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() =>
-    createReactEditor<CustomValue>({ initialValue })
-  )
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
   return (
     <Slate editor={editor}>

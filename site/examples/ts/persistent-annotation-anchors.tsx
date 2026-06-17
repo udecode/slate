@@ -102,6 +102,40 @@ const getPointBeforeText = (
   throw new Error(`Missing text: ${textToFind}`)
 }
 
+const getRangeInsideText = (
+  editor: ReturnType<typeof createEditor>,
+  textToFind: string,
+  startOffset: number,
+  endOffset: number
+): Range => {
+  const value = editor.read((state) => state.runtime.snapshot().children)
+
+  for (const [blockIndex, node] of value.entries()) {
+    if (!('children' in node)) {
+      continue
+    }
+
+    for (const [childIndex, child] of node.children.entries()) {
+      if (!('text' in child)) {
+        continue
+      }
+
+      const offset = String(child.text).indexOf(textToFind)
+
+      if (offset !== -1) {
+        const path = [blockIndex, childIndex]
+
+        return {
+          anchor: { path, offset: offset + startOffset },
+          focus: { path, offset: offset + endOffset },
+        }
+      }
+    }
+  }
+
+  throw new Error(`Missing text: ${textToFind}`)
+}
+
 const getBlockRowByText = (value: Value, match: (text: string) => boolean) =>
   getBlockRows(value).find((row) => match(row.text)) ?? null
 
@@ -400,6 +434,21 @@ const AnchoredProjectionContent = ({
           variant="outline"
         >
           Insert prefix
+        </Button>
+        <Button
+          disabled={!annotation}
+          id="delete-anchor-text"
+          onClick={() => {
+            const range = getRangeInsideText(editor, 'alpha', 1, 4)
+
+            editor.update((tx) => {
+              tx.text.delete({ at: range })
+            })
+          }}
+          type="button"
+          variant="outline"
+        >
+          Delete anchor text
         </Button>
         <Button
           disabled={!annotation}

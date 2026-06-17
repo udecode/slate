@@ -85,7 +85,8 @@ const create = (key: string) => {
 
 export { isHotkey } from './hotkey-match'
 
-export default {
+/** Platform-aware hotkey predicates used by Slate DOM editing behavior. */
+export const Hotkeys = {
   isBold: create('bold'),
   isCompose: create('compose'),
   isMoveBackward: create('moveBackward'),

@@ -133,7 +133,7 @@ export const applyEditableInput = ({
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
-        reason: 'repair-induced',
+        reason: 'model-command',
         selectionSource: 'model-owned',
       },
     })
@@ -142,11 +142,15 @@ export const applyEditableInput = ({
   const nativeInput = event.nativeEvent as InputEvent
   const isModelOwnedTextInputGuardActive =
     (inputController.state.modelOwnedTextInputGuard ?? 0) > 0
+  const modelOwnsTextInput =
+    isModelOwnedTextInputGuardActive ||
+    (inputController.preferModelSelectionForInputRef.current &&
+      inputController.state.selectionSource === 'model-owned')
 
   if (
     !skipNativeTextInputRepair &&
     !hadDeferredOperations &&
-    !isModelOwnedTextInputGuardActive &&
+    !modelOwnsTextInput &&
     nativeInput.inputType === 'insertText' &&
     typeof nativeInput.data === 'string' &&
     nativeInput.data.length > 0 &&
@@ -169,6 +173,7 @@ export const applyEditableInput = ({
         0,
         Math.min(slateNode.text.length, anchorOffset - nativeInput.data.length)
       )
+
       applyEditableCommand({
         command: {
           kind: 'select',
@@ -194,7 +199,7 @@ export const applyEditableInput = ({
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
-        reason: 'repair-induced',
+        reason: 'model-command',
         selectionSource: 'model-owned',
       },
     })
@@ -345,8 +350,8 @@ export const applyModelOwnedBeforeInputOperation = ({
             : null
 
       if (textCommand) {
-        // Only insertText operations use the native functionality, for now.
-        // Potentially expand to single character deletes, as well.
+        // Native ownership is limited to insertText. Single-character deletes
+        // need their own browser contract before joining this path.
         if (native && (!selection || !RangeApi.isExpanded(selection))) {
           return null
         }

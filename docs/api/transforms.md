@@ -10,21 +10,26 @@ editor.update(tx => {
 
 - [Node options](transforms.md#node-options)
 - [Node methods](transforms.md#node-methods)
+- [Break methods](transforms.md#break-methods)
 - [Fragment methods](transforms.md#fragment-methods)
 - [Text methods](transforms.md#text-methods)
 - [Selection methods](transforms.md#selection-methods)
 - [Mark methods](transforms.md#mark-methods)
+- [Value and root methods](transforms.md#value-and-root-methods)
+- [State field methods](transforms.md#state-field-methods)
+- [Normalization methods](transforms.md#normalization-methods)
 - [Operation methods](transforms.md#operation-methods)
 
 ## Node options
 
-Many node methods accept an `options` object.
+Node methods accept method-specific `options` objects. These options appear
+across most node methods:
 
 ```typescript
-interface NodeOptions {
+type NodeSelectorOptions = {
   at?: Location
   match?: (node: Node, path: Path) => boolean
-  mode?: 'highest' | 'lowest'
+  mode?: 'highest' | 'lowest' | 'all'
   voids?: boolean
 }
 ```
@@ -33,6 +38,8 @@ interface NodeOptions {
   `editor.update(...)`, selection-sensitive methods use the transaction target.
 - `match?: (node, path) => boolean`: Filters which nodes are changed.
 - `mode?: 'highest' | 'lowest'`: Controls which matching node level is used.
+  Methods documented with `mode?: 'highest' | 'lowest' | 'all'` also accept
+  `all`.
 - `voids?: boolean`: Includes void elements when `true`.
 
 ## Node methods
@@ -42,6 +49,12 @@ Use node methods from `tx.nodes`.
 #### `tx.nodes.insert(nodes: Node | Node[], options?)`
 
 Insert nodes at `options.at` or the transaction target.
+
+Options: `at`, `match`, `mode`, `hanging`, `select`, `voids`, `batchDirty`.
+
+- `hanging?: boolean`: Preserve hanging range edges.
+- `select?: boolean`: Select the inserted nodes.
+- `batchDirty?: boolean`: Batch dirty-path work for a multi-node insert.
 
 ```javascript
 editor.update(tx => {
@@ -56,37 +69,77 @@ editor.update(tx => {
 
 Remove nodes at `options.at` or the transaction target.
 
+Options: `at`, `match`, `mode`, `hanging`, `voids`.
+
 #### `tx.nodes.merge(options?)`
 
 Merge a node with the previous node at the same depth.
+
+Options: `at`, `match`, `mode`, `hanging`, `voids`.
 
 #### `tx.nodes.split(options?)`
 
 Split nodes at a location.
 
+Options: `at`, `match`, `mode`, `always`, `height`, `position`, `voids`.
+
+- `always?: boolean`: Split even when the target is already at an edge.
+- `height?: number`: Split at an ancestor height.
+- `position?: number`: Split at an explicit child position.
+
 #### `tx.nodes.wrap(element: Element, options?)`
 
 Wrap matching nodes in `element`.
+
+Options: `at`, `match`, `mode`, `split`, `voids`.
 
 #### `tx.nodes.unwrap(options?)`
 
 Unwrap matching nodes.
 
+Options: `at`, `match`, `mode`, `split`, `voids`.
+
 #### `tx.nodes.set(props: Partial<Node>, options?)`
 
 Set properties on matching nodes.
+
+Options: `at`, `match`, `mode`, `hanging`, `split`, `voids`, `compare`,
+`merge`.
+
+- `compare?: PropsCompare`: Decide whether a property should be written.
+- `merge?: PropsMerge`: Merge incoming and existing property values.
 
 #### `tx.nodes.unset(props: string | string[], options?)`
 
 Unset properties on matching nodes.
 
+Options: `at`, `match`, `mode`, `hanging`, `split`, `voids`.
+
 #### `tx.nodes.lift(options?)`
 
 Lift matching nodes upward in the document tree.
 
+Options: `at`, `match`, `mode`, `voids`.
+
 #### `tx.nodes.move(options)`
 
 Move nodes from `options.at` to `options.to`.
+
+Options: `at`, `match`, `mode`, `to`, `voids`.
+
+- `to: Path`: Destination path for the moved nodes.
+
+## Break methods
+
+Use break methods from `tx.break`.
+
+#### `tx.break.insert()`
+
+Insert a block break at the transaction target.
+
+#### `tx.break.insertSoft()`
+
+Insert a soft break at the transaction target.
 
 ## Fragment methods
 
@@ -96,13 +149,34 @@ Use fragment methods from `tx.fragment`.
 
 Read the fragment at `options.at` or the current selection.
 
+Options:
+
+- `at?: Range`: Range to read. Defaults to the active selection.
+
 #### `tx.fragment.insert(fragment: Node[], options?)`
 
 Insert a fragment at `options.at` or the transaction target.
+Slate's default insertion policy is structural. When a fragment contains nested
+blocks that match the active structural container, the first compatible source
+block can merge into the active block and later source siblings stay as inserted
+siblings. Product-specific positional behavior, such as multi-cell table-grid
+paste, belongs in an extension clipboard/fragment policy.
+
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow insertion into void elements.
+- `batchDirty?: boolean`: Batch dirty-path work for the fragment insert.
 
 #### `tx.fragment.delete(options?)`
 
 Delete the fragment at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete. Defaults to the transaction target.
+- `direction?: 'forward' | 'backward'`: Direction used for collapsed deletion.
 
 ## Text methods
 
@@ -110,9 +184,51 @@ Delete the fragment at `options.at` or the transaction target.
 
 Insert text at `options.at` or the transaction target.
 
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `voids?: boolean`: Allow insertion into void elements.
+
+When `at` is an expanded range, the inserted text replaces the range and the
+selection moves after the inserted text.
+
 #### `tx.text.delete(options?)`
 
 Delete text at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete from. Defaults to the transaction target.
+- `distance?: number`: Number of units to delete. Defaults to one unit.
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit used for collapsed
+  deletion.
+- `reverse?: boolean`: Delete before the target instead of after it.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow deletion inside void elements.
+
+```javascript
+editor.update(tx => {
+  tx.text.delete({ reverse: true, unit: 'word' })
+})
+```
+
+#### `tx.text.deleteBackward(options?)`
+
+Delete before the transaction target.
+
+Options:
+
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit to delete. Defaults
+  to one character.
+
+#### `tx.text.deleteForward(options?)`
+
+Delete after the transaction target.
+
+Options:
+
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit to delete. Defaults
+  to one character.
 
 ## Selection methods
 
@@ -137,13 +253,28 @@ Clear the selection.
 
 Collapse the selection to a single point.
 
+Options:
+
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Edge to collapse to.
+
 #### `tx.selection.move(options?)`
 
 Move the selection by offset, character, word, line, or block.
 
+Options:
+
+- `distance?: number`: Number of units to move.
+- `unit?: 'offset' | 'character' | 'word' | 'line'`: Unit used for movement.
+- `reverse?: boolean`: Move backward.
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Selection edge to move.
+
 #### `tx.selection.setPoint(props: Partial<Point>, options?)`
 
 Set properties on one selection point.
+
+Options:
+
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Selection edge to update.
 
 #### `tx.selection.setRange(props: Partial<Range>)`
 
@@ -166,6 +297,70 @@ Remove a mark from the current selection or pending marks.
 #### `tx.marks.toggle(key: string, value?)`
 
 Toggle a mark for the current selection or pending marks.
+
+## Value and root methods
+
+Use value and root methods for whole-root or whole-document replacement. Normal
+typing commands should use `tx.text`, `tx.nodes`, `tx.fragment`, or
+`tx.selection`.
+
+#### `tx.value.replace(input: SnapshotInput)`
+
+Replace the active root or complete snapshot.
+
+```javascript
+editor.update(tx => {
+  tx.value.replace({
+    children: [{ type: 'paragraph', children: [{ text: 'Imported' }] }],
+    selection: null,
+  })
+})
+```
+
+Pass `roots` in the input when replacing multiple roots at once.
+
+#### `tx.roots.create(root: RootKey, children: Node[])`
+
+Create a named root.
+
+#### `tx.roots.replace(root: RootKey, children: Node[])`
+
+Replace an existing named root.
+
+#### `tx.roots.delete(root: RootKey)`
+
+Delete an extra root. The primary document is not deleted through `tx.roots`.
+
+## State field methods
+
+#### `tx.setField(field, value)`
+
+Write a registered state field.
+
+```javascript
+editor.update(tx => {
+  tx.setField(documentTitle, 'Q3 Launch Brief')
+})
+```
+
+State-field writes appear in `commit.statePatches`.
+
+#### `tx.statePatches.replay(statePatches)`
+
+Replay accepted state-field patches through the transaction boundary.
+
+Filter remote or collaborative patches before replaying them.
+
+## Normalization methods
+
+#### `tx.normalize(options?)`
+
+Run editor normalization inside the active transaction.
+
+#### `tx.withoutNormalizing(fn)`
+
+Run several writes without normalizing between each write, then let the
+transaction normalize afterward.
 
 ## Operation methods
 

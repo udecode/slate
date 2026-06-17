@@ -35,6 +35,33 @@ test.describe('code highlighting', () => {
     await expect(languageSelect).toHaveValue('typescript')
   })
 
+  test('retokens edited code after changing the language', async ({ page }) => {
+    const editor = await openExample(page, 'code-highlighting', {
+      ready: {
+        editor: 'visible',
+        text: /const initialValue/,
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await page.getByTestId('code-block-button').click()
+    await page.getByTestId('language-select').first().selectOption('css')
+    await editor.insertText('body { color: red; }')
+
+    const codeBlock = editor.root.locator('.slate-code-highlighting-block')
+
+    await expect(
+      codeBlock.locator('.selector').filter({ hasText: 'body' })
+    ).toBeVisible()
+    await expect(
+      codeBlock.locator('.property').filter({ hasText: 'color' })
+    ).toBeVisible()
+    await expect(
+      codeBlock.locator('.punctuation').filter({ hasText: '{' })
+    ).toBeVisible()
+  })
+
   test('converts a selected paragraph into a code block with code lines', async ({
     page,
   }) => {
@@ -162,13 +189,10 @@ test.describe('code highlighting', () => {
     await expect(editor.locator.block([1, 1])).toHaveText('tail')
   })
 
-  test('Firefox deletes a trailing empty code line with Backspace', async ({
+  test('deletes a trailing empty code line with Backspace', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'firefox',
-      'Firefox native code-block Backspace regression proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop code-block proof')
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const editor = await openExample(page, 'code-highlighting', {
@@ -329,13 +353,10 @@ test.describe('code highlighting', () => {
     )
   })
 
-  test('Firefox ArrowUp keeps code-block selection anchored in text', async ({
+  test('ArrowUp keeps code-block selection anchored in text', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'firefox',
-      'Firefox native selection regression proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop code-block proof')
 
     const editor = await openExample(page, 'code-highlighting', {
       ready: {
@@ -411,7 +432,7 @@ test.describe('code highlighting', () => {
       runtimeErrors.assertNone()
       await expect(editor.locator.block([1, 13])).toContainText('a')
       await expect.poll(() => editor.get.modelText()).not.toContain('return (')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -445,11 +466,11 @@ test.describe('code highlighting', () => {
         .toContain('If you are using')
 
       await editor.root.press('Backspace')
-      await page.keyboard.insertText('after')
+      await page.keyboard.type('after')
 
       runtimeErrors.assertNone()
       await expect.poll(() => editor.get.modelText()).toContain('after')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -512,11 +533,11 @@ test.describe('code highlighting', () => {
       await page.getByTestId('code-block-button').click()
       await editor.selection.collapse({ path: [0, 0, 0], offset: 0 })
       await editor.root.press('Backspace')
-      await page.keyboard.insertText('after')
+      await page.keyboard.type('after')
 
       runtimeErrors.assertNone()
       await expect.poll(() => editor.get.modelText()).toContain('after')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -525,7 +546,7 @@ test.describe('code highlighting', () => {
   test('mouse drag undo restores typed selected paragraph text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'code-highlighting', {
       ready: {

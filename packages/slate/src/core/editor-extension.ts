@@ -1,7 +1,6 @@
 import type {
   BaseEditor,
   Editor,
-  EditorCommandResult,
   EditorCommitContext,
   EditorExtension,
   EditorExtensionInput,
@@ -68,7 +67,7 @@ type TransformMiddleware<
     TEditor,
     TransformMiddlewareArgs<TEditor, TKey>
   >
-) => EditorCommandResult
+) => boolean
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
 
@@ -161,6 +160,13 @@ type NoExtraEditorExtensionProperties<
   TShape extends EditorExtension<any, any>,
 > = TExtension & Record<Exclude<keyof TExtension, keyof TShape>, never>
 
+/**
+ * Defines an editor extension while preserving literal names, typed setup
+ * output, and compile-time rejection of unsupported extension keys.
+ *
+ * Use the curried form to bind an extension to a specific editor type before
+ * passing the descriptor.
+ */
 export const defineEditorExtension = ((
   extension?: EditorExtension<any, any>
 ) =>
@@ -448,7 +454,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
           (context, next) => {
             const { type: _type, ...commandArgs } = context.command
             let delegated = false
-            let nextResult: EditorCommandResult = false
+            let nextResult = false
 
             const runNext = (
               overrides: Partial<

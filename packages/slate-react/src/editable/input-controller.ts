@@ -5,10 +5,14 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import type { Editor } from 'slate'
-import { Hotkeys, IS_COMPOSING, isDOMElement, isDOMText } from 'slate-dom'
+import { Hotkeys, isDOMElement, isDOMText } from 'slate-dom'
+import { IS_COMPOSING } from 'slate-dom/internal'
 
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { shouldModelOwnPlainVerticalDOMCoverageExtension } from './dom-coverage-vertical-selection'
+import {
+  shouldModelOwnPlainVerticalDOMCoverageExtension,
+  shouldModelOwnPlainVerticalLargeDocumentExtension,
+} from './dom-coverage-vertical-selection'
 import type { EditableInputController, InputIntent } from './input-state'
 
 export type {
@@ -53,6 +57,41 @@ export {
   syncEditableDOMSelectionToEditor,
   syncEditorSelectionFromDOM,
 } from './selection-controller'
+
+type DocumentBoundaryKeyboardEvent = Pick<
+  KeyboardEvent,
+  'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'
+>
+
+export const getDocumentBoundaryKeyboardMove = (
+  event: DocumentBoundaryKeyboardEvent
+): { extend: boolean; reverse: boolean } | null => {
+  if (event.altKey) {
+    return null
+  }
+
+  if (event.ctrlKey && !event.metaKey) {
+    if (event.key === 'Home') {
+      return { extend: event.shiftKey, reverse: true }
+    }
+
+    if (event.key === 'End') {
+      return { extend: event.shiftKey, reverse: false }
+    }
+  }
+
+  if (event.metaKey && !event.ctrlKey) {
+    if (event.key === 'ArrowUp') {
+      return { extend: event.shiftKey, reverse: true }
+    }
+
+    if (event.key === 'ArrowDown') {
+      return { extend: event.shiftKey, reverse: false }
+    }
+  }
+
+  return null
+}
 
 export const isNestedEditableDOMTarget = (
   editorElement: HTMLElement,
@@ -199,6 +238,13 @@ const MODIFIER_ONLY_KEYS = new Set([
 const isModifierOnlyKeyboardIntent = (event: KeyboardEvent) =>
   MODIFIER_ONLY_KEYS.has(event.key)
 
+const isClipboardKeyboardIntent = (event: KeyboardEvent) =>
+  !event.altKey &&
+  (event.ctrlKey || event.metaKey) &&
+  (event.key.toLowerCase() === 'c' ||
+    event.key.toLowerCase() === 'v' ||
+    event.key.toLowerCase() === 'x')
+
 export const classifyKeyboardIntent = ({
   editor,
   event,
@@ -224,6 +270,10 @@ export const classifyKeyboardIntent = ({
     return 'internal-control'
   }
 
+  if (isClipboardKeyboardIntent(nativeEvent)) {
+    return 'clipboard'
+  }
+
   if (
     Hotkeys.isSoftBreak(nativeEvent) ||
     Hotkeys.isSplitBlock(nativeEvent) ||
@@ -237,6 +287,12 @@ export const classifyKeyboardIntent = ({
     Hotkeys.isMoveLineForward(nativeEvent) ||
     Hotkeys.isExtendLineBackward(nativeEvent) ||
     Hotkeys.isExtendLineForward(nativeEvent) ||
+    getDocumentBoundaryKeyboardMove(nativeEvent) ||
+    shouldModelOwnPlainVerticalLargeDocumentExtension({
+      domStrategyRuntime,
+      editor,
+      event: nativeEvent,
+    }) ||
     shouldModelOwnPlainVerticalDOMCoverageExtension({
       editor,
       event: nativeEvent,

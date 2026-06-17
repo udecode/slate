@@ -1,6 +1,7 @@
 import { expect, type Locator, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
+  assertSlateBrowserSelectionContract,
   createSlateBrowserDestructiveEditingGauntlet,
   createSlateBrowserMarkClickTypingGauntlet,
   createSlateBrowserMarkTypingGauntlet,
@@ -22,17 +23,135 @@ const expectDOMCaretAtTextEnd = async (root: Locator, suffix: string) => {
     .poll(() =>
       root.evaluate((element: HTMLElement, expectedSuffix) => {
         const selection = element.ownerDocument.getSelection()
-        const text = selection?.anchorNode?.textContent ?? null
 
-        return Boolean(
-          selection?.isCollapsed &&
-            text?.endsWith(expectedSuffix) &&
-            selection.anchorOffset === text.length
+        if (
+          !selection?.isCollapsed ||
+          !selection.anchorNode ||
+          !element.contains(selection.anchorNode)
+        ) {
+          return false
+        }
+
+        const walker = element.ownerDocument.createTreeWalker(
+          element,
+          NodeFilter.SHOW_TEXT
         )
+        let textBeforeCaret = ''
+
+        while (walker.nextNode()) {
+          const node = walker.currentNode
+          const text = node.textContent ?? ''
+
+          if (node === selection.anchorNode) {
+            textBeforeCaret += text.slice(0, selection.anchorOffset)
+
+            return (
+              textBeforeCaret.endsWith(expectedSuffix) &&
+              text.slice(selection.anchorOffset).length === 0
+            )
+          }
+
+          textBeforeCaret += text
+        }
+
+        return false
       }, suffix)
     )
     .toBe(true)
 }
+
+const expectDOMCaretBetweenText = async (
+  root: Locator,
+  beforeSuffix: string,
+  afterPrefix: string
+) => {
+  await expect
+    .poll(() =>
+      root.evaluate(
+        (
+          element: HTMLElement,
+          expected: { afterPrefix: string; beforeSuffix: string }
+        ) => {
+          const selection = element.ownerDocument.getSelection()
+
+          if (
+            !selection?.isCollapsed ||
+            !selection.anchorNode ||
+            !element.contains(selection.anchorNode)
+          ) {
+            return false
+          }
+
+          const walker = element.ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let textBeforeCaret = ''
+          let textAfterCaret = ''
+          let foundAnchor = false
+
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+            const text = node.textContent ?? ''
+
+            if (node === selection.anchorNode) {
+              textBeforeCaret += text.slice(0, selection.anchorOffset)
+              textAfterCaret += text.slice(selection.anchorOffset)
+              foundAnchor = true
+              continue
+            }
+
+            if (foundAnchor) {
+              textAfterCaret += text
+            } else {
+              textBeforeCaret += text
+            }
+          }
+
+          return (
+            foundAnchor &&
+            textBeforeCaret.endsWith(expected.beforeSuffix) &&
+            textAfterCaret.startsWith(expected.afterPrefix)
+          )
+        },
+        { afterPrefix, beforeSuffix }
+      )
+    )
+    .toBe(true)
+}
+
+const getFirstParagraphRightMarginClickPoint = async (root: Locator) =>
+  root
+    .locator('p')
+    .first()
+    .evaluate((paragraph: HTMLElement) => {
+      const paragraphRect = paragraph.getBoundingClientRect()
+      const textRects = Array.from(
+        paragraph.querySelectorAll<HTMLElement>('[data-slate-string]')
+      ).flatMap((element) => Array.from(element.getClientRects()))
+
+      if (textRects.length === 0) {
+        throw new Error('Missing first paragraph text rects')
+      }
+
+      const lastLineRect = textRects.reduce((last, rect) => {
+        const lowerLine = rect.bottom > last.bottom + 1
+        const sameLineFurtherRight =
+          Math.abs(rect.bottom - last.bottom) <= 1 && rect.right > last.right
+
+        return lowerLine || sameLineFurtherRight ? rect : last
+      }, textRects[0]!)
+      const x = Math.min(paragraphRect.right - 8, lastLineRect.right + 80)
+
+      if (x <= lastLineRect.right + 4) {
+        throw new Error('First paragraph has no right-margin click space')
+      }
+
+      return {
+        x,
+        y: lastLineRect.top + lastLineRect.height / 2,
+      }
+    })
 
 const expectVisualCaretAtEndOfFirstBlock = async (root: Locator) => {
   await expect
@@ -79,36 +198,147 @@ const expectVisualCaretAtEndOfFirstBlock = async (root: Locator) => {
 
 const expectCaretVisibleInsideScrollContainer = async (
   root: Locator,
-  target: 'parent' | 'root'
+  target: 'parent' | 'root',
+  iteration?: number
 ) => {
-  await expect
-    .poll(() =>
-      root.evaluate((element: HTMLElement, scrollTarget) => {
-        const selection = element.ownerDocument.getSelection()
-        const scrollContainer =
-          scrollTarget === 'parent' ? element.parentElement : element
+  let lastSnapshot: null | {
+    activeElementTagName: string | null
+    anchorInRoot: boolean
+    anchorNodeText: string | null
+    containerRect: { bottom: number; top: number }
+    focusInRoot: boolean
+    focusNodeText: string | null
+    hasSelection: boolean
+    iteration: number | null
+    rangeCount: number
+    scrollTarget: 'parent' | 'root'
+    scrollTop: number
+    selectionCollapsed: boolean | null
+    textHostText: string | null
+    visible: boolean
+    visibleRect: {
+      bottom: number
+      height: number
+      top: number
+      width: number
+    } | null
+  } = null
 
-        if (!selection || selection.rangeCount === 0 || !scrollContainer) {
-          return false
-        }
+  try {
+    await expect
+      .poll(async () => {
+        lastSnapshot = await root.evaluate(
+          (
+            element: HTMLElement,
+            {
+              scrollTarget,
+              step,
+            }: { scrollTarget: 'parent' | 'root'; step: number | null }
+          ) => {
+            const selection = element.ownerDocument.getSelection()
+            const activeElement = element.ownerDocument.activeElement
+            const scrollContainer =
+              scrollTarget === 'parent' ? element.parentElement : element
+            const containerRect = scrollContainer?.getBoundingClientRect()
+            const base = {
+              activeElementTagName:
+                activeElement?.tagName?.toLowerCase() ?? null,
+              anchorInRoot:
+                !!selection?.anchorNode &&
+                element.contains(selection.anchorNode),
+              anchorNodeText: selection?.anchorNode?.textContent ?? null,
+              containerRect: {
+                bottom: containerRect?.bottom ?? 0,
+                top: containerRect?.top ?? 0,
+              },
+              focusInRoot:
+                !!selection?.focusNode && element.contains(selection.focusNode),
+              focusNodeText: selection?.focusNode?.textContent ?? null,
+              hasSelection: !!selection,
+              iteration: step,
+              rangeCount: selection?.rangeCount ?? 0,
+              scrollTarget,
+              scrollTop: scrollContainer?.scrollTop ?? 0,
+              selectionCollapsed: selection?.isCollapsed ?? null,
+              textHostText: null,
+              visible: false,
+              visibleRect: null,
+            }
 
-        const range = selection.getRangeAt(0).cloneRange()
-        const marker = element.ownerDocument.createElement('span')
+            if (
+              !selection ||
+              selection.rangeCount === 0 ||
+              !scrollContainer ||
+              !containerRect
+            ) {
+              return base
+            }
 
-        marker.textContent = '|'
-        range.insertNode(marker)
+            const focusElement =
+              selection.focusNode instanceof Element
+                ? selection.focusNode
+                : selection.focusNode instanceof Text
+                  ? selection.focusNode.parentElement
+                  : null
+            const textHost = focusElement?.closest('[data-slate-node="text"]')
+            const range = selection.getRangeAt(0)
+            const rangeRect =
+              Array.from(range.getClientRects())[0] ??
+              range.getBoundingClientRect()
+            const rangeRectIsUsable =
+              rangeRect.width !== 0 ||
+              rangeRect.height !== 0 ||
+              rangeRect.x !== 0 ||
+              rangeRect.y !== 0
+            const visibleRect = rangeRectIsUsable
+              ? rangeRect
+              : textHost?.getBoundingClientRect()
 
-        const rect = marker.getBoundingClientRect()
-        const containerRect = scrollContainer.getBoundingClientRect()
-        marker.remove()
+            if (
+              !visibleRect ||
+              (visibleRect.width === 0 && visibleRect.height === 0)
+            ) {
+              return {
+                ...base,
+                textHostText: textHost?.textContent ?? null,
+              }
+            }
 
-        return (
-          rect.top >= containerRect.top - 1 &&
-          rect.bottom <= containerRect.bottom + 1
+            const visible =
+              base.anchorInRoot &&
+              base.focusInRoot &&
+              visibleRect.top >= containerRect.top - 1 &&
+              visibleRect.bottom <= containerRect.bottom + 1
+
+            return {
+              ...base,
+              textHostText: textHost?.textContent ?? null,
+              visible,
+              visibleRect: {
+                bottom: visibleRect.bottom,
+                height: visibleRect.height,
+                top: visibleRect.top,
+                width: visibleRect.width,
+              },
+            }
+          },
+          { scrollTarget: target, step: iteration ?? null }
         )
-      }, target)
+
+        return lastSnapshot.visible
+      })
+      .toBe(true)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(
+      `${message}\nLast caret visibility snapshot: ${JSON.stringify(
+        lastSnapshot,
+        null,
+        2
+      )}`
     )
-    .toBe(true)
+  }
 }
 
 const expectDOMCaretAfterInsertedTextBeforeSuffix = async (
@@ -127,12 +357,52 @@ const expectDOMCaretAfterInsertedTextBeforeSuffix = async (
           }: { expectedInsertedText: string; expectedTrailingText: string }
         ) => {
           const selection = element.ownerDocument.getSelection()
-          const text = selection?.anchorNode?.textContent ?? null
 
-          return Boolean(
-            selection?.isCollapsed &&
-              text === `${expectedInsertedText}${expectedTrailingText}` &&
-              selection.anchorOffset === expectedInsertedText.length
+          if (
+            !selection?.isCollapsed ||
+            !selection.anchorNode ||
+            !element.contains(selection.anchorNode)
+          ) {
+            return false
+          }
+
+          const text = selection.anchorNode.textContent ?? ''
+
+          if (
+            text === `${expectedInsertedText}${expectedTrailingText}` &&
+            selection.anchorOffset === expectedInsertedText.length
+          ) {
+            return true
+          }
+
+          const walker = element.ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let foundAnchor = false
+          let nextText: string | null = null
+
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+
+            if (foundAnchor) {
+              const value = node.textContent ?? ''
+
+              if (value.length > 0) {
+                nextText = value
+                break
+              }
+            }
+
+            if (node === selection.anchorNode) {
+              foundAnchor = true
+            }
+          }
+
+          return (
+            text === expectedInsertedText &&
+            selection.anchorOffset === text.length &&
+            !!nextText?.startsWith(expectedTrailingText)
           )
         },
         {
@@ -288,19 +558,14 @@ test.describe('On richtext example', () => {
   test.beforeEach(async ({ page }) => await page.goto('/examples/richtext'))
 
   test('renders rich text', async ({ page }) => {
-    expect(await page.locator('strong').nth(0).textContent()).toContain('rich')
-    expect(await page.locator('blockquote').textContent()).toContain(
-      'wise quote'
-    )
+    await expect(page.locator('strong').nth(0)).toContainText('rich')
+    await expect(page.locator('blockquote')).toContainText('wise quote')
   })
 
   test('clears selected rich text formatting without dropping semantic blocks', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
-      'Desktop native select-all replacement proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop select-all proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -316,10 +581,17 @@ test.describe('On richtext example', () => {
     await page.keyboard.insertText('baz qux')
     await editor.assert.blockTexts(['Foo bar', 'baz qux'])
 
-    await page.keyboard.press('ControlOrMeta+A')
+    await editor.selection.selectAll()
     await page.getByTestId('mark-button-bold').click()
     await page.getByTestId('mark-button-italic').click()
     await page.getByTestId('block-button-right').click()
+
+    const paragraphs = editor.root.locator('p')
+
+    await expect(paragraphs.nth(0).locator('strong')).toHaveText('Foo bar')
+    await expect(paragraphs.nth(0).locator('em')).toHaveText('Foo bar')
+    await expect(paragraphs.nth(1).locator('strong')).toHaveText('baz qux')
+    await expect(paragraphs.nth(1).locator('em')).toHaveText('baz qux')
 
     await editor.selection.select({
       anchor: { path: [0, 0], offset: 'Foo '.length },
@@ -328,8 +600,6 @@ test.describe('On richtext example', () => {
     await page.getByTestId('clear-formatting-button').click()
 
     await editor.assert.blockTexts(['Foo bar', 'baz qux'])
-
-    const paragraphs = editor.root.locator('p')
 
     await expect(paragraphs.nth(0).locator('strong')).toHaveText('Foo ')
     await expect(paragraphs.nth(0).locator('em')).toHaveText('Foo ')
@@ -352,6 +622,38 @@ test.describe('On richtext example', () => {
       'style',
       /text-align/
     )
+  })
+
+  test('keeps a backward click caret after typing in the same text node', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop click caret proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('abcdef')
+    await editor.assert.blockTexts(['abcdef'])
+
+    await editor.dom.clickTextRange({
+      endOffset: 3,
+      path: [0, 0],
+      startOffset: 2,
+    })
+    await page.keyboard.type('X')
+
+    await editor.assert.blockTexts(['abXcdef'])
+    await editor.assert.collapsedModelDOMSelection({
+      offset: 3,
+      path: [0, 0],
+      text: 'abXcdef',
+    })
   })
 
   test('normalizes select-all Backspace to one empty paragraph', async ({
@@ -399,7 +701,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -478,7 +784,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -517,6 +827,59 @@ test.describe('On richtext example', () => {
 
     await editor.assert.blockTexts(['Bold', 'Next'])
     await expect(editor.root.locator('strong')).toHaveText(['Bold', 'Next'])
+  })
+
+  test('keeps an empty soft-break line caret measurable and editable', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop soft-break caret geometry proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.click()
+      await page.keyboard.press('ControlOrMeta+A')
+      await page.keyboard.press('Backspace')
+      await page.keyboard.type('alpha')
+      await editor.root.press('Shift+Enter')
+
+      await editor.assert.blockTexts(['alpha', ''])
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
+
+      const caretRect = await editor.selection.rect()
+      const editorRect = await editor.root.boundingBox()
+
+      if (!caretRect || !editorRect) {
+        throw new Error('Missing soft-break caret or editor rect')
+      }
+
+      expect(caretRect.height).toBeGreaterThan(0)
+      expect(caretRect.y).toBeGreaterThan(editorRect.y)
+      expect(caretRect.y).toBeLessThan(editorRect.y + editorRect.height)
+      expect(caretRect.x).toBeGreaterThanOrEqual(editorRect.x)
+      expect(caretRect.x).toBeLessThanOrEqual(editorRect.x + editorRect.width)
+      runtimeErrors.assertNone()
+
+      await page.keyboard.type('beta')
+
+      await editor.assert.blockTexts(['alpha', 'beta'])
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('keeps active bold when Enter creates a new paragraph', async ({
@@ -560,7 +923,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -610,6 +977,73 @@ test.describe('On richtext example', () => {
     }
   })
 
+  test('keeps active bold after same-html plain paste', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      await editor.selectAll()
+      await editor.deleteFragment()
+
+      const modifier = await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+      )
+
+      await editor.root.press(`${modifier}+b`)
+      await editor.clipboard.pasteHtml('Prediction', 'Prediction')
+      await editor.type('!')
+
+      runtimeErrors.assertNone()
+      await editor.assert.blockTexts(['Prediction!'])
+      await expect(editor.root.locator('strong')).toHaveText('Prediction!')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('keeps active bold after multiline plain text paste', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      await editor.selectAll()
+      await editor.deleteFragment()
+
+      const modifier = await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+      )
+
+      await editor.root.press(`${modifier}+b`)
+      await editor.clipboard.pasteText('First\nSecond')
+      await editor.type('!')
+
+      runtimeErrors.assertNone()
+      await editor.assert.blockTexts(['First', 'Second!'])
+      await expect(editor.root.locator('strong')).toHaveText([
+        'First',
+        'Second!',
+      ])
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('keeps empty paragraph styling after the selection leaves and returns', async ({
     page,
   }, testInfo) => {
@@ -624,7 +1058,7 @@ test.describe('On richtext example', () => {
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('Backspace')
-    await page.keyboard.insertText('Styled')
+    await page.keyboard.type('Styled')
     await editor.selection.selectDOM({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 'Styled'.length },
@@ -636,9 +1070,9 @@ test.describe('On richtext example', () => {
     await editor.root.press(`${modifier}+b`)
     await page.keyboard.press('Backspace')
     await editor.root.press('Enter')
-    await page.keyboard.insertText('Other')
+    await page.keyboard.type('Other')
     await editor.selection.collapse({ path: [0, 0], offset: 0 })
-    await page.keyboard.insertText('Next')
+    await page.keyboard.type('Next')
 
     await editor.assert.blockTexts(['Next', 'Other'])
     await expect(editor.root.locator('p').first().locator('strong')).toHaveText(
@@ -731,9 +1165,9 @@ test.describe('On richtext example', () => {
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('Backspace')
-    await page.keyboard.insertText('Hello ')
+    await page.keyboard.type('Hello ')
     await page.getByTestId('mark-button-bold').click()
-    await page.keyboard.insertText('world')
+    await page.keyboard.type('world')
 
     await editor.selection.selectDOM({
       anchor: { path: [0, 1], offset: 0 },
@@ -829,10 +1263,12 @@ test.describe('On richtext example', () => {
     await page.keyboard.press('Enter')
     await expect(editor.locator.block([1])).toHaveText('')
     await editor.selection.collapse({ path: [1, 0], offset: 0 })
-    expect(await editor.selection.get()).toEqual({
-      anchor: { path: [1, 0], offset: 0 },
-      focus: { path: [1, 0], offset: 0 },
-    })
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
 
     await page.getByTestId('block-button-center').click()
 
@@ -840,10 +1276,12 @@ test.describe('On richtext example', () => {
       'text-align',
       'center'
     )
-    expect(await editor.selection.get()).toEqual({
-      anchor: { path: [1, 0], offset: 0 },
-      focus: { path: [1, 0], offset: 0 },
-    })
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
   })
 
   test('inserts text through browser input', async ({ page }, testInfo) => {
@@ -865,13 +1303,54 @@ test.describe('On richtext example', () => {
     }
 
     await editor.assert.text('Hello World')
-    expect(await editor.get.modelText()).toContain('Hello World')
+    await expect.poll(() => editor.get.modelText()).toContain('Hello World')
+  })
+
+  test('ignores synthetic beforeinput when the browser has no selection ranges', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop beforeinput proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const before = await editor.get.blockTexts()
+
+    await editor.click()
+    const dispatched = await editor.root.evaluate((element: HTMLElement) => {
+      const selection = element.ownerDocument.getSelection()
+      selection?.removeAllRanges()
+      const rangeCountBefore = selection?.rangeCount ?? 0
+      const event = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        data: 'Z',
+        inputType: 'insertText',
+      })
+      element.dispatchEvent(event)
+
+      return {
+        defaultPrevented: event.defaultPrevented,
+        rangeCountBefore,
+      }
+    })
+
+    expect(dispatched).toEqual({
+      defaultPrevented: false,
+      rangeCountBefore: 0,
+    })
+    await expect.poll(() => editor.get.blockTexts()).toEqual(before)
   })
 
   test('syncs browser text mutations inside bold markup', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop DOM-change proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -915,7 +1394,10 @@ test.describe('On richtext example', () => {
   test('syncs browser text mutations inside nested mark DOM', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop DOM-change proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -964,8 +1446,8 @@ test.describe('On richtext example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium mark-boundary proof'
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop mark-boundary proof'
     )
 
     const editor = await openExample(page, 'richtext', {
@@ -991,8 +1473,8 @@ test.describe('On richtext example', () => {
     await editor.root.press(`${modifier}+i`)
     await editor.selection.collapse({ path: [0, 0], offset: 3 })
     await editor.root.press(`${modifier}+b`)
-    await page.keyboard.insertText(burst)
-    await page.keyboard.insertText('Y')
+    await page.keyboard.type(burst)
+    await page.keyboard.type('Y')
 
     await editor.assert.blockTexts([`cho${burst}Yice`])
     await editor.assert.selection({
@@ -1004,7 +1486,7 @@ test.describe('On richtext example', () => {
   test('mouse drag undo restores typed multi-leaf selected text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selection proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -1019,9 +1501,25 @@ test.describe('On richtext example', () => {
       focus: { path: [0, 2], offset: ' text'.length },
     }
 
-    await editor.selection.selectDOM(selection)
+    await editor.selection.dragTextRange({
+      endOffset: ' text'.length,
+      endText: ' text, ',
+      settleMs: 25,
+      startOffset: 'This is '.length,
+      text: 'This is editable ',
+    })
 
-    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+    await assertSlateBrowserSelectionContract(editor, {
+      domSelection: {
+        anchorNodeText: 'This is editable ',
+        anchorOffset: 'This is '.length,
+        focusNodeText: ' text, ',
+        focusOffset: ' text'.length,
+      },
+      noDoubleSelectionHighlight: true,
+      selectedText,
+      selection,
+    })
 
     await page.keyboard.type('example')
     await expect
@@ -1033,13 +1531,16 @@ test.describe('On richtext example', () => {
     await expect
       .poll(async () => (await editor.get.blockTexts())[0])
       .toBe(originalText)
-    await editor.assert.selection(selection)
-    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
-    await editor.assert.domSelection({
-      anchorNodeText: 'This is editable ',
-      anchorOffset: 'This is '.length,
-      focusNodeText: ' text, ',
-      focusOffset: ' text'.length,
+    await assertSlateBrowserSelectionContract(editor, {
+      domSelection: {
+        anchorNodeText: 'This is editable ',
+        anchorOffset: 'This is '.length,
+        focusNodeText: ' text, ',
+        focusOffset: ' text'.length,
+      },
+      noDoubleSelectionHighlight: true,
+      selectedText,
+      selection,
     })
   })
 
@@ -1205,7 +1706,7 @@ test.describe('On richtext example', () => {
     )
 
     await editor.assert.text(insertedText)
-    expect(await editor.get.modelText()).toContain(insertedText)
+    await expect.poll(() => editor.get.modelText()).toContain(insertedText)
     await expect(
       editor.root.locator('strong').filter({ hasText: 'すし' })
     ).toHaveCount(1)
@@ -1270,7 +1771,7 @@ test.describe('On richtext example', () => {
     await client.send('Input.insertText', { text: insertedText })
 
     await editor.assert.text(insertedText)
-    expect(await editor.get.modelText()).toBe(insertedText)
+    await expect.poll(() => editor.get.modelText()).toBe(insertedText)
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: insertedText.length },
       focus: { path: [0, 0], offset: insertedText.length },
@@ -1309,7 +1810,7 @@ test.describe('On richtext example', () => {
     await client.send('Input.insertText', { text: insertedText })
 
     await editor.assert.text(insertedText)
-    expect(await editor.get.modelText()).toBe(insertedText)
+    await expect.poll(() => editor.get.modelText()).toBe(insertedText)
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: insertedText.length },
       focus: { path: [0, 0], offset: insertedText.length },
@@ -1510,7 +2011,7 @@ test.describe('On richtext example', () => {
     await client.send('Input.insertText', { text: insertedText })
 
     await editor.assert.text(expectedText)
-    expect(await editor.get.modelText()).toContain(expectedText)
+    await expect.poll(() => editor.get.modelText()).toContain(expectedText)
     await expect(
       editor.root.locator('strong').filter({ hasText: insertedText })
     ).toHaveCount(1)
@@ -1524,6 +2025,366 @@ test.describe('On richtext example', () => {
     await editor.assert.kernelTrace({
       eventFamily: 'compositionend',
       ownership: 'native-allowed',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits rapid consecutive IME compositions in separate rich text blocks', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('one')
+    await editor.press('Enter')
+    await editor.insertText('two')
+    await editor.assert.blockTexts(['one', 'two'])
+
+    await editor.selection.collapse({ path: [0, 0], offset: 'one'.length })
+    await editor.focus()
+    await editor.ime.compose({
+      committedText: '!',
+      steps: ['！', '!'],
+      text: '!',
+      transport: 'synthetic',
+    })
+    await editor.selection.collapse({ path: [1, 0], offset: 'two'.length })
+    await editor.focus()
+    await editor.ime.compose({
+      committedText: '.',
+      steps: ['。', '.'],
+      text: '.',
+      transport: 'synthetic',
+    })
+
+    await editor.assert.blockTexts(['one!', 'two.'])
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 'two.'.length },
+      focus: { path: [1, 0], offset: 'two.'.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('preserves native IME composition when model text changes before it', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText = 'one two three'
+    const prefix = '>'
+    const composedText = '段'
+    const compositionOffset = 'one '.length
+    const expectedText = `${prefix}one ${composedText}two three`
+    const expectedOffset = `${prefix}one ${composedText}`.length
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText(initialText)
+    await editor.selection.collapse({ path: [0, 0], offset: compositionOffset })
+    await editor.focus()
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'だ',
+    })
+
+    await editor.root.evaluate(
+      (element: HTMLElement, { insertedPrefix }) => {
+        const handle = (element as Record<string, any>).__slateBrowserHandle
+
+        if (!handle?.applyOperations) {
+          throw new Error('Cannot apply operation during IME composition')
+        }
+
+        handle.applyOperations([
+          {
+            offset: 0,
+            path: [0, 0],
+            text: insertedPrefix,
+            type: 'insert_text',
+          },
+        ])
+      },
+      { insertedPrefix: prefix }
+    )
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: composedText.length,
+      selectionStart: composedText.length,
+      text: composedText,
+    })
+    await client.send('Input.insertText', { text: composedText })
+
+    await editor.assert.blockTexts([expectedText])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: expectedOffset },
+      focus: { path: [0, 0], offset: expectedOffset },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('keeps native IME composition coherent when model delete starts at composition point', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText = 'one two three'
+    const deletedText = 'two'
+    const composedText = '段'
+    const compositionOffset = 'one '.length
+    const expectedText = `one ${composedText} three`
+    const expectedOffset = `one ${composedText}`.length
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText(initialText)
+    await editor.selection.collapse({ path: [0, 0], offset: compositionOffset })
+    await editor.focus()
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'だ',
+    })
+
+    await editor.root.evaluate(
+      (element: HTMLElement, { deleted, offset }) => {
+        const handle = (element as Record<string, any>).__slateBrowserHandle
+
+        if (!handle?.applyOperations) {
+          throw new Error('Cannot apply operation during IME composition')
+        }
+
+        handle.applyOperations([
+          {
+            offset,
+            path: [0, 0],
+            text: deleted,
+            type: 'remove_text',
+          },
+        ])
+      },
+      { deleted: deletedText, offset: compositionOffset }
+    )
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: composedText.length,
+      selectionStart: composedText.length,
+      text: composedText,
+    })
+    await client.send('Input.insertText', { text: composedText })
+
+    await editor.assert.blockTexts([expectedText])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: expectedOffset },
+      focus: { path: [0, 0], offset: expectedOffset },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('keeps native IME composition coherent when plain text is pasted at the composition point', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText = 'one two three'
+    const pastedText = 'PASTE'
+    const composedText = '段'
+    const compositionOffset = 'one '.length
+    const expectedText = `one ${pastedText}${composedText}two three`
+    const expectedOffset = `one ${pastedText}${composedText}`.length
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText(initialText)
+    await editor.selection.collapse({ path: [0, 0], offset: compositionOffset })
+    await editor.focus()
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'だ',
+    })
+
+    const beforeTraceLength = (await editor.get.kernelTrace()).length
+
+    await editor.clipboard.pasteNativeText(pastedText)
+    await expect
+      .poll(() =>
+        editor.get
+          .kernelTrace()
+          .then((trace) =>
+            trace
+              .slice(beforeTraceLength)
+              .some(
+                (entry) =>
+                  entry.eventFamily === 'paste' &&
+                  entry.command?.kind === 'insert-data'
+              )
+          )
+      )
+      .toBe(true)
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: composedText.length,
+      selectionStart: composedText.length,
+      text: composedText,
+    })
+    await client.send('Input.insertText', { text: composedText })
+
+    await editor.assert.blockTexts([expectedText])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: expectedOffset },
+      focus: { path: [0, 0], offset: expectedOffset },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('replaces a cross-paragraph rich text selection with IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = '段'
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('one two')
+    await editor.press('Enter')
+    await editor.insertText('three')
+    await editor.press('Enter')
+    await editor.insertText('four five')
+    await editor.assert.blockTexts(['one two', 'three', 'four five'])
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'one '.length },
+      focus: { path: [2, 0], offset: 'four'.length },
+    })
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'one '.length },
+      focus: { path: [2, 0], offset: 'four'.length },
+    })
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replace(/\n{2,}/g, '\n')
+      )
+      .toBe('two\nthree\nfour')
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['だ', insertedText]) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: insertedText })
+
+    await editor.assert.blockTexts([`one ${insertedText} five`])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: `one ${insertedText}`.length },
+      focus: { path: [0, 0], offset: `one ${insertedText}`.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('replaces a cross-paragraph rich text selection with synthetic IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium helper proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = '段'
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('one two')
+    await editor.press('Enter')
+    await editor.insertText('three')
+    await editor.press('Enter')
+    await editor.insertText('four five')
+    await editor.assert.blockTexts(['one two', 'three', 'four five'])
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'one '.length },
+      focus: { path: [2, 0], offset: 'four'.length },
+    })
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'one '.length },
+      focus: { path: [2, 0], offset: 'four'.length },
+    })
+    await editor.ime.compose({
+      committedText: insertedText,
+      steps: ['だ', insertedText],
+      text: insertedText,
+      transport: 'synthetic',
+    })
+
+    await editor.assert.blockTexts([`one ${insertedText} five`])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: `one ${insertedText}`.length },
+      focus: { path: [0, 0], offset: `one ${insertedText}`.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
       transition: { allowed: true },
     })
   })
@@ -1647,12 +2508,7 @@ test.describe('On richtext example', () => {
 
   test('keeps model selection when focus moves outside the editor', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name === 'webkit',
-      'WebKit does not focus the synthetic outside button from Playwright click'
-    )
-
+  }) => {
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
@@ -1666,28 +2522,76 @@ test.describe('On richtext example', () => {
     await page.evaluate(() => {
       document.getElementById('outside-focus-target')?.remove()
 
-      const button = document.createElement('button')
-      button.id = 'outside-focus-target'
-      button.type = 'button'
-      button.textContent = 'outside'
-      document.body.append(button)
+      const input = document.createElement('input')
+      input.id = 'outside-focus-target'
+      input.type = 'text'
+      input.value = 'outside'
+      document.body.append(input)
     })
 
     await editor.selection.select(selection)
-    await page.locator('#outside-focus-target').click()
+    await page.locator('#outside-focus-target').focus()
 
     await expect(page.locator('#outside-focus-target')).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(selection)
   })
 
+  test('hides the visible caret after tabbing out of the editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Tab-away proof')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit does not move Tab focus to the injected input in Playwright'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      document.getElementById('tab-away-target')?.remove()
+
+      const input = document.createElement('input')
+      input.id = 'tab-away-target'
+      input.type = 'text'
+      input.value = 'outside'
+      element.insertAdjacentElement('afterend', input)
+    })
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    await editor.focus()
+    await editor.assert.focusOwner('editor')
+    await editor.assert.caretVisibleInScrollableParent()
+
+    await page.keyboard.press('Tab')
+
+    await expect(page.locator('#tab-away-target')).toBeFocused()
+    await editor.assert.focusOwner('outside')
+    await editor.assert.noVisibleCaretInRoot()
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 4 },
+      })
+
+    await editor.focus()
+    await page.keyboard.insertText('!')
+
+    await expect.poll(() => editor.get.modelText()).toContain('This! is')
+  })
+
   for (const scrollTarget of ['root', 'parent'] as const) {
     test(`keeps caret visible while typing in a scrollable editor ${scrollTarget}`, async ({
-      browserName,
       page,
     }, testInfo) => {
-      if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-        return
-      }
+      test.skip(testInfo.project.name === 'mobile', 'Desktop scroll proof')
 
       const editor = await openExample(page, 'richtext', {
         ready: {
@@ -1715,18 +2619,19 @@ test.describe('On richtext example', () => {
       for (let i = 0; i < 12; i++) {
         await page.keyboard.insertText(`Line ${i}`)
         await page.keyboard.press('Enter')
-        await expectCaretVisibleInsideScrollContainer(editor.root, scrollTarget)
+        await expectCaretVisibleInsideScrollContainer(
+          editor.root,
+          scrollTarget,
+          i
+        )
       }
     })
   }
 
   test('does not reverse scroll after PageDown in a scrollable editor', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop scroll proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -1746,7 +2651,7 @@ test.describe('On richtext example', () => {
     })
 
     for (let i = 0; i < 18; i++) {
-      await page.keyboard.insertText(`Line ${i}`)
+      await page.keyboard.type(`Line ${i}`)
       await page.keyboard.press('Enter')
     }
 
@@ -1791,10 +2696,82 @@ test.describe('On richtext example', () => {
     }
   })
 
+  test('does not scroll to top when refocusing a scrollable editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop focus scroll proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await page.evaluate(() => {
+      document.getElementById('outside-focus-target')?.remove()
+
+      const input = document.createElement('input')
+      input.id = 'outside-focus-target'
+      input.type = 'text'
+      input.value = 'outside'
+      document.body.append(input)
+    })
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.style.display = 'block'
+      element.style.maxHeight = '120px'
+      element.style.overflowY = 'auto'
+      element.style.scrollBehavior = 'auto'
+    })
+    await editor.selection.select({
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    })
+
+    for (let i = 0; i < 18; i++) {
+      await page.keyboard.type(`Line ${i}`)
+      await page.keyboard.press('Enter')
+    }
+
+    const blockTexts = await editor.get.modelBlockTexts()
+    const lastBlockIndex = blockTexts.length - 1
+    const lastBlockText = blockTexts[lastBlockIndex] ?? ''
+    const bottomSelection = {
+      anchor: { path: [lastBlockIndex, 0], offset: lastBlockText.length },
+      focus: { path: [lastBlockIndex, 0], offset: lastBlockText.length },
+    }
+
+    await editor.selection.select(bottomSelection)
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight
+    })
+    const beforeFocusScrollTop = await editor.root.evaluate(
+      (element: HTMLElement) => Math.round(element.scrollTop)
+    )
+
+    await page.locator('#outside-focus-target').click()
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+      .toBe('outside-focus-target')
+    await editor.focus()
+    await editor.assert.caretVisibleInScrollableParent()
+
+    const afterFocusScrollTop = await editor.root.evaluate(
+      (element: HTMLElement) => Math.round(element.scrollTop)
+    )
+
+    expect(beforeFocusScrollTop).toBeGreaterThan(0)
+    expect(afterFocusScrollTop).toBeGreaterThanOrEqual(
+      Math.round(beforeFocusScrollTop * 0.75)
+    )
+  })
+
   test('resolves ambiguous browser insertion at a mark boundary', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop DOM-change proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -1967,9 +2944,7 @@ test.describe('On richtext example', () => {
   test('runs generated mixed editing conformance gauntlet without stale selection', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2086,9 +3061,7 @@ test.describe('On richtext example', () => {
   test('runs generated destructive paste and word-delete gauntlet', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2207,9 +3180,7 @@ test.describe('On richtext example', () => {
   test('runs generated mobile semantic editing conformance gauntlet', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name !== 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name !== 'mobile', 'Mobile proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2319,18 +3290,15 @@ test.describe('On richtext example', () => {
     await editor.assert.text(
       'This is editable rich text, much better than a <textarea>!ZZ'
     )
-    expect(await editor.get.modelText()).toContain(
-      'This is editable rich text, much better than a <textarea>!ZZ'
-    )
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('This is editable rich text, much better than a <textarea>!ZZ')
   })
 
   test('keeps caret editable after browser Backspace at selected text end', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2355,7 +3323,9 @@ test.describe('On richtext example', () => {
     await page.keyboard.press('Backspace')
 
     await editor.assert.text(afterBackspaceText)
-    expect(await editor.get.modelText()).toContain(afterBackspaceText)
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain(afterBackspaceText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual(afterBackspaceSelection)
@@ -2375,10 +3345,10 @@ test.describe('On richtext example', () => {
       )
       .toBe(true)
 
-    await page.keyboard.insertText('Z')
+    await page.keyboard.type('Z')
 
     await editor.assert.text(afterFollowUpText)
-    expect(await editor.get.modelText()).toContain(afterFollowUpText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterFollowUpText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual({
@@ -2390,12 +3360,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Delete before trailing punctuation', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Delete proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2410,6 +3377,16 @@ test.describe('On richtext example', () => {
     }
     const afterFollowUpText =
       'This is editable rich text, much better than a <textarea>Z'
+    const afterFollowUpSelections = [
+      {
+        anchor: { path: [0, 5], offset: '<textarea>Z'.length },
+        focus: { path: [0, 5], offset: '<textarea>Z'.length },
+      },
+      {
+        anchor: { path: [0, 6], offset: 'Z'.length },
+        focus: { path: [0, 6], offset: 'Z'.length },
+      },
+    ]
 
     await editor.click()
     await editor.selection.select(afterDeleteSelection)
@@ -2419,7 +3396,7 @@ test.describe('On richtext example', () => {
     await expect
       .poll(async () => (await editor.get.blockTexts())[0])
       .toBe(afterDeleteText)
-    expect(await editor.get.modelText()).toContain(afterDeleteText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterDeleteText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual(afterDeleteSelection)
@@ -2445,13 +3422,28 @@ test.describe('On richtext example', () => {
     await expect
       .poll(async () => (await editor.get.blockTexts())[0])
       .toBe(afterFollowUpText)
-    expect(await editor.get.modelText()).toContain(afterFollowUpText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterFollowUpText)
     await expect
-      .poll(() => editor.selection.get())
-      .toEqual({
-        anchor: { path: [0, 5], offset: '<textarea>Z'.length },
-        focus: { path: [0, 5], offset: '<textarea>Z'.length },
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        if (
+          afterFollowUpSelections.some(
+            (expectedSelection) =>
+              selection?.anchor.offset === expectedSelection.anchor.offset &&
+              selection.focus.offset === expectedSelection.focus.offset &&
+              selection.anchor.path.join(',') ===
+                expectedSelection.anchor.path.join(',') &&
+              selection.focus.path.join(',') ===
+                expectedSelection.focus.path.join(',')
+          )
+        ) {
+          return 'expected'
+        }
+
+        return JSON.stringify(selection)
       })
+      .toBe('expected')
     await expectDOMCaretAtTextEnd(editor.root, 'Z')
     await expectVisualCaretAtEndOfFirstBlock(editor.root)
   })
@@ -2460,9 +3452,10 @@ test.describe('On richtext example', () => {
     browser,
     browserName,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium desktop proof'
+    )
 
     const context = await browser.newContext({
       baseURL,
@@ -2503,9 +3496,10 @@ test.describe('On richtext example', () => {
     browser,
     browserName,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium desktop proof'
+    )
 
     const context = await browser.newContext({
       baseURL,
@@ -2547,9 +3541,10 @@ test.describe('On richtext example', () => {
     browser,
     browserName,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium desktop proof'
+    )
 
     const context = await browser.newContext({
       baseURL,
@@ -2624,18 +3619,17 @@ test.describe('On richtext example', () => {
             )
             .map((entry) => entry.epochId)
           const deleteEpochIdSet = new Set(deleteEpochIds)
+          const boundedRepairSelectionchangeCount =
+            repairSelectionchangeEpochIds.length <= deleteEpochIdSet.size
           const destructiveRepairSelectionchangeEpochIds =
             repairSelectionchangeEpochIds.filter((epochId) => epochId !== null)
 
           return {
+            boundedRepairSelectionchangeCount,
             deleteEpochCount: deleteEpochIdSet.size,
             deleteEpochsArePresent: deleteEpochIds.every(
               (epochId) => epochId !== null
             ),
-            destructiveRepairSelectionchangesStayBounded:
-              destructiveRepairSelectionchangeEpochIds.length > 0 &&
-              destructiveRepairSelectionchangeEpochIds.length <=
-                deleteEpochIdSet.size,
             repairEpochsJoinDeleteEpochs:
               destructiveRepairSelectionchangeEpochIds.every((epochId) =>
                 deleteEpochIdSet.has(epochId)
@@ -2658,9 +3652,9 @@ test.describe('On richtext example', () => {
           }
         })
         .toEqual({
+          boundedRepairSelectionchangeCount: true,
           deleteEpochCount: 4,
           deleteEpochsArePresent: true,
-          destructiveRepairSelectionchangesStayBounded: true,
           repairEpochsJoinDeleteEpochs: true,
           repairTracesJoinDeleteEpochs: true,
           repairSelectionChangesStayModelOwned: true,
@@ -2674,9 +3668,10 @@ test.describe('On richtext example', () => {
     browser,
     browserName,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium desktop proof'
+    )
 
     const context = await browser.newContext({
       baseURL,
@@ -2731,12 +3726,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Backspace deletes selected range', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2760,7 +3752,7 @@ test.describe('On richtext example', () => {
     await page.keyboard.press('Backspace')
 
     await editor.assert.text(afterDeleteText)
-    expect(await editor.get.modelText()).toContain(afterDeleteText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterDeleteText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual(afterDeleteSelection)
@@ -2769,7 +3761,7 @@ test.describe('On richtext example', () => {
     await page.keyboard.insertText('Z')
 
     await editor.assert.text(afterFollowUpText)
-    expect(await editor.get.modelText()).toContain(afterFollowUpText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterFollowUpText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual({
@@ -2780,12 +3772,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Delete deletes selected range', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Delete proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2809,7 +3798,7 @@ test.describe('On richtext example', () => {
     await page.keyboard.press('Delete')
 
     await editor.assert.text(afterDeleteText)
-    expect(await editor.get.modelText()).toContain(afterDeleteText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterDeleteText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual(afterDeleteSelection)
@@ -2818,7 +3807,7 @@ test.describe('On richtext example', () => {
     await page.keyboard.insertText('Z')
 
     await editor.assert.text(afterFollowUpText)
-    expect(await editor.get.modelText()).toContain(afterFollowUpText)
+    await expect.poll(() => editor.get.modelText()).toContain(afterFollowUpText)
     await expect
       .poll(() => editor.selection.get())
       .toEqual({
@@ -2829,12 +3818,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps selection synchronized after browser ArrowLeft and ArrowRight', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop arrow-key proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2968,12 +3954,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps ArrowDown then ArrowRight in the browser-selected paragraph', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop navigation proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2999,19 +3982,21 @@ test.describe('On richtext example', () => {
           "Since it's rich text, you can do things like turn a selection of text ",
         focusOffset: 0,
       })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'vertical',
-            key: 'ArrowDown',
-            ownership: 'native-allowed',
-            reason: 'native-vertical-layout',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'vertical',
+              key: 'ArrowDown',
+              ownership: 'native-allowed',
+              reason: 'native-vertical-layout',
+            }),
           }),
-        }),
-      ])
-    )
+        ])
+      )
 
     await page.keyboard.press('ArrowRight')
     await expect
@@ -3027,12 +4012,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps DOM caret synced after ArrowUp across paragraphs', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop navigation proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3059,28 +4041,27 @@ test.describe('On richtext example', () => {
         focus: { path: [0, 0], offset: 0 },
       })
     await editor.assert.domCaret({ offset: 0, text: 'This is editable ' })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'vertical',
-            key: 'ArrowUp',
-            ownership: 'native-allowed',
-            reason: 'native-vertical-layout',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'vertical',
+              key: 'ArrowUp',
+              ownership: 'native-allowed',
+              reason: 'native-vertical-layout',
+            }),
           }),
-        }),
-      ])
-    )
+        ])
+      )
   })
 
   test('keeps navigation and mutation chained through browser editing state', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop navigation proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3131,6 +4112,21 @@ test.describe('On richtext example', () => {
             anchor: { path: [1, 0], offset: 1 },
             focus: { path: [1, 0], offset: 1 },
           },
+        },
+        {
+          kind: 'assertSelectionLocation',
+          label: 'assert-dom-after-arrow-right-after-down',
+          location: {
+            anchorOffset: 1,
+            anchorPath: [1, 0],
+            anchorText:
+              "Since it's rich text, you can do things like turn a selection of text ",
+            isCollapsed: true,
+          },
+        },
+        {
+          kind: 'settle',
+          label: 'settle-native-caret-before-arrow-up',
         },
         {
           key: 'ArrowUp',
@@ -3293,6 +4289,8 @@ test.describe('On richtext example', () => {
       'assert-after-arrow-down',
       'navigate-arrow-right-after-down',
       'assert-after-arrow-right-after-down',
+      'assert-dom-after-arrow-right-after-down',
+      'settle-native-caret-before-arrow-up',
       'navigate-arrow-up',
       'assert-after-arrow-up',
       'navigate-arrow-right-after-up',
@@ -3382,9 +4380,10 @@ test.describe('On richtext example', () => {
     browser,
     browserName,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium desktop proof'
+    )
 
     const context = await browser.newContext({
       baseURL,
@@ -3694,12 +4693,10 @@ test.describe('On richtext example', () => {
   test('runs generated mark typing gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (
-      testInfo.project.name === 'mobile' ||
-      testInfo.project.name === 'webkit'
-    ) {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile' || testInfo.project.name === 'webkit',
+      'Desktop Chromium/Firefox generated mark gauntlet proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3737,12 +4734,12 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps browser caret valid after marking selected text then clicking elsewhere', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile' || testInfo.project.name === 'webkit',
+      'Desktop Chromium/Firefox mark-caret proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3794,12 +4791,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps browser caret valid after toolbar marking selected text then clicking elsewhere', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mark-caret proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3854,12 +4848,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps browser caret valid after native word selection toolbar mark then clicking elsewhere', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mark-caret proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -3874,6 +4865,7 @@ test.describe('On richtext example', () => {
           label: 'native-select-word',
           offset: 18,
           path: [1, 0],
+          selectedText: 'text',
         },
         {
           kind: 'assertSelectedText',
@@ -4024,19 +5016,25 @@ test.describe('On richtext example', () => {
           .filter({ hasText: 'This is editable rich text' })
           .count()
       ).toBe(0)
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
 
       await page.keyboard.type('Q')
 
       await editor.assert.text("QSince it's rich text")
-      expect(await editor.get.text()).toContain("QSince it's rich text")
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0], offset: 1 },
-        focus: { path: [1, 0], offset: 1 },
-      })
+      await expect
+        .poll(() => editor.get.text())
+        .toContain("QSince it's rich text")
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 1 },
+          focus: { path: [1, 0], offset: 1 },
+        })
       await editor.assert.domCaret({
         offset: 1,
         text: "QSince it's rich text, you can do things like turn a selection of text ",
@@ -4126,7 +5124,7 @@ test.describe('On richtext example', () => {
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       })
-      await editor.root.focus()
+      await editor.focus()
 
       await editor.root.evaluate((element: HTMLElement) => {
         const outside = element.ownerDocument.createElement('p')
@@ -4160,6 +5158,83 @@ test.describe('On richtext example', () => {
       await editor.click()
       await page.keyboard.type('Z')
       await expect.poll(() => editor.get.modelText()).toContain('Z')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('repairs cursor movement after the native selection range is cleared', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop null native-selection proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      await editor.root.evaluate((element: HTMLElement) => {
+        const selection = element.ownerDocument.getSelection()
+
+        if (!selection) {
+          throw new Error('Missing browser selection')
+        }
+
+        selection.removeAllRanges()
+        element.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      })
+
+      await expect
+        .poll(() =>
+          editor.root.evaluate(
+            (element: HTMLElement) =>
+              element.ownerDocument.getSelection()?.rangeCount ?? -1
+          )
+        )
+        .toBe(0)
+      runtimeErrors.assertNone()
+
+      await page.keyboard.press('ArrowRight')
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        })
+      await editor.assert.domCaret({
+        offset: 1,
+        text: 'This is editable ',
+      })
+
+      await page.keyboard.type('Z')
+
+      runtimeErrors.assertNone()
+      await expect.poll(() => editor.get.modelText()).toContain('TZhis')
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 2 },
+          focus: { path: [0, 0], offset: 2 },
+        })
     } finally {
       runtimeErrors.stop()
     }
@@ -4211,10 +5286,12 @@ test.describe('On richtext example', () => {
           .locator('[data-slate-editor] h1')
           .filter({ hasText: "Since it's rich text" })
       ).toHaveCount(1)
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
     } finally {
       runtimeErrors.stop()
     }
@@ -4244,10 +5321,12 @@ test.describe('On richtext example', () => {
       'Welcome to the playground'
     )
     await expect(editor.root.locator('p')).toHaveCount(0)
-    expect(await editor.selection.get()).toEqual({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 0 },
-    })
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
   })
 
   test('handles heading Enter behavior from the browser', async ({ page }) => {
@@ -4348,12 +5427,11 @@ test.describe('On richtext example', () => {
   })
 
   test('cuts and pastes a fully selected heading as a heading', async ({
-    browserName,
     page,
   }, testInfo) => {
     test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Chromium structured cut/paste proof'
+      testInfo.project.name === 'mobile',
+      'Desktop structured cut/paste proof'
     )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
@@ -4461,10 +5539,12 @@ test.describe('On richtext example', () => {
       await expect(
         editor.root.locator('strong').filter({ hasText: 'Since' })
       ).toHaveCount(1)
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 5 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 5 },
+        })
     } finally {
       runtimeErrors.stop()
     }
@@ -4516,9 +5596,7 @@ test.describe('On richtext example', () => {
   test('keeps warm toolbar mark selection usable through arrows without reload', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop proof')
 
     test.setTimeout(90_000)
 
@@ -4628,11 +5706,22 @@ test.describe('On richtext example', () => {
     )
 
     expect(secondIterationCandidate?.replay.replayable).toBe(true)
+    expect(secondIterationCandidate?.removedStepSummaries).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('warm-select-word-2: selectDOM'),
+      ])
+    )
+    expect(secondIterationCandidate?.stepSummaries).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('warm-select-word-1: selectDOM'),
+      ])
+    )
     expect(secondIterationCandidate?.replay.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'clickTestId',
           label: 'warm-bold-on-1',
+          summary: 'warm-bold-on-1: clickTestId mark-button-bold',
           value: expect.objectContaining({
             kind: 'clickTestId',
             testId: 'mark-button-bold',
@@ -4731,10 +5820,12 @@ test.describe('On richtext example', () => {
         'text-align',
         'center'
       )
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
     } finally {
       runtimeErrors.stop()
     }
@@ -4783,10 +5874,12 @@ test.describe('On richtext example', () => {
           .locator('[data-slate-editor] ul')
           .filter({ hasText: "Since it's rich text" })
       ).toHaveCount(1)
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [1, 0, 0], offset: 0 },
-        focus: { path: [1, 0, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0, 0], offset: 0 },
+          focus: { path: [1, 0, 0], offset: 0 },
+        })
     } finally {
       runtimeErrors.stop()
     }
@@ -4795,9 +5888,7 @@ test.describe('On richtext example', () => {
   test('deletes an expanded selection across toolbar list items cleanly', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop proof')
 
     test.setTimeout(60_000)
 
@@ -4950,27 +6041,33 @@ test.describe('On richtext example', () => {
       await page.keyboard.press('Backspace')
       await expect(root.locator('p')).toHaveCount(1)
       await expect.poll(() => editor.get.modelText()).toBe('')
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
 
       await page.getByTestId('block-button-bulleted-list').click()
       await expect(root.locator('ul > li')).toHaveCount(1)
       await expect(root.locator('p')).toHaveCount(0)
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [0, 0, 0], offset: 0 },
-        focus: { path: [0, 0, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0, 0], offset: 0 },
+          focus: { path: [0, 0, 0], offset: 0 },
+        })
 
       await page.getByTestId('block-button-bulleted-list').click()
       await expect(root.locator('ul')).toHaveCount(0)
       await expect(root.locator('p')).toHaveCount(1)
       await expect.poll(() => editor.get.modelText()).toBe('')
-      expect(await editor.selection.get()).toEqual({
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 0 },
-      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
 
       runtimeErrors.assertNone()
     } finally {
@@ -5278,9 +6375,7 @@ test.describe('On richtext example', () => {
   test('records repair trace with observable DOM and model selection', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5344,9 +6439,7 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop word-movement proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5383,22 +6476,24 @@ test.describe('On richtext example', () => {
         })
       )
       .toBe(true)
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'word',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'word',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'word',
+              ownership: 'model-owned',
+              reason: 'model-word-boundary',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'word',
-            ownership: 'model-owned',
-            reason: 'model-word-boundary',
-          }),
-        }),
-      ])
-    )
+        ])
+      )
 
     await page.keyboard.press('Control+ArrowRight')
 
@@ -5423,22 +6518,24 @@ test.describe('On richtext example', () => {
         })
       )
       .toBe(true)
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'word',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'word',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'word',
+              ownership: 'model-owned',
+              reason: 'model-word-boundary',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'word',
-            ownership: 'model-owned',
-            reason: 'model-word-boundary',
-          }),
-        }),
-      ])
-    )
+        ])
+      )
   })
 
   test('keeps selection synchronized after browser line extension', async ({
@@ -5487,24 +6584,26 @@ test.describe('On richtext example', () => {
           })
         )
         .toBe(true)
-      expect(await editor.get.kernelTrace()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            command: expect.objectContaining({
-              axis: 'line',
-              extend: true,
-              kind: 'move-selection',
+      await expect
+        .poll(() => editor.get.kernelTrace())
+        .toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              command: expect.objectContaining({
+                axis: 'line',
+                extend: true,
+                kind: 'move-selection',
+              }),
+              eventFamily: 'keydown',
+              movement: expect.objectContaining({
+                axis: 'line',
+                extend: true,
+                ownership: 'model-owned',
+                reason: 'model-line-browser',
+              }),
             }),
-            eventFamily: 'keydown',
-            movement: expect.objectContaining({
-              axis: 'line',
-              extend: true,
-              ownership: 'model-owned',
-              reason: 'model-line-browser',
-            }),
-          }),
-        ])
-      )
+          ])
+        )
     } finally {
       await context.close()
     }
@@ -5514,9 +6613,10 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop browser triple-click proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5527,12 +6627,23 @@ test.describe('On richtext example', () => {
     await editor.click()
     await page.locator('[data-slate-editor] p').first().click({ clickCount: 3 })
 
+    const firstBlockText =
+      'This is editable rich text, much better than a <textarea>!'
+
     await expect
       .poll(() => editor.selection.get())
       .toEqual({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 6], offset: 1 },
       })
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
+      )
+      .toBe(firstBlockText)
+    await expect(page.getByTestId('block-button-block-quote')).not.toHaveClass(
+      /is-active/
+    )
     await expect
       .poll(() =>
         editor.root.evaluate((element: HTMLElement) => {
@@ -5555,9 +6666,10 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop browser triple-click proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5594,9 +6706,10 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop browser triple-click proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5609,7 +6722,7 @@ test.describe('On richtext example', () => {
     await editor.click()
     await page.locator('[data-slate-editor] p').first().click({ clickCount: 3 })
 
-    await page.keyboard.insertText('Z')
+    await page.keyboard.type('Z')
 
     await expect
       .poll(async () => (await editor.get.blockTexts()).slice(0, 2))
@@ -5624,9 +6737,10 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5663,9 +6777,10 @@ test.describe('On richtext example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      browserName === 'firefox' || testInfo.project.name === 'mobile',
+      'Non-Firefox desktop proof'
+    )
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5680,20 +6795,59 @@ test.describe('On richtext example', () => {
     await editor.assert.text(
       'This is editable rich text, much better than a <textarea>!O'
     )
-    expect(await editor.get.modelText()).toContain(
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('This is editable rich text, much better than a <textarea>!O')
+    await expectDOMCaretAtTextEnd(editor.root, '!O')
+    await expectVisualCaretAtEndOfFirstBlock(editor.root)
+  })
+
+  test('places a right-margin click at the multi-leaf text end', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop pointer proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await page.setViewportSize({ height: 720, width: 1100 })
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    const point = await getFirstParagraphRightMarginClickPoint(editor.root)
+    await page.mouse.click(point.x, point.y)
+
+    await editor.assert.selection({
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    })
+    await editor.assert.domCaret({
+      offset: 1,
+      text: '!',
+    })
+
+    await page.keyboard.insertText('O')
+
+    await editor.assert.text(
       'This is editable rich text, much better than a <textarea>!O'
     )
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('This is editable rich text, much better than a <textarea>!O')
     await expectDOMCaretAtTextEnd(editor.root, '!O')
     await expectVisualCaretAtEndOfFirstBlock(editor.root)
   })
 
   test('keeps the visual caret after browser insertion before trailing punctuation', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop text input proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5711,19 +6865,16 @@ test.describe('On richtext example', () => {
     await editor.assert.text(
       'This is editable rich text, much better than a <textarea>O!'
     )
-    expect(await editor.get.modelText()).toContain(
-      'This is editable rich text, much better than a <textarea>O!'
-    )
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('This is editable rich text, much better than a <textarea>O!')
     await expectDOMCaretAfterInsertedTextBeforeSuffix(editor.root, 'O', '!')
   })
 
   test('keeps the visual caret after browser insertion inside a text leaf', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop text input proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5741,10 +6892,10 @@ test.describe('On richtext example', () => {
     await editor.assert.text(
       'This is editable rich Otext, much better than a <textarea>!'
     )
-    expect(await editor.get.modelText()).toContain(
-      'This is editable rich Otext, much better than a <textarea>!'
-    )
-    await editor.assert.domCaret({ offset: 2, text: ' Otext, ' })
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('This is editable rich Otext, much better than a <textarea>!')
+    await expectDOMCaretBetweenText(editor.root, ' O', 'text, ')
   })
 
   test('undoes inserted text', async ({ browserName, page }, testInfo) => {
@@ -5767,7 +6918,7 @@ test.describe('On richtext example', () => {
     }
 
     await editor.assert.text('Undo Me')
-    expect(await editor.get.modelText()).toContain('Undo Me')
+    await expect.poll(() => editor.get.modelText()).toContain('Undo Me')
 
     if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
       await editor.undo()
@@ -5776,7 +6927,80 @@ test.describe('On richtext example', () => {
     }
 
     await expect(editor.root).not.toContainText('Undo Me')
-    expect(await editor.get.modelText()).not.toContain('Undo Me')
+    await expect.poll(() => editor.get.modelText()).not.toContain('Undo Me')
+  })
+
+  test('applies native beforeinput history undo and redo', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop beforeinput proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const dispatchHistoryBeforeInput = async (
+      inputType: 'historyRedo' | 'historyUndo'
+    ) =>
+      editor.root.evaluate((element: HTMLElement, type) => {
+        const event = new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          inputType: type,
+        })
+        const dispatched = element.dispatchEvent(event)
+
+        return {
+          defaultPrevented: event.defaultPrevented,
+          dispatched,
+        }
+      }, inputType)
+
+    await editor.click()
+    await editor.root.press('Home')
+    await page.keyboard.insertText('Undo Me ')
+
+    await editor.assert.text('Undo Me')
+    await expect.poll(() => editor.get.modelText()).toContain('Undo Me')
+
+    await expect
+      .poll(async () => dispatchHistoryBeforeInput('historyUndo'))
+      .toEqual({
+        defaultPrevented: true,
+        dispatched: false,
+      })
+    await expect(editor.root).not.toContainText('Undo Me')
+    await expect.poll(() => editor.get.modelText()).not.toContain('Undo Me')
+    await expect
+      .poll(async () =>
+        (await editor.get.kernelTrace()).some(
+          (entry) =>
+            entry.eventFamily === 'beforeinput' &&
+            entry.command?.kind === 'history' &&
+            entry.command.direction === 'undo'
+        )
+      )
+      .toBe(true)
+
+    await expect
+      .poll(async () => dispatchHistoryBeforeInput('historyRedo'))
+      .toEqual({
+        defaultPrevented: true,
+        dispatched: false,
+      })
+    await editor.assert.text('Undo Me')
+    await expect.poll(() => editor.get.modelText()).toContain('Undo Me')
+    await expect
+      .poll(async () =>
+        (await editor.get.kernelTrace()).some(
+          (entry) =>
+            entry.eventFamily === 'beforeinput' &&
+            entry.command?.kind === 'history' &&
+            entry.command.direction === 'redo'
+        )
+      )
+      .toBe(true)
   })
 
   test('repairs DOM after Mac keyboard undo', async ({ browser }) => {
@@ -5800,11 +7024,11 @@ test.describe('On richtext example', () => {
       await page.keyboard.type('Undo Me')
 
       await editor.assert.text('Undo Me')
-      expect(await editor.get.modelText()).toContain('Undo Me')
+      await expect.poll(() => editor.get.modelText()).toContain('Undo Me')
 
       await page.keyboard.press('Meta+Z')
 
-      expect(await editor.get.modelText()).not.toContain('Undo Me')
+      await expect.poll(() => editor.get.modelText()).not.toContain('Undo Me')
       await expect(editor.root).not.toContainText('Undo Me')
     } finally {
       await context.close()

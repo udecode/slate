@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createEditor } from 'slate'
 
 import {
@@ -7,6 +8,7 @@ import {
   EDITABLE_KERNEL_TRACE_LIMIT,
   getCurrentEditableEventFrame,
   getEditableCommandDefinition,
+  getEditableCommandFromBeforeInput,
   getEditableCommandFromBeforeInputType,
   getEditableCommandFromKeyDown,
   getEditableKernelTrace,
@@ -43,6 +45,28 @@ const createBaseTrace = () =>
     stateBefore: 'idle' as const,
     targetOwner: 'editor' as const,
   }) satisfies Parameters<typeof createEditableKernelResult>[0]['trace']
+
+test('runtime keydown traces stay compact for huge document commands', () => {
+  const source = readFileSync('src/editable/runtime-kernel-trace.ts', 'utf8')
+
+  expect(source).toContain('operations: []')
+  expect(source).toContain('recordKeyDownTrace')
+})
+
+test('runtime browser event traces stay compact for huge document commands', () => {
+  const source = readFileSync('src/editable/runtime-kernel-trace.ts', 'utf8')
+  const recordKernelEventTraceSource = source.slice(
+    source.indexOf('const recordKernelEventTrace'),
+    source.indexOf('const repairDOMInputWithTrace')
+  )
+  const repairDOMInputWithTraceSource = source.slice(
+    source.indexOf('const repairDOMInputWithTrace'),
+    source.indexOf('const getCurrentKernelFrameId')
+  )
+
+  expect(recordKernelEventTraceSource).toContain('operations: []')
+  expect(repairDOMInputWithTraceSource).toContain('operations: []')
+})
 
 test('kernel results expose explicit selection and repair policies', () => {
   const editor = createEditor()
@@ -236,6 +260,64 @@ test('beforeinput and keydown commands resolve through typed definitions', () =>
   ).toContain('beforeinput')
 })
 
+test('document boundary keydown commands are model-owned selection moves', () => {
+  const startCommand = getEditableCommandFromKeyDown({
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: true,
+        key: 'Home',
+        metaKey: false,
+        shiftKey: false,
+      },
+    } as any,
+    selection: null,
+  })
+  const extendEndCommand = getEditableCommandFromKeyDown({
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: true,
+        key: 'End',
+        metaKey: false,
+        shiftKey: true,
+      },
+    } as any,
+    selection: null,
+  })
+
+  expect(startCommand).toEqual({
+    axis: 'document',
+    kind: 'move-selection',
+    reverse: true,
+  })
+  expect(extendEndCommand).toEqual({
+    axis: 'document',
+    extend: true,
+    kind: 'move-selection',
+  })
+  expect(getEditableCommandDefinition(startCommand)?.modelOwned).toBe(true)
+})
+
+test('document boundary keyboard intent uses model selection ownership', () => {
+  expect(
+    classifyKeyboardIntent({
+      editor: createEditor() as any,
+      event: {
+        nativeEvent: {
+          altKey: false,
+          ctrlKey: true,
+          key: 'Home',
+          metaKey: false,
+          shiftKey: false,
+        },
+        target: null,
+      } as any,
+      domStrategyRuntime: null,
+    })
+  ).toBe('model-selection-move')
+})
+
 test('beforeinput data transfer commands preserve the browser payload', () => {
   class DataTransfer {}
 
@@ -257,6 +339,22 @@ test('beforeinput data transfer commands preserve the browser payload', () => {
       'beforeinput'
     )
   }
+})
+
+test('beforeinput insertFromPaste prefers contenteditable dataTransfer over event data', () => {
+  class DataTransfer {}
+
+  const dataTransfer = new DataTransfer()
+  const command = getEditableCommandFromBeforeInput({
+    event: {
+      data: 'textarea-style paste text',
+      dataTransfer,
+      inputType: 'insertFromPaste',
+    } as unknown as InputEvent,
+    selection: null,
+  })
+
+  expect(command).toEqual({ data: dataTransfer, kind: 'insert-data' })
 })
 
 test('repair kernel results preserve model selection by default', () => {
@@ -350,6 +448,24 @@ test('movement ownership trace records model-owned horizontal reason', () => {
     ownership: 'model-owned',
     reason: 'model-horizontal-inline-void',
     reverse: null,
+  })
+})
+
+test('movement ownership trace records model-owned document reason', () => {
+  expect(
+    getEditableMovementOwnershipTrace({
+      command: { axis: 'document', kind: 'move-selection', reverse: true },
+      intent: 'model-selection-move',
+      key: 'Home',
+      ownership: 'model-owned',
+    })
+  ).toEqual({
+    axis: 'document',
+    extend: false,
+    key: 'Home',
+    ownership: 'model-owned',
+    reason: 'model-document-boundary',
+    reverse: true,
   })
 })
 
@@ -453,6 +569,124 @@ test('keyboard structural commands keep model selection after delayed text repai
 
   expect(decision).toMatchObject({
     intent: 'insert-break',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard history commands preserve model selection before DOM import', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'dom-current'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        code: 'KeyZ',
+        ctrlKey: true,
+        key: 'z',
+        metaKey: false,
+        shiftKey: false,
+        which: 90,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'staged',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    command: { direction: 'undo', kind: 'history' },
+    intent: 'history',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    selectionSourceTransition: {
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard destructive commands keep partial-DOM-backed model selection', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'partial-dom-backed'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Delete',
+        metaKey: false,
+        shiftKey: false,
+        which: 46,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'staged',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'delete',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard no-op shortcuts keep partial-DOM-backed model selection', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'partial-dom-backed'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'v',
+        metaKey: true,
+        shiftKey: false,
+        which: 86,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'partial-dom',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'clipboard',
     ownership: 'model-owned',
     selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
     shouldForceDOMImport: false,

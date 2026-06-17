@@ -6,10 +6,8 @@ import {
   Editor,
   getEditorTransformRegistry,
 } from '../../../../packages/slate/src/internal/index.ts'
-import {
-  dom,
-  EDITOR_TO_WINDOW,
-} from '../../../../packages/slate-dom/src/index.ts'
+import { dom } from '../../../../packages/slate-dom/src/index.ts'
+import { EDITOR_TO_WINDOW } from '../../../../packages/slate-dom/src/internal/index.ts'
 import {
   insertDOMFragmentData,
   insertDOMTextData,

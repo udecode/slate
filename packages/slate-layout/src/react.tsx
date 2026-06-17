@@ -9,11 +9,11 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { flushSync } from 'react-dom'
-import type { Editor, Path, SnapshotChange } from 'slate'
+import type { Editor, EditorCommit, Path } from 'slate'
 import {
   defaultScrollSelectionIntoView,
   Editable,
-  type EditableLayout,
+  type EditableDOMStrategyLayout,
   type EditableProps,
   useEditorState,
   useElementPath,
@@ -24,9 +24,7 @@ import {
   createSlatePageLayout,
   getSlatePageLayoutGeometry,
   getSlatePageLayoutProjection,
-  type SlateLayout,
   type SlateLayoutOptions,
-  type SlateLayoutSnapshot,
   type SlatePageLayout,
   type SlatePageLayoutFragment,
   type SlatePageLayoutMode,
@@ -116,12 +114,13 @@ export type UseSlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = SlateLayoutOptions<TSettings>
 
+/** Create and subscribe a derived layout reader with the default engine. */
 export const useSlateLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
   editor: Editor,
   options: UseSlateLayoutOptions<TSettings>
-): SlateLayout => {
+): SlatePageLayout => {
   const optionsRef = useRef(options)
   optionsRef.current = options
 
@@ -158,6 +157,7 @@ export const useSlateLayout = <
   return layout
 }
 
+/** Create and subscribe a derived layout reader with an explicit engine. */
 export const useSlatePageLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
@@ -200,14 +200,16 @@ export const useSlatePageLayout = <
   return layout
 }
 
+/** Read a `SlatePageLayout` snapshot with React external-store semantics. */
 export const useSlatePageLayoutSnapshot = (
   layout: SlatePageLayout
 ): SlatePageLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
+/** Read a `SlatePageLayout` snapshot with React external-store semantics. */
 export const useSlateLayoutSnapshot = (
-  layout: SlateLayout
-): SlateLayoutSnapshot =>
+  layout: SlatePageLayout
+): SlatePageLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
 /**
@@ -393,12 +395,12 @@ const sameSelectedPaths = (
     left.length === right.length &&
     left.every((path, index) => samePath(path, right[index]!)))
 
-const getSelectionPathsKey = (selection: SnapshotChange['selectionAfter']) =>
+const getSelectionPathsKey = (selection: EditorCommit['selectionAfter']) =>
   selection
     ? `${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
     : 'null'
 
-const shouldUpdatePagedEditableSelectedPaths = (change?: SnapshotChange) =>
+const shouldUpdatePagedEditableSelectedPaths = (change?: EditorCommit) =>
   !change ||
   change.fullDocumentChanged ||
   change.rootRuntimeIdsChanged ||
@@ -443,17 +445,15 @@ export type PagedEditableRenderPageProps = {
   page: SlatePageLayoutPage
 }
 
-export type PagedEditablePageLayoutMode = SlatePageLayoutMode
-
 export type PagedEditablePageView = {
   gap?: number
-  mode?: PagedEditablePageLayoutMode
+  mode?: SlatePageLayoutMode
 }
 
 export type PagedEditableProps = EditableProps & {
   layout: SlatePageLayout
   pageView?: PagedEditablePageView
-  pageLayoutMode?: PagedEditablePageLayoutMode
+  pageLayoutMode?: SlatePageLayoutMode
   pageGap?: number
   renderPage?: (props: PagedEditableRenderPageProps) => ReactNode
 }
@@ -487,7 +487,7 @@ const normalizePagedEditablePageView = ({
   pageView,
 }: {
   pageGap?: number
-  pageLayoutMode?: PagedEditablePageLayoutMode
+  pageLayoutMode?: SlatePageLayoutMode
   pageView?: PagedEditablePageView | null
 }) => ({
   gap: pageView?.gap ?? pageGap ?? 24,
@@ -503,7 +503,10 @@ const createPagedEditableTopLevelLayoutItems = ({
   geometry: ReturnType<typeof getSlatePageLayoutGeometry>
   pages: readonly SlatePageLayoutPage[]
 }) => {
-  const items = new Map<number, { end: number; start: number }>()
+  const items = new Map<
+    number,
+    { end: number; left: number; right: number; start: number }
+  >()
 
   for (const fragment of fragments) {
     const page = pages[fragment.pageIndex] ?? pages[0]
@@ -511,6 +514,8 @@ const createPagedEditableTopLevelLayoutItems = ({
       left: 0,
       top: page ? page.index * page.height : 0,
     }
+    const left = placement.left + (page?.content.left ?? 0)
+    const right = left + (page?.content.width ?? 0)
 
     const start = placement.top + fragment.top
     const end = start + fragment.height
@@ -521,9 +526,11 @@ const createPagedEditableTopLevelLayoutItems = ({
       current
         ? {
             end: Math.max(current.end, end),
+            left: Math.min(current.left, left),
+            right: Math.max(current.right, right),
             start: Math.min(current.start, start),
           }
-        : { end, start }
+        : { end, left, right, start }
     )
   }
 
@@ -531,11 +538,14 @@ const createPagedEditableTopLevelLayoutItems = ({
     .sort(([left], [right]) => left - right)
     .map(([index, item]) => ({
       index,
+      left: item.left,
       size: Math.max(1, item.end - item.start),
       start: item.start,
+      width: Math.max(1, item.right - item.left),
     }))
 }
 
+/** Render an `Editable` through page surfaces derived from `slate-layout`. */
 export const PagedEditable = ({
   layout,
   pageGap,
@@ -828,7 +838,7 @@ export const PagedEditable = ({
 
     return byFragment
   }, [projection.lines])
-  const editableLayout = useMemo<EditableLayout>(
+  const editableLayout = useMemo<EditableDOMStrategyLayout>(
     () => ({
       getVirtualizedPageItems: () =>
         pageMountPlan.items.map((item) => ({
@@ -885,7 +895,7 @@ export const PagedEditable = ({
   const editable = (
     <Editable
       {...editableProps}
-      layout={editableLayout}
+      domStrategyLayout={editableLayout}
       scrollSelectionIntoView={scrollSelectionIntoView}
       style={{
         minHeight: geometry.height,

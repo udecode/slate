@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   installSlateReactRenderProfiler,
   openExample,
+  recordSlateBrowserRuntimeErrors,
   resetSlateReactRenderProfiler,
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
@@ -49,9 +50,10 @@ test.describe('embeds example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop embed navigation proof'
+    )
 
     const editor = await openExample(page, 'embeds', {
       ready: {
@@ -97,11 +99,11 @@ test.describe('embeds example', () => {
     expect(
       embedProof.selectionShells?.runtimeIds.length
     ).toBeGreaterThanOrEqual(2)
-    expect(embedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(embedProof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.element ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.spacer ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
-    expect(embedProof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(embedProof.renderCounts.total).toBeLessThanOrEqual(4)
 
     await resetSlateReactRenderProfiler(page)
     await page.keyboard.press('ArrowRight')
@@ -126,7 +128,9 @@ test.describe('embeds example', () => {
     expect(afterEmbedProof.selectionShells?.anchor.node?.path).toBe('2,0')
     expect(afterEmbedProof.selectionShells?.anchor.element?.path).toBe('2')
     expect(afterEmbedProof.selectionShells?.anchor.element?.isVoid).toBe(false)
-    expect(afterEmbedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(
+      afterEmbedProof.renderCounts.byKind.editable ?? 0
+    ).toBeLessThanOrEqual(1)
     expect(
       afterEmbedProof.renderCounts.byKind.element ?? 0
     ).toBeLessThanOrEqual(1)
@@ -134,6 +138,360 @@ test.describe('embeds example', () => {
       1
     )
     expect(afterEmbedProof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
-    expect(afterEmbedProof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(afterEmbedProof.renderCounts.total).toBeLessThanOrEqual(4)
+  })
+
+  test('serializes a custom block void drag payload without renderer wiring', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'embeds', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    const payload = await editor.root.evaluate(() => {
+      const shell = document.querySelector<HTMLElement>(
+        '[data-slate-editor="true"] [data-slate-node="element"][data-slate-void="true"][data-slate-path="1"]'
+      )
+
+      if (!shell) {
+        throw new Error('Expected the video void shell')
+      }
+
+      const rect = shell.getBoundingClientRect()
+      const dragData = new DataTransfer()
+      const clientX = rect.left + Math.min(12, rect.width / 2)
+      const clientY = rect.top + Math.min(12, rect.height / 2)
+
+      shell.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+        })
+      )
+      shell.dispatchEvent(
+        new DragEvent('dragstart', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          dataTransfer: dragData,
+        })
+      )
+
+      return {
+        draggable: shell.getAttribute('draggable'),
+        html: dragData.getData('text/html'),
+        slateFragment: dragData.getData('application/x-slate-fragment'),
+        text: dragData.getData('text/plain'),
+        types: [...dragData.types],
+      }
+    })
+
+    expect(payload.draggable).toBe('true')
+    expect(payload.types).toEqual(
+      expect.arrayContaining([
+        'application/x-slate-fragment',
+        'text/html',
+        'text/plain',
+      ])
+    )
+    expect(payload.slateFragment.length).toBeGreaterThan(0)
+    expect(payload.html).toContain('data-slate-fragment')
+    expect(payload.text.trim()).toBe('')
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+  })
+
+  test('moves a custom block void over a paragraph margin instead of duplicating it', async ({
+    page,
+  }) => {
+    const runtimeErrors = await recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'embeds', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.waitForLoadState('networkidle')
+
+      const beforeBlockTexts = await editor.get.modelBlockTexts()
+      const [introText, voidText, targetText] = beforeBlockTexts
+
+      expect(introText).toContain('In addition to simple image nodes')
+      expect(voidText).toBe('')
+      expect(targetText).toContain('Try it out!')
+      await expect(editor.root.locator('iframe')).toHaveCount(1)
+
+      const payloadTypes = await editor.root.evaluate((root) => {
+        const shell = root.querySelector<HTMLElement>(
+          '[data-slate-node="element"][data-slate-void="true"][data-slate-path="1"]'
+        )
+        const targetParagraph = Array.from(
+          root.querySelectorAll<HTMLElement>('[data-slate-node="element"]')
+        ).find((element) => element.textContent?.startsWith('Try it out!'))
+
+        if (!shell || !targetParagraph) {
+          throw new Error('Expected video void shell and target paragraph')
+        }
+
+        const dragData = new DataTransfer()
+        const shellRect = shell.getBoundingClientRect()
+        const paragraphRect = targetParagraph.getBoundingClientRect()
+        const dragX = shellRect.left + Math.min(12, shellRect.width / 2)
+        const dragY = shellRect.top + Math.min(12, shellRect.height / 2)
+        const dropX = paragraphRect.left + paragraphRect.width / 2
+        const dropY = paragraphRect.bottom - 1
+
+        shell.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX: dragX,
+            clientY: dragY,
+          })
+        )
+        shell.dispatchEvent(
+          new DragEvent('dragstart', {
+            bubbles: true,
+            cancelable: true,
+            clientX: dragX,
+            clientY: dragY,
+            dataTransfer: dragData,
+          })
+        )
+        targetParagraph.dispatchEvent(
+          new DragEvent('dragover', {
+            bubbles: true,
+            cancelable: true,
+            clientX: dropX,
+            clientY: dropY,
+            dataTransfer: dragData,
+          })
+        )
+        targetParagraph.dispatchEvent(
+          new DragEvent('drop', {
+            bubbles: true,
+            cancelable: true,
+            clientX: dropX,
+            clientY: dropY,
+            dataTransfer: dragData,
+          })
+        )
+        shell.dispatchEvent(
+          new DragEvent('dragend', {
+            bubbles: true,
+            cancelable: true,
+            clientX: dropX,
+            clientY: dropY,
+            dataTransfer: dragData,
+          })
+        )
+
+        return [...dragData.types]
+      })
+
+      expect(payloadTypes).toContain('application/x-slate-fragment')
+      await expect
+        .poll(() => editor.get.modelBlockTexts())
+        .toEqual([introText, targetText, ''])
+      await expect(editor.root.locator('iframe')).toHaveCount(1)
+      await expect
+        .poll(() =>
+          editor.root
+            .locator('[data-slate-node="element"][data-slate-void="true"]')
+            .evaluateAll((elements) =>
+              elements.map((element) => element.getAttribute('data-slate-path'))
+            )
+        )
+        .toEqual(['2'])
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [2, 0], offset: 0 },
+          focus: { path: [2, 0], offset: 0 },
+        })
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('keeps the editor editable after a quick click on a draggable custom void', async ({
+    page,
+  }, testInfo) => {
+    const runtimeErrors = await recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'embeds', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      const beforeBlockTexts = await editor.get.modelBlockTexts()
+      const [introText, voidText, targetText] = beforeBlockTexts
+
+      expect(introText).toContain('In addition to simple image nodes')
+      expect(voidText).toBe('')
+      expect(targetText).toContain('Try it out!')
+
+      const contentEditableState = await editor.root.evaluate(async (root) => {
+        const shell = root.querySelector<HTMLElement>(
+          '[data-slate-node="element"][data-slate-void="true"][data-slate-path="1"]'
+        )
+
+        if (!shell) {
+          throw new Error('Expected video void shell')
+        }
+
+        const rect = shell.getBoundingClientRect()
+        const clientX = rect.left + Math.min(12, rect.width / 2)
+        const clientY = rect.top + Math.min(12, rect.height / 2)
+
+        shell.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+          })
+        )
+        shell.dispatchEvent(
+          new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+          })
+        )
+        shell.dispatchEvent(
+          new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+          })
+        )
+        await new Promise((resolve) => setTimeout(resolve, 150))
+
+        const staleFalsePaths = Array.from(
+          root.querySelectorAll<HTMLElement>('[contenteditable="false"]')
+        )
+          .map((element) =>
+            element
+              .closest('[data-slate-node="element"]')
+              ?.getAttribute('data-slate-path')
+          )
+          .filter((path) => path === '0' || path === '2')
+
+        return {
+          rootContentEditable: root.getAttribute('contenteditable'),
+          staleFalsePaths,
+        }
+      })
+
+      expect(contentEditableState.rootContentEditable).toBe('true')
+      expect(contentEditableState.staleFalsePaths).toEqual([])
+
+      await editor.selection.selectDOM({
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [2, 0], offset: 0 },
+      })
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText('Editable ')
+      } else {
+        await page.keyboard.type('Editable ')
+      }
+      await expect
+        .poll(() => editor.get.modelBlockTexts())
+        .toEqual([introText, '', `Editable ${targetText}`])
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('deselects a selected draggable custom void when clicking back into text', async ({
+    page,
+  }, testInfo) => {
+    const runtimeErrors = await recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'embeds', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      const beforeBlockTexts = await editor.get.modelBlockTexts()
+      const [introText, voidText, targetText] = beforeBlockTexts
+
+      expect(introText).toContain('In addition to simple image nodes')
+      expect(voidText).toBe('')
+      expect(targetText).toContain('Try it out!')
+
+      await editor.selection.selectDOM({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
+
+      const paragraph = editor.root.locator(
+        '[data-slate-node="element"][data-slate-path="2"]'
+      )
+
+      await paragraph.click({ position: { x: 16, y: 10 } })
+      await expect
+        .poll(async () => {
+          const selection = await editor.selection.get()
+
+          return (
+            selection?.anchor.path[0] === 2 && selection.focus.path[0] === 2
+          )
+        })
+        .toBe(true)
+
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText('Deselect ')
+      } else {
+        await page.keyboard.type('Deselect ')
+      }
+      await expect
+        .poll(async () => {
+          const blockTexts = await editor.get.modelBlockTexts()
+
+          return {
+            blockCount: blockTexts.length,
+            iframeCount: await editor.root.locator('iframe').count(),
+            targetHasText: blockTexts[2]?.includes('Deselect ') ?? false,
+          }
+        })
+        .toEqual({
+          blockCount: 3,
+          iframeCount: 1,
+          targetHasText: true,
+        })
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 })

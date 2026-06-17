@@ -1328,6 +1328,76 @@ describe('slate clipboard contract', () => {
     })
   })
 
+  it('insertFragment preserves copied text-block types over an empty target block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'before' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'after' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    Editor.insertFragment(editor, [
+      {
+        type: 'heading',
+        children: [{ text: 'heading' }],
+      },
+      {
+        type: 'quote',
+        children: [{ text: 'quote' }],
+      },
+      {
+        type: 'code',
+        children: [{ text: 'code' }],
+      },
+    ])
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'before' }],
+      },
+      {
+        type: 'heading',
+        children: [{ text: 'heading' }],
+      },
+      {
+        type: 'quote',
+        children: [{ text: 'quote' }],
+      },
+      {
+        type: 'code',
+        children: [{ text: 'code' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'after' }],
+      },
+    ])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [3, 0], offset: 'code'.length },
+      focus: { path: [3, 0], offset: 'code'.length },
+    })
+  })
+
   it('insertFragment places selection after an inline void pasted into an empty target block', () => {
     const editor = createEditor()
     extendTestSchema(editor, { type: 'mention', void: 'markable-inline' })

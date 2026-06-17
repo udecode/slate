@@ -10,7 +10,6 @@
     "paths": {
       "slate": ["packages/slate/src/index.ts"],
       "slate/internal": ["packages/slate/src/internal/index.ts"],
-      "slate-browser": ["packages/slate-browser/src/index.ts"],
       "slate-browser/browser": ["packages/slate-browser/src/browser/index.ts"],
       "slate-browser/core": ["packages/slate-browser/src/core/index.ts"],
       "slate-browser/playwright": [

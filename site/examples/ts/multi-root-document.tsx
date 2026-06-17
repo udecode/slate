@@ -54,7 +54,7 @@ const formatCommit = (commit: EditorCommit | null) => {
     `ops:${formatList(commit.operations.map((operation) => operation.type))}`,
     `roots:${formatList(
       commit.operations.map(
-        (operation) => (operation as { root?: string }).root ?? 'main'
+        (operation) => (operation as { root?: string }).root ?? 'primary'
       )
     )}`,
     `state:${formatList(commit.dirtyStateKeys)}`,
@@ -62,7 +62,15 @@ const formatCommit = (commit: EditorCommit | null) => {
   ].join(';')
 }
 
-const RootStatus = ({ id, root }: { id: string; root: string }) => {
+const RootStatus = ({
+  id,
+  label,
+  root,
+}: {
+  id: string
+  label: string
+  root?: string
+}) => {
   const text = useSlateRootState(root, rootText)
 
   return (
@@ -71,7 +79,7 @@ const RootStatus = ({ id, root }: { id: string; root: string }) => {
       id={id}
       variant="default"
     >
-      {root}:{text}
+      {label}:{text}
     </Badge>
   )
 }
@@ -89,8 +97,8 @@ const RootEditor = ({
   placeholder: string
   root?: string
 }) => {
-  const rootKey = root ?? 'main'
-  const chrome = useSlateRootChrome(rootKey)
+  const rootLabel = root ?? 'body'
+  const chrome = useSlateRootChrome(root)
 
   return (
     <section
@@ -100,11 +108,11 @@ const RootEditor = ({
     >
       <div className="slate-multi-root-document-root-header">
         <span>{label}</span>
-        <RootStatus id={`${id}-status`} root={rootKey} />
+        <RootStatus id={`${id}-status`} label={rootLabel} root={root} />
       </div>
       <Editable
         aria-label={label}
-        autoFocus={rootKey === 'main'}
+        autoFocus={root === undefined}
         className={className}
         id={id}
         placeholder={placeholder}
@@ -117,7 +125,7 @@ const RootEditor = ({
 
 const MultiRootPanel = () => {
   const history = useSlateHistory()
-  const titleHistory = useSlateHistory({ focusPolicy: 'preserve-dom' })
+  const titleHistory = useSlateHistory({ focusPolicy: 'preserve' })
   const title = useStateFieldValue(documentTitle)
   const setTitleField = useSetStateField(documentTitle)
   const commitSummary = useEditorState((state) =>
@@ -177,7 +185,7 @@ const MultiRootPanel = () => {
         />
         <RootEditor
           className="slate-multi-root-document-editor slate-multi-root-document-body-editor"
-          id="multi-root-main"
+          id="multi-root-body"
           label="Body editor"
           placeholder="Draft the body"
         />
@@ -212,6 +220,16 @@ const MultiRootDocumentExample = () => {
   const editor = useSlateEditor({
     extensions: [documentTitle],
     initialValue: {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'The body root carries the document content.' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'Header and footer are editable roots.' }],
+        },
+      ],
       roots: {
         footer: [
           {
@@ -223,16 +241,6 @@ const MultiRootDocumentExample = () => {
           {
             type: 'paragraph',
             children: [{ text: 'Confidential quarterly plan' }],
-          },
-        ],
-        main: [
-          {
-            type: 'paragraph',
-            children: [{ text: 'The body root carries the document content.' }],
-          },
-          {
-            type: 'paragraph',
-            children: [{ text: 'Header and footer are editable roots.' }],
           },
         ],
       },

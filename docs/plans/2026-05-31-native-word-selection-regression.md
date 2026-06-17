@@ -134,9 +134,9 @@ Error attempts:
 | Unit test exposed projected drag setup after multi-click | 1 | Disable projected drag endpoint for native multi-click | Root-interaction unit tests passed |
 
 Verification evidence:
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/pagination.test.ts --project=chromium -g "selects projected pagination words on native double click"`: 1 passed after failing red first.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/pagination.test.ts --project=chromium -g "selects projected pagination words on native double click|selects virtualized pagination text when dragging from the page line margin|places virtualized pagination selection at line start from the page margin"`: 3 passed.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/richtext.test.ts --project=chromium -g "keeps browser caret valid after native word selection toolbar mark then clicking elsewhere|selects the current block on browser triple click"`: 2 passed.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium -g "selects projected pagination words on native double click"`: 1 passed after failing red first.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium -g "selects projected pagination words on native double click|selects virtualized pagination text when dragging from the page line margin|places virtualized pagination selection at line start from the page margin"`: 3 passed.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/richtext.test.ts --project=chromium -g "keeps browser caret valid after native word selection toolbar mark then clicking elsewhere|selects the current block on browser triple click"`: 2 passed.
 - `bun run test:vitest -- ./test/root-interaction-controller.test.tsx ./test/root-interaction-resolver.test.ts` from `packages/slate-react`: 17 passed.
 - `bun --filter slate-react typecheck` from `.tmp/slate-v2`: exited 0.
 - `bun lint:fix` from `.tmp/slate-v2`: exited 0.

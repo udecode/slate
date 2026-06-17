@@ -23,7 +23,7 @@ import {
   useMountedTextRenderSelector,
 } from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
-import { useSlateProjections } from '../hooks/use-slate-projections'
+import { useSlateProjectionEntries } from '../hooks/use-slate-projection-entries'
 import type { SlateProjectionSlice } from '../projection-store'
 import { hasVisibleSlateViewSelectionDecoration } from '../view-selection-decoration'
 import { SlateLeaf } from './slate-leaf'
@@ -158,7 +158,7 @@ export type EditableTextSegment<T = unknown> = {
   text: string
 }
 
-export type EditableTextLeafProps<T = unknown> = {
+export type RenderLeafProps<T = unknown> = {
   attributes: {
     'data-slate-leaf': true
     'data-slate-leaf-end'?: number
@@ -176,7 +176,7 @@ export type EditableTextLeafProps<T = unknown> = {
   text: SlateTextNode
 }
 
-export type EditableTextRenderTextProps = {
+export type RenderTextProps = {
   attributes: {
     'data-slate-node': 'text'
     'data-slate-dom-sync-reason'?: DOMTextSyncOptOutReason
@@ -189,7 +189,7 @@ export type EditableTextRenderTextProps = {
   text: SlateTextNode
 }
 
-export type EditableTextRenderPlaceholderProps = {
+export type RenderPlaceholderProps = {
   attributes: {
     'aria-hidden': true
     'data-slate-placeholder': true
@@ -301,13 +301,13 @@ type EditableTextProps<T = unknown> = {
   placeholderRef?: React.RefCallback<HTMLElement>
   placeholderStyle?: CSSProperties
   ref?: Ref<HTMLSpanElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   runtimeId?: RuntimeId | null
   slateNode?: SlateTextNode | null
   text?: string
@@ -381,7 +381,7 @@ const RenderEditableText = <T,>({
       : []
 
   const getLeafAttributes = (
-    leafPosition?: EditableTextLeafProps<T>['leafPosition']
+    leafPosition?: RenderLeafProps<T>['leafPosition']
   ) => ({
     'data-slate-leaf': true as const,
     'data-slate-leaf-end': leafPosition?.end,
@@ -602,7 +602,7 @@ const BoundEditableText = <T,>({
     path: boundText.path,
     slateNode: boundText.slateNode,
   })
-  const projections = useSlateProjections(
+  const projections = useSlateProjectionEntries(
     resolvedRuntimeId ?? ''
   ) as readonly SlateProjectionSlice<T>[]
 
@@ -637,7 +637,7 @@ const ProjectedEditableText = <T,>({
   ...props
 }: EditableTextProps<T>) => {
   const boundRef = useSlateNodeRef(runtimeId, { path, slateNode })
-  const projections = useSlateProjections(
+  const projections = useSlateProjectionEntries(
     runtimeId ?? ''
   ) as readonly SlateProjectionSlice<T>[]
 

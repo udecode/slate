@@ -50,15 +50,11 @@ const createFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        'card:body': [paragraph('Inside')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { 'card:body': [paragraph('Inside')] },
     },
   })
-  const mainEditor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const mainEditor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const bodyEditor = createEditorView(runtime, {
     root: 'card:body',
   }) as unknown as ReactRuntimeEditor
@@ -70,21 +66,17 @@ const createRepeatedProjectionFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        'card:body': [paragraph('Inside')],
-        main: [
-          paragraph('Before'),
-          contentCard(),
-          paragraph('Between'),
-          contentCard(),
-          paragraph('After'),
-        ],
-      },
+      children: [
+        paragraph('Before'),
+        contentCard(),
+        paragraph('Between'),
+        contentCard(),
+        paragraph('After'),
+      ],
+      roots: { 'card:body': [paragraph('Inside')] },
     },
   })
-  const mainEditor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const mainEditor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const bodyEditor = createEditorView(runtime, {
     root: 'card:body',
   }) as unknown as ReactRuntimeEditor
@@ -147,15 +139,11 @@ describe('content root navigation', () => {
 
   it('does not resolve mounted roots for vertical keys when schema has no content roots', () => {
     const runtime = createEditorRuntime({
-      initialValue: {
-        roots: {
-          main: [paragraph('Plain')],
-        },
-      },
+      initialValue: { children: [paragraph('Plain')] },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const getMountedViewEditor = vi.fn()
     const event = keyEvent('ArrowDown')
 
@@ -172,6 +160,65 @@ describe('content root navigation', () => {
 
     expect(result.handled).toBe(false)
     expect(getMountedViewEditor).not.toHaveBeenCalled()
+  })
+
+  it('does not scan plain documents when looking for content-root owners', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        children: Array.from({ length: 5000 }, (_, index) =>
+          paragraph(`Plain ${index}`)
+        ),
+      },
+    })
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
+    const read = vi.fn(() => {
+      throw new Error('plain documents should not be scanned')
+    })
+    const editor = Object.create(mainEditor) as ReactRuntimeEditor
+
+    Object.defineProperty(editor, 'read', {
+      value: read,
+    })
+
+    expect(findContentRootOwners(editor)).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('does not exit a content root from the start of its last block on ArrowDown', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        children: [paragraph('Before'), contentCard(), paragraph('After')],
+        roots: { 'card:body': [paragraph('First'), paragraph('Second')] },
+      },
+    })
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as unknown as ReactRuntimeEditor
+    const event = keyEvent('ArrowDown')
+
+    selectPoint(bodyEditor, { path: [1, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(false)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { offset: 0, path: [1, 0], root: 'card:body' },
+      focus: { offset: 0, path: [1, 0], root: 'card:body' },
+    })
   })
 
   it('moves forward from the previous sibling into the content root start', () => {
@@ -416,7 +463,7 @@ describe('content root navigation', () => {
       anchor: { path: [0, 0], offset: 'Before'.length },
       focus: { path: [0, 0], offset: 'Before'.length },
     })
-    expect(runtimeValue(mainEditor).roots['card:body']).toEqual([
+    expect(runtimeValue(mainEditor).roots?.['card:body']).toEqual([
       paragraph('Inside'),
     ])
   })
@@ -612,17 +659,15 @@ describe('content root navigation', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
-        roots: {
-          'card:body': [paragraph('Inside')],
-          main: [
-            section([paragraph('Before'), contentCard(), paragraph('After')]),
-          ],
-        },
+        children: [
+          section([paragraph('Before'), contentCard(), paragraph('After')]),
+        ],
+        roots: { 'card:body': [paragraph('Inside')] },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const owner = {
       childRoot: 'card:body',
       ownerPath: [0, 1],
@@ -652,6 +697,7 @@ describe('content root navigation', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],
       initialValue: {
+        children: [paragraph('Before'), contentCard(), paragraph('After')],
         roots: {
           'card:body': [
             section([
@@ -660,14 +706,13 @@ describe('content root navigation', () => {
               paragraph('Inside after'),
             ]),
           ],
-          main: [paragraph('Before'), contentCard(), paragraph('After')],
           'nested:body': [paragraph('Deep')],
         },
       },
     })
-    const mainEditor = createEditorView(runtime, {
-      root: 'main',
-    }) as unknown as ReactRuntimeEditor
+    const mainEditor = createEditorView(
+      runtime
+    ) as unknown as ReactRuntimeEditor
     const owners = findContentRootOwners(mainEditor)
     const cardOwner = owners.find((owner) => owner.childRoot === 'card:body')!
     const nestedOwner = owners.find(

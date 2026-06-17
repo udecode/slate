@@ -4,6 +4,12 @@ import type { Path, RuntimeId } from 'slate'
 import { recordSlateReactRender } from '../render-profiler'
 import { getSlateTextShellAttributes } from '../shell-runtime'
 
+/**
+ * Render a Slate text DOM shell bound to a text runtime.
+ *
+ * The shell carries path/runtime metadata and DOM-sync attributes used by
+ * selection, mutation, and projected DOM coverage.
+ */
 export const SlateText = ({
   domSync = false,
   domSyncReason,

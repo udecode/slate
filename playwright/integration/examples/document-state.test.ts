@@ -1,6 +1,9 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
 
-import { openExample } from 'slate-browser/playwright'
+import {
+  openExample,
+  recordSlateBrowserRuntimeErrors,
+} from 'slate-browser/playwright'
 
 type EditorHarness = Awaited<ReturnType<typeof openExample>>
 
@@ -12,6 +15,11 @@ const bodyStartSelection = {
   anchor: { path: [0, 0], offset: 'The '.length },
   focus: { path: [0, 0], offset: 'The '.length },
 }
+const focusMutationPrefix = 'Focus mutation: '
+const focusMutationSelection = {
+  anchor: { path: [0, 0], offset: `${focusMutationPrefix}The `.length },
+  focus: { path: [0, 0], offset: `${focusMutationPrefix}The `.length },
+}
 
 const appendInputText = async (page: Page, input: Locator, text: string) => {
   await input.click()
@@ -22,7 +30,7 @@ const appendInputText = async (page: Page, input: Locator, text: string) => {
       inputElement.value.length
     )
   })
-  await page.keyboard.insertText(text)
+  await page.keyboard.type(text)
 }
 
 const insertAtBodyEnd = async (editor: EditorHarness, text: string) => {
@@ -83,12 +91,12 @@ test.describe('document state example', () => {
     await expect(editor.root).not.toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
 
-    await editor.root.focus()
+    await editor.focus()
 
     await expect(editor.root).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
 
-    await page.keyboard.insertText('edited ')
+    await page.keyboard.type('edited ')
 
     await expect(editor.root).toContainText(
       'The edited body is still normal Slate content.'
@@ -161,6 +169,104 @@ test.describe('document state example', () => {
     await expect(editor.root).toContainText('Remote Title changes')
     await expect(titleInput).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
+  })
+
+  test('keeps focus-event content mutations from breaking selection repair', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop focus-event mutation proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'document-state', {
+      ready: {
+        editor: 'visible',
+      },
+      surface: {
+        scope: '#document-state-editor-surface',
+      },
+    })
+    const titleInput = page.getByLabel('Document title')
+
+    await editor.selection.selectDOM(bodyStartSelection)
+    await editor.assert.selection(bodyStartSelection)
+    await titleInput.click()
+    await expect(titleInput).toBeFocused()
+
+    await editor.root.evaluate((element, prefix) => {
+      const root = element as HTMLElement & {
+        __slateBrowserHandle?: {
+          applyOperations: (
+            operations: readonly Record<string, unknown>[],
+            options?: Record<string, unknown>
+          ) => void
+        }
+      }
+
+      root.addEventListener(
+        'focus',
+        () => {
+          const handle = root.__slateBrowserHandle
+
+          if (!handle) {
+            throw new Error('Missing Slate browser handle')
+          }
+
+          handle.applyOperations(
+            [
+              {
+                offset: 0,
+                path: [0, 0],
+                root: 'main',
+                text: prefix,
+                type: 'insert_text',
+              },
+            ],
+            {
+              metadata: {
+                history: { mode: 'skip' },
+                selection: { dom: 'preserve', focus: false, scroll: false },
+              },
+              tag: ['focus-mutation'],
+            }
+          )
+        },
+        { once: true }
+      )
+    }, focusMutationPrefix)
+
+    await editor.focus()
+
+    await expect(editor.root).toBeFocused()
+    await expect(editor.root).toContainText(
+      'Focus mutation: The body is still normal Slate content.'
+    )
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual(focusMutationSelection)
+    runtimeErrors.assertNone()
+
+    await page.keyboard.type('typed ')
+
+    await expect(editor.root).toContainText(
+      'Focus mutation: The typed body is still normal Slate content.'
+    )
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: {
+          path: [0, 0],
+          offset: `${focusMutationPrefix}The typed `.length,
+        },
+        focus: {
+          path: [0, 0],
+          offset: `${focusMutationPrefix}The typed `.length,
+        },
+      })
+    runtimeErrors.assertNone()
+    runtimeErrors.stop()
   })
 
   test('keeps title input undo outside editor focus repair', async ({
@@ -290,7 +396,7 @@ test.describe('document state example', () => {
     await expect(titleInput).toHaveValue('Q2 Planning Brief')
     await expect(editor.root).not.toContainText('nodes.p')
     await expect(editor.root).not.toBeFocused()
-    expect(await editor.get.modelText()).not.toContain('nodes.p')
+    await expect.poll(() => editor.get.modelText()).not.toContain('nodes.p')
     await expect(commitStatus).toContainText('ops:remove_text')
     await expect(commitStatus).toContainText('tags:historic')
     await expect(page.locator('body')).not.toContainText('Could not set focus')
@@ -350,7 +456,7 @@ test.describe('document state example', () => {
     await titleInput.press(
       process.platform === 'darwin' ? 'Meta+A' : 'Control+A'
     )
-    await page.keyboard.insertText('Typed title')
+    await page.keyboard.type('Typed title')
 
     await expect(titleInput).toHaveValue('Typed title')
     await expect(editor.root).toContainText('Body prefix: ')

@@ -26,6 +26,7 @@ export type SlateViewBoundaryOwner = SlateProjectionOwner
 export type SlateViewBoundaryGraphNodeInput = SlateProjectionGraphNodeInput
 export type SlateViewBoundaryGraphModel = SlateProjectionGraphModel
 export type SlateViewBoundaryPoint = SlateProjectedPoint
+export type SlateViewBoundaryRangeEndpoint = SlateProjectionGraphRangeEndpoint
 export type SlateViewBoundaryRangeSegment = SlateProjectionGraphRangeSegment
 export type SlateViewBoundaryRangeSegments = SlateProjectionGraphRangeSegments
 
@@ -38,6 +39,14 @@ export type SlateViewBoundarySelectionTargetInput = Readonly<{
 export const createSlateViewBoundaryGraph = createSlateProjectionGraph
 export const getSlateViewBoundaryOwnerKey = getSlateProjectionOwnerKey
 export const SlateViewBoundaryGraph = SlateProjectionGraph
+
+export const createSlateViewBoundaryRootMap = (value: {
+  children: readonly Descendant[]
+  roots?: Readonly<Record<string, readonly Descendant[]>>
+}): Readonly<Record<string, readonly Descendant[]>> => ({
+  [MAIN_ROOT_KEY]: value.children,
+  ...(value.roots ?? {}),
+})
 
 export const cloneSlateViewBoundaryPath = (path: Path): Path =>
   [...path] as Path

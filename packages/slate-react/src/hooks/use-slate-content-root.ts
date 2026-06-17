@@ -9,6 +9,7 @@ import {
   useSlateRootChrome,
 } from './use-slate-root-chrome'
 
+/** Options for resolving a schema-owned child content root. */
 export type UseSlateContentRootOptions = UseSlateRootChromeOptions & {
   /**
    * Override the schema `contentRoot.slot` when one component can render more
@@ -17,11 +18,15 @@ export type UseSlateContentRootOptions = UseSlateRootChromeOptions & {
   slot?: string
 }
 
+/** Resolved child root and chrome controller for nested editable content. */
 export type SlateContentRootController = {
   chrome: SlateRootChromeController
   root: RootKey
 }
 
+/**
+ * Resolve a schema-owned child content root and its root chrome controller.
+ */
 export function useSlateContentRoot(
   element?: Element | null,
   options: UseSlateContentRootOptions = {}

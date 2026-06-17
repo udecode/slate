@@ -165,7 +165,7 @@ test.describe('paste html example', () => {
 
   test('pasted bold text uses <strong>', async ({ page }) => {
     await pasteHtml(page, '<strong>Hello Bold</strong>')
-    expect(await page.locator('strong').textContent()).toContain('Hello')
+    await expect(page.locator('strong')).toContainText('Hello')
   })
 
   test('keeps inline HTML marks bounded to their source text', async ({
@@ -364,9 +364,8 @@ test.describe('paste html example', () => {
         anchor: { path: [0, 0], offset: 'Hello Bold'.length },
         focus: { path: [0, 0], offset: 'Hello Bold'.length },
       })
-      return
     }
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
 
     if (testInfo.project.name === 'mobile') {
       await editor.insertText('!')
@@ -377,7 +376,7 @@ test.describe('paste html example', () => {
     await editor.assert.text('Hello Bold!')
     await expect(editor.root.locator('strong')).toHaveText('Hello Bold!')
     if (testInfo.project.name !== 'mobile') {
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     }
   })
 
@@ -488,7 +487,13 @@ test.describe('paste html example', () => {
       )
     }
 
-    await editor.assert.blockTexts(['Before', 'Heading', 'Quote', 'After'])
+    await editor.assert.modelBlockTexts([
+      'Before',
+      'Heading',
+      'Quote',
+      'code',
+      'After',
+    ])
     await expect(editor.root.locator('h1')).toHaveText('Heading')
     await expect(editor.root.locator('blockquote')).toHaveText('Quote')
     await expect(editor.root.locator('pre code')).toHaveText('code')
@@ -497,7 +502,11 @@ test.describe('paste html example', () => {
   test('does not fallback insert after same-plain-text native HTML paste', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit synthetic HTML paste does not expose the same beforeinput insert-data trace'
+    )
 
     const editor = await openExample(page, 'paste-html', {
       ready: {
@@ -507,14 +516,14 @@ test.describe('paste html example', () => {
 
     await editor.selection.selectAll()
     await editor.insertText('hello')
-    expect(await editor.get.modelText()).toBe('hello')
+    await expect.poll(() => editor.get.modelText()).toBe('hello')
 
     await editor.selection.selectAll()
     const beforeTraceLength = (await editor.get.kernelTrace()).length
     await editor.clipboard.pasteHtml('<strong>hello</strong>', 'hello')
     const pasteTrace = (await editor.get.kernelTrace()).slice(beforeTraceLength)
 
-    expect(await editor.get.modelText()).toBe('hello')
+    await expect.poll(() => editor.get.modelText()).toBe('hello')
     await expect(editor.root.locator('strong')).toHaveText('hello')
     expect(
       pasteTrace.some(
@@ -555,10 +564,9 @@ test.describe('paste html example', () => {
     await editor.root.press('Enter')
     await editor.type('x')
 
-    const blockTexts = await editor.get.blockTexts()
-
-    expect(blockTexts).toEqual(['a', 'x', 'b'])
-    expect(blockTexts.join('\n')).toBe('a\nx\nb')
+    await expect.poll(() => editor.get.blockTexts()).toEqual(['a', 'x', 'b'])
+    await editor.assert.modelBlockTexts(['a', 'x', 'b'])
+    expect((await editor.get.blockTexts()).join('\n')).toBe('a\nx\nb')
   })
 
   test('pastes copied rendered Slate content as an internal fragment before HTML import', async ({
@@ -577,7 +585,7 @@ test.describe('paste html example', () => {
       },
     })
     const copiedText =
-      "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved."
+      'Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and its formatting should be preserved.'
     const firstParagraphRemainder =
       " default, pasting content into a Slate editor will use the clipboard's 'text/plain' data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle 'text/html' data. "
 
@@ -596,9 +604,7 @@ test.describe('paste html example', () => {
       await editor.root.press('ControlOrMeta+V')
 
       await editor.assert.blockTexts([
-        'By',
-        copiedText,
-        firstParagraphRemainder,
+        `By${copiedText}${firstParagraphRemainder}`,
         'This is an example of doing exactly that!',
         copiedText,
       ])
@@ -807,6 +813,59 @@ test.describe('paste html example', () => {
       .locator('span[style*="font-size"]')
 
     await expectFontSizeCloseTo(bold, 14.6667)
+    await expect(bold.locator('strong')).toHaveText('Bold')
+    await expect(italic.locator('em')).toHaveText('Italic')
+    await expect(underline.locator('u')).toHaveText('underline')
+    await expect(combined.locator('strong')).toHaveText('Bold Italic Underline')
+    await expect(combined.locator('em')).toHaveText('Bold Italic Underline')
+    await expect(combined.locator('u')).toHaveText('Bold Italic Underline')
+  })
+
+  test('keeps rich paste after a stale Shift tab-switch shortcut', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop modifier paste proof'
+    )
+
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = 'Bold\nItalic\nunderline\nBold Italic Underline'
+
+    await editor.selection.selectAll()
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          bubbles: true,
+          cancelable: true,
+          code: 'BracketLeft',
+          key: '[',
+          metaKey: true,
+          shiftKey: true,
+        })
+      )
+    })
+
+    await editor.clipboard.pasteHtml(GOOGLE_DOCS_BIU_HTML, text)
+
+    const paragraphs = editor.root.locator('p')
+    const bold = paragraphs
+      .filter({ hasText: /^Bold$/ })
+      .locator('span[style*="font-size"]')
+    const italic = paragraphs
+      .filter({ hasText: /^Italic$/ })
+      .locator('span[style*="font-size"]')
+    const underline = paragraphs
+      .filter({ hasText: /^underline$/ })
+      .locator('span[style*="font-size"]')
+    const combined = paragraphs
+      .filter({ hasText: /^Bold Italic Underline$/ })
+      .locator('span[style*="font-size"]')
+
     await expect(bold.locator('strong')).toHaveText('Bold')
     await expect(italic.locator('em')).toHaveText('Italic')
     await expect(underline.locator('u')).toHaveText('underline')
@@ -1363,9 +1422,7 @@ test.describe('paste html example', () => {
     await expect(editor.root.locator('ul')).toHaveCount(1)
     await expect(editor.root.locator('li')).toHaveCount(2)
     await expect(editor.root.locator('li').nth(0)).toContainText(
-      testInfo.project.name === 'webkit'
-        ? 'Line 1Some link.'
-        : 'Line 1 Some link.'
+      'Line 1 Some link.'
     )
     await expect(editor.root.locator('li').nth(1)).toContainText('Line 2.')
 
@@ -1533,6 +1590,38 @@ test.describe('paste html example', () => {
     await expect(editor.root.locator('p')).toHaveCount(1)
     await expect(editor.root).not.toContainText('data-pm-slice')
     await expect(editor.root).not.toContainText('meta charset')
+  })
+
+  test('pastes ProseMirror table row slices without exposing slice metadata', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const html = `<meta charset="utf-8"><table data-pm-slice="2 2 -2 [&quot;table&quot;,null,&quot;tbody&quot;,null]"><tbody><tr><td><p>alpha</p></td><td><p>beta</p></td></tr></tbody></table>`
+    const text = 'alpha\tbeta'
+
+    await editor.selection.selectAll()
+    if (testInfo.project.name === 'mobile') {
+      await insertDataWithHandle(editor, { html, text })
+    } else {
+      await editor.clipboard.pasteHtml(html, text)
+    }
+
+    await editor.assert.text('alphabeta')
+    await expect(editor.root).not.toContainText('data-pm-slice')
+    await expect(editor.root).not.toContainText('meta charset')
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('tr')).toHaveCount(1)
+    await expect(editor.root.locator('td')).toHaveCount(2)
+    await expect(editor.root.locator('td').nth(0).locator('p')).toHaveText(
+      'alpha'
+    )
+    await expect(editor.root.locator('td').nth(1).locator('p')).toHaveText(
+      'beta'
+    )
   })
 
   test('wraps orphan pasted list items in a list parent', async ({
@@ -1754,7 +1843,11 @@ test.describe('paste html example', () => {
     const html = '<img alt="" src="/test/image.jpg">'
 
     await editor.selection.selectAll()
-    await page.keyboard.insertText('Before after')
+    if (testInfo.project.name === 'mobile') {
+      await editor.insertText('Before after')
+    } else {
+      await editor.type('Before after')
+    }
     await editor.selection.collapse({ path: [0, 0], offset: 'Before '.length })
 
     if (testInfo.project.name === 'mobile') {
@@ -1765,7 +1858,9 @@ test.describe('paste html example', () => {
 
     await expect(editor.root.locator('img')).toHaveCount(1)
     await expect(editor.root.locator('p img')).toHaveCount(0)
-    expect((await editor.get.blockTexts()).join('')).toBe('Before after')
+    await expect
+      .poll(async () => (await editor.get.blockTexts()).join(''))
+      .toBe('Before after')
   })
 
   test('imports Google Docs table HTML with cell paragraphs', async ({
@@ -1994,9 +2089,10 @@ test.describe('paste html example', () => {
   test('runs generated clipboard paste gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop clipboard gauntlet proof'
+    )
 
     const editor = await openExample(page, 'paste-html', {
       ready: {

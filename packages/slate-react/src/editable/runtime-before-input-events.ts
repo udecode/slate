@@ -1,5 +1,6 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import { PathApi, type Range, RangeApi } from 'slate'
+import { getSelection } from 'slate-dom'
 import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
@@ -8,13 +9,16 @@ import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { getInputEventTargetRanges } from './dom-input-event'
 import { completeDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
 import {
+  armModelOwnedTextInputGuard,
   getNestedEditableDOMSelectionRoot,
   isEditableModelSelectionPreferredForInput,
   isNestedEditableDOMTarget,
   isSelectionInEditorView,
+  setEditableModelSelectionPreference,
   shouldForceModelOwnedTextInput,
 } from './input-controller'
 import {
@@ -22,7 +26,10 @@ import {
   useEditableDOMBeforeInputHandler,
   useEditableReactBeforeInputHandler,
 } from './input-router'
-import type { EditableInputController } from './input-state'
+import {
+  clearExpiredTextInputRepairEcho,
+  type EditableInputController,
+} from './input-state'
 import {
   applyModelOwnedBeforeInputOperation,
   applyModelOwnedNativeHistoryEvent,
@@ -127,6 +134,48 @@ export const getDeferredNativeTextInputRepairPathKey = ({
   return selection.anchor.path.join(',')
 }
 
+export const shouldFlushPendingNativeTextInputBeforeDOMBeforeInput = ({
+  pendingNativeTextInputRepairPathKey,
+}: {
+  inputType: string
+  pendingNativeTextInputRepairPathKey: string | null | undefined
+}) => {
+  return !!pendingNativeTextInputRepairPathKey
+}
+
+export const shouldFlushSelectionChangeBeforeDOMBeforeInput = ({
+  inputController,
+  inputType,
+}: {
+  inputController: EditableInputController
+  inputType: string
+}) =>
+  !isEditableModelSelectionPreferredForInput({
+    inputController,
+    inputType,
+  })
+
+export const shouldIgnoreDOMBeforeInputWithoutSelection = ({
+  event,
+  nativeRangeCount,
+}: {
+  event: InputEvent
+  nativeRangeCount: number | null
+}) =>
+  nativeRangeCount === 0 &&
+  (event.inputType.startsWith('delete') ||
+    event.inputType.startsWith('insert')) &&
+  getInputEventTargetRanges(event).length === 0
+
+export const shouldAllowBeforeInputSelectionImport = ({
+  event,
+  selectionPolicyAllowsDOMImport,
+}: {
+  event: InputEvent
+  selectionPolicyAllowsDOMImport: boolean
+}) =>
+  selectionPolicyAllowsDOMImport || getInputEventTargetRanges(event).length > 0
+
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
   applyInputRules,
@@ -166,7 +215,7 @@ export const useRuntimeBeforeInputEvents = ({
     inputType: string
     rootElement: HTMLElement
     selection: Range | null
-  }) => void
+  }) => boolean
   readOnly: boolean
   repair: EditableEventRuntime['repair']
   selection: EditableEventRuntime['selection']
@@ -175,373 +224,473 @@ export const useRuntimeBeforeInputEvents = ({
 }) => {
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const handleDOMBeforeInput = useCallback(
-    (event: InputEvent) => {
-      if (event.inputType !== 'insertText') {
-        flushPendingNativeTextInput?.()
-      }
-
-      const decision = profileBeforeInputDuration('beforeinput-prepare', () =>
-        prepareEditableBeforeInputKernel({
-          editor,
-          event,
-          inputController,
-        })
-      )
-      inputController.state.activeIntent = decision.intent
-      profileBeforeInputDuration('beforeinput-trace', () =>
-        trace.recordKernelEventTrace({
-          command: decision.command,
-          family: 'beforeinput',
-          intent: decision.intent,
-          ownership: decision.ownership,
-          target: event.target,
-        })
-      )
-      if (applyModelOwnedNativeHistoryEvent({ editor, event, readOnly })) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        if (shouldForceRenderAfterModelOwnedHistory(editor)) {
-          repair.requestEditableRepair({
-            forceRender: true,
-            kind: 'force-render',
+    (event: InputEvent) =>
+      profileBeforeInputDuration('beforeinput-total', () => {
+        const shouldFlushPendingTextInput =
+          deferNativeTextInputRepair &&
+          shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+            inputType: event.inputType,
+            pendingNativeTextInputRepairPathKey:
+              inputController.state.pendingNativeTextInputRepairPathKey,
           })
-        }
-        handledDOMBeforeInputRef.current = true
-        return
-      }
 
-      if (
-        completeDuplicateEditableEditingEpochCommand(editor, decision.command)
-      ) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        handledDOMBeforeInputRef.current = true
-        return
-      }
-
-      if (decision.internalTarget) {
-        event.stopImmediatePropagation()
-        return
-      }
-      const el = profileBeforeInputDuration('beforeinput-root-node', () =>
-        ReactEditor.assertDOMNode(editor, editor)
-      )
-      if (isNestedEditableDOMTarget(el, event.target)) {
-        return
-      }
-
-      if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        handledDOMBeforeInputRef.current = true
-        return
-      }
-
-      const root = profileBeforeInputDuration(
-        'beforeinput-root-owner',
-        () => el.getRootNode() as Document | ShadowRoot
-      )
-
-      if (
-        handleWebKitShadowDOMBeforeInput({
-          editor,
-          event,
-          processing,
-          root,
-          window,
-        })
-      ) {
-        return
-      }
-      onUserInput()
-
-      if (!readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
-        handledDOMBeforeInputRef.current = true
-        profileBeforeInputDuration('beforeinput-flush-selection', () =>
-          selection.flushSelectionChange()
-        )
-
-        let currentSelection = profileBeforeInputDuration(
-          'beforeinput-read-selection',
-          () => readLiveSelection(editor)
-        )
-
-        if (!isSelectionInEditorView(editor, currentSelection)) {
-          return
-        }
-
-        const hasAppInputPolicy = Boolean(
-          onDOMBeforeInput ||
-            onBeforeInput ||
-            onInput ||
-            hasEditorTransformMiddleware(editor, 'insertText')
-        )
-
-        if (hasAppInputPolicy) {
+        if (shouldFlushPendingTextInput) {
           flushPendingNativeTextInput?.()
-          currentSelection = profileBeforeInputDuration(
-            'beforeinput-reread-selection-after-native-text-flush',
-            () => readLiveSelection(editor)
-          )
         }
 
-        const beforeInputDecision = profileBeforeInputDuration(
-          'beforeinput-native-decision',
-          () =>
-            getNativeBeforeInputDecision({
-              allowDirtyDOMText:
-                deferNativeTextInputRepair &&
-                inputController.state.selectionSource === 'dom-current',
-              editor,
-              event,
-              hasAppInputPolicy,
-              selection: currentSelection,
-            })
+        const decision = profileBeforeInputDuration('beforeinput-prepare', () =>
+          prepareEditableBeforeInputKernel({
+            editor,
+            event,
+            inputController,
+          })
         )
-        const {
-          data,
-          inputType: type,
-          isCompositionChange,
-          native: initialNative,
-          shouldAbortForCompositionChange,
-        } = beforeInputDecision
-        const selectionRoot =
-          getSelectionRoot(currentSelection) ??
-          getNestedEditableDOMSelectionRoot(el)
-        const viewRoot = editor.read((state) => state.view.root())
-        const targetEditor =
-          selectionRoot && selectionRoot !== viewRoot
-            ? slateRuntimeContext?.getMountedViewEditor(selectionRoot)
-            : null
-
-        if (selectionRoot && selectionRoot !== viewRoot && !targetEditor) {
+        inputController.state.activeIntent = decision.intent
+        profileBeforeInputDuration('beforeinput-trace', () =>
+          trace.recordKernelEventTrace({
+            command: decision.command,
+            family: 'beforeinput',
+            intent: decision.intent,
+            ownership: decision.ownership,
+            target: event.target,
+          })
+        )
+        if (
+          profileBeforeInputDuration('beforeinput-native-history', () =>
+            applyModelOwnedNativeHistoryEvent({ editor, event, readOnly })
+          )
+        ) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          if (shouldForceRenderAfterModelOwnedHistory(editor)) {
+            repair.requestEditableRepair({
+              forceRender: true,
+              kind: 'force-render',
+            })
+          }
+          handledDOMBeforeInputRef.current = true
           return
         }
 
-        if (targetEditor && targetEditor !== editor) {
+        if (
+          profileBeforeInputDuration(
+            'beforeinput-complete-duplicate-command',
+            () =>
+              completeDuplicateEditableEditingEpochCommand(
+                editor,
+                decision.command
+              )
+          )
+        ) {
           event.preventDefault()
           event.stopImmediatePropagation()
           handledDOMBeforeInputRef.current = true
+          return
+        }
 
-          const request = profileBeforeInputDuration(
-            'beforeinput-redirect-root',
+        if (decision.internalTarget) {
+          event.stopImmediatePropagation()
+          return
+        }
+        const el = profileBeforeInputDuration('beforeinput-root-node', () =>
+          ReactEditor.assertDOMNode(editor, editor)
+        )
+        if (
+          profileBeforeInputDuration('beforeinput-nested-editable-target', () =>
+            isNestedEditableDOMTarget(el, event.target)
+          )
+        ) {
+          return
+        }
+
+        if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          handledDOMBeforeInputRef.current = true
+          return
+        }
+
+        const root = profileBeforeInputDuration(
+          'beforeinput-root-owner',
+          () => el.getRootNode() as Document | ShadowRoot
+        )
+
+        if (
+          profileBeforeInputDuration('beforeinput-webkit-shadow', () =>
+            handleWebKitShadowDOMBeforeInput({
+              editor,
+              event,
+              processing,
+              root,
+              window,
+            })
+          )
+        ) {
+          return
+        }
+        profileBeforeInputDuration('beforeinput-on-user-input', onUserInput)
+
+        const editableTarget = profileBeforeInputDuration(
+          'beforeinput-has-editable-target',
+          () => ReactEditor.hasEditableTarget(editor, event.target)
+        )
+
+        if (!readOnly && editableTarget) {
+          if (
+            profileBeforeInputDuration('beforeinput-without-selection', () =>
+              shouldIgnoreDOMBeforeInputWithoutSelection({
+                event,
+                nativeRangeCount: getSelection(root)?.rangeCount ?? null,
+              })
+            )
+          ) {
+            return
+          }
+
+          handledDOMBeforeInputRef.current = true
+          const shouldFlushSelectionChange = profileBeforeInputDuration(
+            'beforeinput-should-flush-selection',
             () =>
-              applyModelOwnedBeforeInputOperation({
-                command: decision.command,
-                data,
-                deferredOperations,
-                editor: targetEditor,
-                inputType: type,
-                native: false,
-                selection:
-                  currentSelection ??
-                  targetEditor.read((state) => state.selection.get()),
-                setComposing,
+              shouldFlushSelectionChangeBeforeDOMBeforeInput({
+                inputController,
+                inputType: event.inputType,
               })
           )
 
-          if (request) {
-            focusSlateEditable(targetEditor)
+          if (shouldFlushSelectionChange) {
+            profileBeforeInputDuration('beforeinput-flush-selection', () =>
+              selection.flushSelectionChange()
+            )
           }
 
-          return
-        }
-
-        const domBeforeInputContext: EditableDOMBeforeInputContext = {
-          data,
-          editor,
-          event,
-          inputType: type,
-          intent: decision.intent,
-          native: initialNative,
-          selection: currentSelection,
-        }
-
-        if (
-          isDOMBeforeInputHandled(
-            event,
-            onDOMBeforeInput,
-            domBeforeInputContext
+          let currentSelection = profileBeforeInputDuration(
+            'beforeinput-read-selection',
+            () => readLiveSelection(editor)
           )
-        ) {
-          return
-        }
 
-        if (androidInputManagerRef.current) {
-          return androidInputManagerRef.current.handleDOMBeforeInput(event)
-        }
+          if (
+            !profileBeforeInputDuration('beforeinput-is-editor-view', () =>
+              isSelectionInEditorView(editor, currentSelection)
+            )
+          ) {
+            return
+          }
 
-        if (shouldAbortForCompositionChange) {
-          return
-        }
+          const hasAppInputPolicy = Boolean(
+            onDOMBeforeInput ||
+              onBeforeInput ||
+              onInput ||
+              hasEditorTransformMiddleware(editor, 'insertText')
+          )
 
-        for (const operation of deferredOperations.current) {
-          operation()
-        }
-        deferredOperations.current = []
+          if (hasAppInputPolicy) {
+            flushPendingNativeTextInput?.()
+            currentSelection = profileBeforeInputDuration(
+              'beforeinput-reread-selection-after-native-text-flush',
+              () => readLiveSelection(editor)
+            )
+          }
 
-        let native = beforeInputDecision.native
-        const forceModelOwnedTextInput = shouldForceModelOwnedTextInput({
-          inputController,
-          inputType: type,
-        })
+          const beforeInputDecision = profileBeforeInputDuration(
+            'beforeinput-native-decision',
+            () =>
+              getNativeBeforeInputDecision({
+                allowDirtyDOMText:
+                  deferNativeTextInputRepair &&
+                  inputController.state.selectionSource === 'dom-current',
+                editor,
+                event,
+                hasAppInputPolicy,
+                selection: currentSelection,
+              })
+          )
+          const {
+            data,
+            inputType: type,
+            isCompositionChange,
+            native: initialNative,
+            shouldAbortForCompositionChange,
+          } = beforeInputDecision
+          clearExpiredTextInputRepairEcho(inputController, now())
+          const selectionRoot =
+            getSelectionRoot(currentSelection) ??
+            getNestedEditableDOMSelectionRoot(el)
+          const viewRoot = profileBeforeInputDuration(
+            'beforeinput-read-view-root',
+            () => editor.read((state) => state.view.root())
+          )
+          const targetEditor =
+            selectionRoot && selectionRoot !== viewRoot
+              ? slateRuntimeContext?.getMountedViewEditor(selectionRoot)
+              : null
 
-        const beforeInputSelection = profileBeforeInputDuration(
-          'beforeinput-sync-selection',
-          () =>
-            syncSelectionForBeforeInput({
-              allowDOMSelectionImport: selection.allowDOMSelectionImport(
-                decision.selectionPolicy
-              ),
-              data,
-              editor,
-              editorElement: el,
-              event,
-              forceModelOwnedTextInput,
-              inputType: type,
-              isCompositionChange,
-              native,
-              pendingNativeTextInputRepairPathKey:
-                inputController.state.pendingNativeTextInputRepairPathKey,
-              pendingNativeTextInputRepairOffset:
-                inputController.state.pendingNativeTextInputRepairOffset,
-              preferModelSelectionForInput:
-                isEditableModelSelectionPreferredForInput({
-                  inputController,
+          if (selectionRoot && selectionRoot !== viewRoot && !targetEditor) {
+            return
+          }
+
+          if (targetEditor && targetEditor !== editor) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            handledDOMBeforeInputRef.current = true
+
+            const request = profileBeforeInputDuration(
+              'beforeinput-redirect-root',
+              () =>
+                applyModelOwnedBeforeInputOperation({
+                  command: decision.command,
+                  data,
+                  deferredOperations,
+                  editor: targetEditor,
                   inputType: type,
-                }) || forceModelOwnedTextInput,
-              root,
-              selection: currentSelection,
-            })
-        )
-        native = beforeInputSelection.native
-        currentSelection = beforeInputSelection.selection
-        let didRepairNonNativeDOMTextInput = false
-
-        if (
-          deferNativeTextInputRepair &&
-          !native &&
-          type === 'insertText' &&
-          typeof data === 'string' &&
-          data.length > 0 &&
-          currentSelection &&
-          RangeApi.isCollapsed(currentSelection)
-        ) {
-          flushPendingNativeTextInput?.()
-          currentSelection = readLiveSelection(editor)
-
-          if (currentSelection && RangeApi.isCollapsed(currentSelection)) {
-            const pendingTarget = getDOMInputRepairTarget(
-              editor,
-              el,
-              {
-                data,
-                inputType: type,
-              },
-              {
-                preferRuntimeSelection: true,
-              }
+                  native: false,
+                  selection:
+                    currentSelection ??
+                    targetEditor.read((state) => state.selection.get()),
+                  setComposing,
+                })
             )
 
-            if (
-              pendingTarget?.insert &&
-              PathApi.equals(pendingTarget.path, currentSelection.anchor.path)
-            ) {
-              trace.repairDOMInputWithTrace(
+            if (request) {
+              focusSlateEditable(targetEditor)
+            }
+
+            return
+          }
+
+          const domBeforeInputContext: EditableDOMBeforeInputContext = {
+            data,
+            editor,
+            event,
+            inputType: type,
+            intent: decision.intent,
+            native: initialNative,
+            selection: currentSelection,
+          }
+
+          if (
+            profileBeforeInputDuration('beforeinput-dom-handler', () =>
+              isDOMBeforeInputHandled(
+                event,
+                onDOMBeforeInput,
+                domBeforeInputContext
+              )
+            )
+          ) {
+            return
+          }
+
+          if (androidInputManagerRef.current) {
+            return androidInputManagerRef.current.handleDOMBeforeInput(event)
+          }
+
+          if (shouldAbortForCompositionChange) {
+            return
+          }
+
+          profileBeforeInputDuration(
+            'beforeinput-run-deferred-operations',
+            () => {
+              for (const operation of deferredOperations.current) {
+                operation()
+              }
+              deferredOperations.current = []
+            }
+          )
+
+          let native = beforeInputDecision.native
+          const forceModelOwnedTextInput = profileBeforeInputDuration(
+            'beforeinput-force-model-owned-text-input',
+            () =>
+              shouldForceModelOwnedTextInput({
+                inputController,
+                inputType: type,
+              })
+          )
+
+          const beforeInputSelection = profileBeforeInputDuration(
+            'beforeinput-sync-selection',
+            () => {
+              const selectionPolicyAllowsDOMImport =
+                selection.allowDOMSelectionImport(decision.selectionPolicy)
+
+              return syncSelectionForBeforeInput({
+                allowDOMSelectionImport: shouldAllowBeforeInputSelectionImport({
+                  event,
+                  selectionPolicyAllowsDOMImport,
+                }),
+                data,
+                editor,
+                editorElement: el,
+                event,
+                forceModelOwnedTextInput,
+                inputType: type,
+                isCompositionChange,
+                native,
+                pendingNativeTextInputRepairPathKey:
+                  inputController.state.pendingNativeTextInputRepairPathKey,
+                pendingNativeTextInputRepairOffset:
+                  inputController.state.pendingNativeTextInputRepairOffset,
+                preferModelSelectionForInput:
+                  isEditableModelSelectionPreferredForInput({
+                    inputController,
+                    inputType: type,
+                  }) || forceModelOwnedTextInput,
+                root,
+                selectionChangeOrigin:
+                  inputController.state.selectionChangeOrigin,
+                selection: currentSelection,
+              })
+            }
+          )
+          native = beforeInputSelection.native
+          currentSelection = beforeInputSelection.selection
+          let didRepairNonNativeDOMTextInput = false
+
+          if (
+            deferNativeTextInputRepair &&
+            !native &&
+            type === 'insertText' &&
+            typeof data === 'string' &&
+            data.length > 0 &&
+            currentSelection &&
+            RangeApi.isCollapsed(currentSelection)
+          ) {
+            flushPendingNativeTextInput?.()
+            currentSelection = readLiveSelection(editor)
+
+            if (currentSelection && RangeApi.isCollapsed(currentSelection)) {
+              const pendingTarget = getDOMInputRepairTarget(
+                editor,
+                el,
                 {
                   data,
                   inputType: type,
-                  target: pendingTarget,
                 },
-                el
+                {
+                  preferRuntimeSelection: true,
+                }
               )
-              didRepairNonNativeDOMTextInput = true
-              currentSelection = readLiveSelection(editor)
+
+              if (
+                pendingTarget?.insert &&
+                PathApi.equals(pendingTarget.path, currentSelection.anchor.path)
+              ) {
+                trace.repairDOMInputWithTrace(
+                  {
+                    data,
+                    inputType: type,
+                    target: pendingTarget,
+                  },
+                  el
+                )
+                setEditableModelSelectionPreference({
+                  inputController,
+                  preferModelSelection: true,
+                  reason: 'model-command',
+                  selectionSource: 'model-owned',
+                })
+                armModelOwnedTextInputGuard({ inputController })
+                didRepairNonNativeDOMTextInput = true
+                currentSelection = readLiveSelection(editor)
+              }
             }
           }
-        }
 
-        inputController.state.pendingNativeTextInputRepairPathKey =
-          getDeferredNativeTextInputRepairPathKey({
-            data,
-            deferNativeTextInputRepair,
-            inputType: type,
-            native,
-            selection: currentSelection,
-          })
-        inputController.state.pendingNativeTextInputRepairOffset = null
-
-        if (isCompositionChange) {
-          return
-        }
-
-        if (
-          profileBeforeInputDuration('beforeinput-input-rules', () =>
-            applyInputRules({
-              data,
-              event,
-              inputType: type,
-              selection: currentSelection,
-            })
+          profileBeforeInputDuration(
+            'beforeinput-set-pending-repair-path',
+            () => {
+              inputController.state.pendingNativeTextInputRepairPathKey =
+                getDeferredNativeTextInputRepairPathKey({
+                  data,
+                  deferNativeTextInputRepair,
+                  inputType: type,
+                  native,
+                  selection: currentSelection,
+                })
+              inputController.state.pendingNativeTextInputRepairOffset = null
+            }
           )
-        ) {
-          return
-        }
 
-        if (!native) {
-          event.preventDefault()
-        }
+          if (isCompositionChange) {
+            return
+          }
 
-        if (
-          deferNativeTextInputRepair &&
-          native &&
-          type === 'insertText' &&
-          typeof data === 'string' &&
-          data.length > 0
-        ) {
-          queuePendingNativeTextInput?.({
-            data,
-            inputType: type,
-            rootElement: el,
-            selection: currentSelection,
-          })
-        }
-
-        const request = didRepairNonNativeDOMTextInput
-          ? null
-          : profileBeforeInputDuration('beforeinput-apply-model', () =>
-              applyModelOwnedBeforeInputOperation({
-                command: decision.command,
+          if (
+            profileBeforeInputDuration('beforeinput-input-rules', () =>
+              applyInputRules({
                 data,
-                deferredOperations,
-                editor,
+                event,
                 inputType: type,
-                native,
                 selection: currentSelection,
-                setComposing,
               })
             )
-        if (request) {
-          const shouldDeferNativeTextRepair =
+          ) {
+            return
+          }
+
+          if (!native) {
+            profileBeforeInputDuration('beforeinput-prevent-default', () =>
+              event.preventDefault()
+            )
+          }
+
+          const queuedPendingNativeTextRepair =
             deferNativeTextInputRepair &&
             native &&
             type === 'insertText' &&
             typeof data === 'string' &&
-            data.length > 0 &&
-            request.kind === 'repair-caret-after-text-insert'
+            data.length > 0
+              ? profileBeforeInputDuration(
+                  'beforeinput-queue-native-text-repair',
+                  () =>
+                    queuePendingNativeTextInput?.({
+                      data,
+                      inputType: type,
+                      rootElement: el,
+                      selection: currentSelection,
+                    }) ?? false
+                )
+              : false
 
-          if (!shouldDeferNativeTextRepair) {
-            profileBeforeInputDuration('beforeinput-request-repair', () =>
-              repair.requestEditableRepair(request)
+          const request = didRepairNonNativeDOMTextInput
+            ? null
+            : profileBeforeInputDuration('beforeinput-apply-model', () =>
+                applyModelOwnedBeforeInputOperation({
+                  command: decision.command,
+                  data,
+                  deferredOperations,
+                  editor,
+                  inputType: type,
+                  native,
+                  selection: currentSelection,
+                  setComposing,
+                })
+              )
+          if (request) {
+            const shouldDeferNativeTextRepair =
+              deferNativeTextInputRepair &&
+              native &&
+              type === 'insertText' &&
+              typeof data === 'string' &&
+              data.length > 0 &&
+              queuedPendingNativeTextRepair &&
+              request.kind === 'repair-caret-after-text-insert'
+
+            if (!shouldDeferNativeTextRepair) {
+              profileBeforeInputDuration('beforeinput-request-repair', () =>
+                repair.requestEditableRepair(request)
+              )
+            }
+          }
+
+          if (!decision.command) {
+            profileBeforeInputDuration(
+              'beforeinput-restore-user-selection',
+              () => restoreUserSelectionAfterBeforeInput({ editor })
             )
           }
         }
-
-        if (!decision.command) {
-          restoreUserSelectionAfterBeforeInput({ editor })
-        }
-      }
-    },
+      }),
     [
       androidInputManagerRef,
       applyInputRules,

@@ -11,6 +11,7 @@ import {
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { SlateSourceDirtiness } from '../projection-store'
 
+/** Hook options for computed decoration sources. */
 export type UseSlateDecorationSourceOptions<T = unknown> =
   SlateDecorationSourceOptions<T> & {
     /**
@@ -19,6 +20,7 @@ export type UseSlateDecorationSourceOptions<T = unknown> =
     deps?: readonly unknown[]
   }
 
+/** Hook options for range-backed decoration sources. */
 export type UseSlateRangeDecorationSourceOptions<T = unknown> =
   SlateRangeDecorationSourceOptions<T> & {
     /**
@@ -46,6 +48,11 @@ const useStableDirtiness = (dirtiness: SlateSourceDirtiness | undefined) => {
 const isReactEditorFocused = (editor: SlateEditor) =>
   ReactEditor.isFocused(editor as unknown as ReactRuntimeEditor)
 
+/**
+ * Creates and owns a decoration source for computed editor decorations.
+ *
+ * Pass `deps` when the source options close over changing values.
+ */
 export const useSlateDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: UseSlateDecorationSourceOptions<T>
@@ -92,6 +99,10 @@ export const useSlateDecorationSource = <T = unknown>(
   return source
 }
 
+/**
+ * Creates and owns a decoration source from Slate ranges, converting them into
+ * keyed decorations for the projection store.
+ */
 export const useSlateRangeDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: UseSlateRangeDecorationSourceOptions<T>

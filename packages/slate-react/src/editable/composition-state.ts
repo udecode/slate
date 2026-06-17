@@ -1,8 +1,6 @@
 import { type CompositionEvent, type RefObject, useEffect } from 'react'
 import { type EditorMarks, NodeApi, RangeApi, type Text, TextApi } from 'slate'
 import {
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_USER_MARKS,
   IS_ANDROID,
   IS_IOS,
   IS_UC_MOBILE,
@@ -10,6 +8,10 @@ import {
   IS_WECHATBROWSER,
   isDOMNode,
 } from 'slate-dom'
+import {
+  EDITOR_TO_PENDING_INSERTION_MARKS,
+  EDITOR_TO_USER_MARKS,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'
@@ -18,7 +20,10 @@ import type { EditableInputController } from './input-state'
 import type { Editor } from './runtime-editor-api'
 import { readRuntimeText } from './runtime-live-state'
 import { writeRuntimeMarks } from './runtime-mutation-state'
-import { setEditableModelSelectionPreference } from './selection-controller'
+import {
+  armModelOwnedTextInputGuard,
+  setEditableModelSelectionPreference,
+} from './selection-controller'
 
 type EditableCompositionHandler = (
   event: CompositionEvent<HTMLDivElement>
@@ -132,7 +137,6 @@ export const commitChromeCompositionEndFallback = ({
   }
 
   const target = editor.read((state) => state.selection.get())
-
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
     EDITOR_TO_USER_MARKS.set(
@@ -325,6 +329,7 @@ export const applyEditableCompositionEnd = ({
         reason: 'composition',
         selectionSource: 'model-owned',
       })
+      armModelOwnedTextInputGuard({ inputController })
       inputController.state.selectionChangeOrigin = 'programmatic-export'
     }
   }

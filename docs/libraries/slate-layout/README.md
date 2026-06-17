@@ -4,7 +4,7 @@
 from a Slate editor. Use it for pagination experiments, print-like surfaces,
 and page virtualization that still keeps Slate as the document model.
 
-The package is experimental. Keep product releases behind explicit flags until
+The package is experimental. Keep production use behind explicit flags until
 your browser, export, table, image, and collaboration requirements are proven.
 
 ## Page Layout
@@ -60,6 +60,14 @@ stay on the editor surface.
 Use `createSlatePageLayout` or `useSlatePageLayout` only when you provide an
 explicit `engine`, such as a custom measurement engine or
 `pretextPageLayoutEngine()`.
+
+## Headless And Static Use
+
+`createSlateLayout` can run outside React and can fall back to an estimated
+engine when browser canvas measurement is unavailable. Use that for previews,
+tests, and export planning. Treat static output as derived geometry, not as an
+authoritative PDF, print, or collaboration layout source unless your product
+provides the measurement engine and proof for that target.
 
 ## Provider-Owned Boxes
 

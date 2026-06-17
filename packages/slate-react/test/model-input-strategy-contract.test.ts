@@ -776,6 +776,48 @@ describe('model input strategy', () => {
     })
   })
 
+  it.each([
+    'deleteByCut',
+    'deleteByDrag',
+  ] as const)('deletes the selected fragment from %s beforeinput', (inputType) => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'abcd' }] }],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    const repair = applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType,
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [])).toBe('ad')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+    expect(repair).toEqual({
+      focus: true,
+      forceRender: true,
+      kind: 'repair-caret',
+      selectionSourceTransition: {
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      },
+    })
+  })
+
   it('deletes the current hard line backward without touching the previous block', () => {
     const editor = createTwoBlockTextEditor('foobar', 'baz')
     const selection = Editor.getSelection(editor)

@@ -41,7 +41,7 @@ mount tens of thousands of nodes.
   `bun run test:vitest -- test/dom-strategy-and-scroll.test.tsx -t "auto keeps large documents DOM-bounded|staged DOM-present surfaces"`
   passed `2` tests.
 - Focused browser gate:
-  `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bun run playwright -- playwright/integration/examples/huge-document.test.ts --project=chromium --grep "auto DOM strategy bounded|virtualized middle-block fast typing|downward drag selection autoscroll|blank-gap drag selection"`
+  `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bun run playwright playwright/integration/examples/huge-document.test.ts --project=chromium --grep "auto DOM strategy bounded|virtualized middle-block fast typing|downward drag selection autoscroll|blank-gap drag selection"`
   passed `4` tests.
 - 5k/20-char browser trace:
   - `auto`: bounded `3/3`, timed out `0`, observed blocks p95 `50`, DOM nodes

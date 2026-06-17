@@ -301,10 +301,8 @@ describe('slate bookmark contract', () => {
   it('preserves an explicit bookmark root through replace_children', () => {
     const editor = createEditor({
       initialValue: {
-        roots: {
-          header: [paragraph('head')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('head')] },
       },
     })
     const bookmark = Editor.bookmark(editor, {
@@ -339,10 +337,8 @@ describe('slate bookmark contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('Xhead!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('Xhead!')] },
       }
     )
   })

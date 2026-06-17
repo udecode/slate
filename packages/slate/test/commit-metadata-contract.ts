@@ -5,6 +5,7 @@ import { Editor } from 'slate/internal'
 import {
   createEditor,
   type Descendant,
+  defineStateField,
   type EditorUpdateOptions,
   type EditorUpdateTag,
 } from '../src'
@@ -139,6 +140,76 @@ describe('commit metadata contract', () => {
     assert.equal(Object.isFrozen(commit.metadata.collab), true)
     assert.equal(Object.isFrozen(commit.metadata.history), true)
     assert.equal(Object.isFrozen(commit.metadata.selection), true)
+  })
+
+  it('keeps local provenance state available without serializing it', () => {
+    const localProvenance = defineStateField<{
+      runtimeIds: string[]
+      source: string
+    } | null>({
+      key: 'local.provenance.last-change',
+      history: 'skip',
+      initial: () => null,
+      persist: false,
+    })
+    const editor = createEditor({
+      extensions: [localProvenance],
+      initialValue: [paragraph('one')],
+    })
+
+    Editor.replace(editor, {
+      children: [paragraph('one')],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    const blockRuntimeId = Editor.getRuntimeId(editor, [0])
+
+    assert(blockRuntimeId)
+
+    editor.update(
+      (tx) => {
+        tx.setField(localProvenance, {
+          runtimeIds: [blockRuntimeId],
+          source: 'paste-html',
+        })
+        tx.text.insert('!')
+      },
+      {
+        metadata: {
+          origin: { kind: 'clipboard', source: 'paste-html' },
+        },
+        tag: ['paste', 'provenance-local'],
+      }
+    )
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert(commit)
+    assert.deepEqual(commit.tags, ['paste', 'provenance-local'])
+    assert.deepEqual(commit.metadata.origin, {
+      kind: 'clipboard',
+      source: 'paste-html',
+    })
+    assert.deepEqual(
+      editor.read((state) => state.getField(localProvenance)),
+      {
+        runtimeIds: [blockRuntimeId],
+        source: 'paste-html',
+      }
+    )
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      { children: [paragraph('one!')] }
+    )
+    assert.equal(
+      JSON.stringify(editor.read((state) => state.value.get())).includes(
+        blockRuntimeId
+      ),
+      false
+    )
   })
 
   it('groups multiple primitive writes inside one update into one commit', () => {

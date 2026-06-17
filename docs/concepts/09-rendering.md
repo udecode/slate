@@ -1,15 +1,15 @@
 # Rendering
 
-One of the best parts of Slate is that it's built with React, so it fits right into your existing application. It doesn't re-invent its own view layer that you have to learn. It tries to keep everything as React-y as possible.
-
-To that end, Slate gives you control over the rendering behavior of your custom nodes and properties in your richtext domain.
+Slate React renders your document with normal React components. You provide the
+components for your product-specific elements, text nodes, leaves, toolbars,
+menus, and overlays.
 
 Pass stable render props to `Editable`. Define them at module scope, or create
 them once with the editor, so React does not receive a fresh renderer on every
 render.
 
-```jsx
-import { Slate, Editable, createReactEditor } from 'slate-react'
+```tsx
+import { Slate, Editable, useSlateEditor } from 'slate-react'
 
 const ParagraphElement = ({ attributes, children }) => {
   return <p {...attributes}>{children}</p>
@@ -39,9 +39,7 @@ const renderElement = props => {
 }
 
 const MyEditor = () => {
-  const [editor] = useState(() => {
-    return createReactEditor({ initialValue })
-  })
+  const editor = useSlateEditor({ initialValue })
 
   return (
     <Slate editor={editor}>
@@ -51,7 +49,10 @@ const MyEditor = () => {
 }
 ```
 
-> 🤖 Be sure to mix in `props.attributes` and render `props.children` in your custom components! The attributes must be added to the top-level DOM element inside the component, as they are required for Slate's DOM helper functions to work. And the children are the "leaves" holding text content and inline elements.
+Always spread `props.attributes` on the top-level DOM element returned by the
+custom renderer, and always render `props.children`. The attributes connect the
+DOM node to Slate's DOM helpers. The children render text leaves, inline
+elements, void anchors, and nested editable content.
 
 ## Leaves
 
@@ -59,7 +60,7 @@ When text-level formatting is rendered, the characters are grouped into "leaves"
 
 To customize leaf rendering, pass `renderLeaf`:
 
-```jsx
+```tsx
 const renderLeaf = ({ attributes, children, leaf }) => {
   if (leaf.bold) {
     children = <strong>{children}</strong>
@@ -90,7 +91,7 @@ Because the elements in the above example do not properly close themselves they 
 
 If you happened to add another overlapping section of `<strike>` to that text, you might have to rearrange the closing tags yet again. Rendering leaves in Slate is similar—you can't guarantee that even though a word has one type of formatting applied to it that that leaf will be contiguous, because it depends on how it overlaps with other formatting.
 
-Of course, this leaf stuff sounds pretty complex. But, you do not have to think about it much, as long as you use text-level formatting and element-level formatting for their intended purposes:
+Use text-level formatting and element-level formatting for different jobs:
 
 - Text properties are for **non-contiguous**, character-level formatting.
 - Element properties are for **contiguous**, semantic elements in the document.
@@ -102,7 +103,7 @@ While `renderLeaf` allows you to customize the rendering of individual leaves ba
 This is where `renderText` comes in. It lets you render a component that wraps
 all the leaves generated for a single `Text` node.
 
-```jsx
+```tsx
 const TextNode = ({ attributes, children, text }) => {
   return (
     <span {...attributes} className="custom-text">
@@ -139,9 +140,10 @@ Use editor-level hooks for shell UI such as toolbars. Keep broad editor subscrip
 
 A common use case for this is rendering a toolbar with formatting buttons that are highlighted based on the current selection:
 
-```jsx
+```tsx
 const MyEditor = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
+
   return (
     <Slate editor={editor}>
       <Toolbar />
@@ -170,9 +172,10 @@ Because the toolbar draws editor-level state, `useEditorState` is the right leve
 
 Custom styles can be applied to the editor itself by using the `style` prop on the `<Editable>` component.
 
-```jsx
+```tsx
 const MyEditor = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const editor = useSlateEditor({ initialValue })
+
   return (
     <Slate editor={editor}>
       <Editable style={{ minHeight: '200px', backgroundColor: 'lime' }} />

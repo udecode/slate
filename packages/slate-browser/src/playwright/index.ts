@@ -7,44 +7,146 @@ import {
   type Frame,
   type Locator,
   type Page,
+  type TestInfo,
 } from '@playwright/test'
 
 import type { PlaceholderShape } from '../browser/zero-width'
 
 export {
-  createSlateBrowserPluginContractRegistry,
-  defineSlateBrowserPluginContract,
-  type SlateBrowserPluginContractDefinition,
-  type SlateBrowserPluginContractRegistry,
-  type SlateBrowserPluginContractRow,
-} from '../core/plugin-contracts'
+  createSlateBrowserFeatureContractRegistry,
+  defineSlateBrowserFeatureContract,
+  type SlateBrowserFeatureContractDefinition,
+  type SlateBrowserFeatureContractRegistry,
+  type SlateBrowserFeatureContractRow,
+} from '../core/feature-contracts'
 
 import {
+  commitSyntheticCompositionText,
   composeText,
   composeTextDirect,
   enableCompositionKeyEvents,
+  startSyntheticComposition,
+  updateSyntheticComposition,
 } from './ime'
 
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 const READY_TIMEOUT_MS = 20_000
+const EXAMPLE_FONT_ROUTES = new WeakSet<Page>()
 const DEFAULT_RUNTIME_ERROR_PATTERNS = [
   'Unable to find the path for Slate node',
   'Cannot resolve a Slate node',
   'Cannot resolve a DOM point',
   'Cannot resolve a DOM range',
 ]
+const JPEG_SCREENSHOT_EXTENSION_RE = /\.(?:jpe?g)$/i
+const NATIVE_EVENT_TRACE_KEY = '__SLATE_BROWSER_NATIVE_EVENT_TRACE__'
 
+/** Screenshot attachment options for Slate browser proof artifacts. */
+/** Screenshot options accepted by Slate browser screenshot helpers. */
+export type SlateBrowserPageScreenshotOptions = Omit<
+  NonNullable<Parameters<Page['screenshot']>[0]>,
+  'path'
+>
+
+const getScreenshotContentType = (
+  name: string,
+  options: SlateBrowserPageScreenshotOptions
+) => {
+  const type =
+    options.type ?? (JPEG_SCREENSHOT_EXTENSION_RE.test(name) ? 'jpeg' : 'png')
+
+  return type === 'jpeg' ? 'image/jpeg' : 'image/png'
+}
+
+/**
+ * Capture a Playwright page screenshot into the current test output directory
+ * and attach it to the test report.
+ */
+export const attachPageScreenshot = async (
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  options: SlateBrowserPageScreenshotOptions = {}
+) => {
+  const path = testInfo.outputPath(name)
+  const contentType = getScreenshotContentType(name, options)
+
+  await page.screenshot({ ...options, path })
+  await testInfo.attach(name, { contentType, path })
+
+  return path
+}
+
+/**
+ * Write a JSON proof artifact into the current test output directory and attach
+ * that file to the test report.
+ */
+export const attachSlateBrowserJsonArtifact = async (
+  testInfo: TestInfo,
+  name: string,
+  value: unknown
+) => {
+  const fileName = name.endsWith('.json') ? name : `${name}.json`
+  const path = testInfo.outputPath(fileName)
+
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+  await testInfo.attach(name, { contentType: 'application/json', path })
+
+  return path
+}
+
+/**
+ * Attach a focused editor selection screenshot to the current test report.
+ */
+export const attachSlateBrowserSelectionScreenshot = async (
+  editor: SlateBrowserEditorHarness,
+  testInfo: TestInfo,
+  name: string,
+  options: SlateBrowserPageScreenshotOptions = {}
+) =>
+  attachPageScreenshot(editor.page, testInfo, name, {
+    fullPage: false,
+    ...options,
+  })
+
+/** Runtime error recorder returned by `recordSlateBrowserRuntimeErrors`. */
+/** Recorder returned by runtime-error capture helpers. */
 export type SlateBrowserRuntimeErrorRecorder = {
   assertNone: () => void
   errors: string[]
   stop: () => void
 }
 
+/** Slate model selection snapshot captured from an editor surface. */
+/** Model selection snapshot captured from the editor runtime. */
 export type SelectionSnapshot = {
   anchor: { path: number[]; offset: number }
   focus: { path: number[]; offset: number }
 }
 
+/** Owner metadata for a raw view-selection snapshot. */
+export type SlateBrowserRawViewSelectionOwner = {
+  childRoot: string
+  ownerPath: number[]
+  ownerRoot: string
+}
+
+/** Point in a raw view-selection snapshot. */
+export type SlateBrowserRawViewSelectionPoint = {
+  owner?: SlateBrowserRawViewSelectionOwner
+  point: { path: number[]; offset: number; root?: string }
+}
+
+/** Raw view-selection snapshot captured from Slate view state. */
+export type SlateBrowserRawViewSelectionSnapshot = {
+  anchor: SlateBrowserRawViewSelectionPoint
+  focus: SlateBrowserRawViewSelectionPoint
+  segments: { backward: boolean; [key: string]: unknown }
+}
+
+/** Browser DOM selection snapshot captured from the page. */
+/** Browser-native DOM selection snapshot. */
 export type DOMSelectionSnapshot = {
   anchorNodeText: string | null
   anchorOffset: number
@@ -52,6 +154,7 @@ export type DOMSelectionSnapshot = {
   focusOffset: number
 }
 
+/** DOM selection endpoints with resolved node-location metadata. */
 export type DOMSelectionLocationSnapshot = {
   anchorOffset: number | null
   anchorPath: number[] | null
@@ -59,6 +162,42 @@ export type DOMSelectionLocationSnapshot = {
   isCollapsed: boolean | null
 }
 
+/** Combined model and native-selection summary for one root. */
+/** Combined model and native selection summary for proof assertions. */
+export type SlateBrowserNativeSelectionSummary = {
+  collapsed: boolean | null
+  rangeCount: number
+  selection: SelectionSnapshot | null
+  textLength: number
+}
+
+/** Slate view-selection snapshot used by browser proof helpers. */
+export type SlateBrowserViewSelectionSnapshot = {
+  active: boolean
+  anchor: SelectionPoint | null
+  focus: SelectionPoint | null
+  markerCount: number
+  markerPaths: Array<string | null>
+  markerRects: SelectionRectSnapshot[]
+  selection: SelectionSnapshot | null
+  textLength: number
+}
+
+/** Visible selection overlay snapshot for one root. */
+/** Displayed selection snapshot for one root in the rendered document. */
+export type SlateBrowserDisplayedSelectionSnapshot = {
+  displayed: SelectionSnapshot | null
+  doubleHighlighted: boolean
+  hasVisibleEditorSelection: boolean
+  hasVisibleSelection: boolean
+  model: SelectionSnapshot | null
+  native: SlateBrowserNativeSelectionSummary
+  source: 'native' | 'none' | 'view'
+  view: SlateBrowserViewSelectionSnapshot
+}
+
+/** Clipboard payload captured during a browser proof step. */
+/** Clipboard payload snapshot captured during paste/copy proof. */
 export type ClipboardPayloadSnapshot = {
   html: string | null
   slateFragment?: string | null
@@ -66,6 +205,8 @@ export type ClipboardPayloadSnapshot = {
   types: string[]
 }
 
+/** Geometry snapshot for a rendered selection or caret rect. */
+/** Client-rect bounds for a visible selection segment. */
 export type SelectionRectSnapshot = {
   x: number
   y: number
@@ -73,6 +214,116 @@ export type SelectionRectSnapshot = {
   height: number
 }
 
+/** Native event categories recorded by the browser trace helper. */
+export type SlateBrowserNativeEventTraceType =
+  | 'beforeinput'
+  | 'compositionend'
+  | 'compositionstart'
+  | 'compositionupdate'
+  | 'input'
+  | 'selectionchange'
+
+/** DOM node summary captured in a native event trace. */
+export type SlateBrowserNativeEventTraceNodeSnapshot = {
+  nodeName: string | null
+  parentNodeName: string | null
+  parentPath: string | null
+  parentSignature: string | null
+  path: string | null
+  text: string | null
+}
+
+/** Selection summary captured during a native event trace. */
+export type SlateBrowserNativeEventTraceSelectionSnapshot = {
+  anchor: SlateBrowserNativeEventTraceNodeSnapshot | null
+  anchorOffset: number | null
+  collapsed: boolean | null
+  focus: SlateBrowserNativeEventTraceNodeSnapshot | null
+  focusOffset: number | null
+  rangeCount: number
+  selectedText: string
+}
+
+/** Rectangle captured from native event target ranges. */
+export type SlateBrowserNativeEventTraceRect = {
+  height: number
+  width: number
+  x: number
+  y: number
+}
+
+/** Target-range snapshot captured from a native input event. */
+export type SlateBrowserNativeEventTraceTargetRangeSnapshot = {
+  collapsed: boolean
+  end: SlateBrowserNativeEventTraceNodeSnapshot
+  endOffset: number
+  rects: SlateBrowserNativeEventTraceRect[]
+  start: SlateBrowserNativeEventTraceNodeSnapshot
+  startOffset: number
+}
+
+/** Text-node snapshot captured before or after a native event. */
+export type SlateBrowserNativeEventTraceTextNodeSnapshot = {
+  id: string
+  parentPath: string | null
+  parentSignature: string
+  text: string
+}
+
+/** Text-node before/after delta captured by native event tracing. */
+export type SlateBrowserNativeEventTraceTextNodeDelta = {
+  after: SlateBrowserNativeEventTraceTextNodeSnapshot | null
+  before: SlateBrowserNativeEventTraceTextNodeSnapshot | null
+  type: 'added' | 'deleted' | 'modified' | 'moved'
+}
+
+/** DOM delta captured around one native event. */
+export type SlateBrowserNativeEventTraceDOMDelta = {
+  textNodes: SlateBrowserNativeEventTraceTextNodeDelta[]
+}
+
+/** Suspicious native-event trace finding. */
+export type SlateBrowserNativeEventTraceAnomaly = {
+  detail: string
+  type:
+    | 'composition-mismatch'
+    | 'data-content-mismatch'
+    | 'inputtype-mismatch'
+    | 'missing-beforeinput'
+    | 'node-type-change'
+    | 'parent-mismatch'
+    | 'selection-jump'
+    | 'sibling-created'
+}
+
+/** One recorded native browser event with selection and DOM evidence. */
+export type SlateBrowserNativeEventTraceEntry = {
+  data: string | null
+  domDelta: SlateBrowserNativeEventTraceDOMDelta | null
+  inputType: string | null
+  isComposing: boolean | null
+  selection: SlateBrowserNativeEventTraceSelectionSnapshot
+  targetRanges: SlateBrowserNativeEventTraceTargetRangeSnapshot[]
+  timestamp: number
+  type: SlateBrowserNativeEventTraceType
+}
+
+/** Complete native event trace collected from a Slate browser root. */
+/** Complete native event trace snapshot. */
+export type SlateBrowserNativeEventTraceSnapshot = {
+  anomalies: SlateBrowserNativeEventTraceAnomaly[]
+  entries: SlateBrowserNativeEventTraceEntry[]
+}
+
+/** Options controlling which native events are traced. */
+/** Options for installing a native event trace recorder in the page. */
+export type SlateBrowserNativeEventTraceOptions = {
+  events?: readonly SlateBrowserNativeEventTraceType[]
+  maxEntries?: number
+}
+
+/** Snapshot of the element that owns browser focus. */
+/** Focus ownership snapshot for editor and native controls. */
 export type FocusOwnerSnapshot = {
   isContentEditable: boolean
   kind: 'contenteditable' | 'editor' | 'internal-control' | 'none' | 'outside'
@@ -81,6 +332,7 @@ export type FocusOwnerSnapshot = {
   testId: string | null
 }
 
+/** Rendered zero-width node shape captured from the DOM. */
 export type SlateBrowserZeroWidthNodeShape = {
   hasBr: boolean
   hasFEFF: boolean
@@ -91,6 +343,7 @@ export type SlateBrowserZeroWidthNodeShape = {
   textContent: string
 }
 
+/** Rendered block DOM shape used by structure assertions. */
 export type RenderedBlockDOMShapeSnapshot = {
   index: number
   innerText: string
@@ -100,6 +353,8 @@ export type RenderedBlockDOMShapeSnapshot = {
   zeroWidthNodes: SlateBrowserZeroWidthNodeShape[]
 }
 
+/** Expected rendered DOM shape for browser proof assertions. */
+/** Expected rendered DOM shape for proof assertions. */
 export type RenderedDOMShapeExpectation = {
   blockIndex?: number
   domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
@@ -116,6 +371,7 @@ export type RenderedDOMShapeExpectation = {
   zeroWidthCount?: number
 }
 
+/** Render-profiler event categories emitted by Slate React. */
 export type SlateReactRenderKind =
   | 'core-time'
   | 'dom-text-sync'
@@ -129,12 +385,15 @@ export type SlateReactRenderKind =
   | 'text'
   | 'void'
 
+/** One Slate React render-profiler event. */
 export type SlateReactRenderProfilerEvent = {
   kind: SlateReactRenderKind
   id?: string | null
   runtimeId?: string | null
 }
 
+/** Collected Slate React render profiler events and counters. */
+/** Snapshot returned by the Slate React render profiler. */
 export type SlateReactRenderProfilerSnapshot = {
   byKey: Record<string, number>
   byKind: Partial<Record<SlateReactRenderKind, number>>
@@ -186,11 +445,13 @@ const installSlateReactRenderProfilerScript = () => {
   target.__SLATE_REACT_RENDER_PROFILER_SNAPSHOT__ = snapshot
 }
 
+/** Install the Slate React render profiler bridge in a Playwright page. */
 export const installSlateReactRenderProfiler = async (page: Page) => {
   await page.addInitScript(installSlateReactRenderProfilerScript)
   await page.evaluate(installSlateReactRenderProfilerScript).catch(() => {})
 }
 
+/** Reset collected Slate React render profiler events in the page. */
 export const resetSlateReactRenderProfiler = async (page: Page) => {
   await page.evaluate(() => {
     const target = window as Window & {
@@ -201,6 +462,7 @@ export const resetSlateReactRenderProfiler = async (page: Page) => {
   })
 }
 
+/** Read the current Slate React render profiler snapshot from the page. */
 export const getSlateReactRenderProfilerSnapshot = async (
   page: Page
 ): Promise<SlateReactRenderProfilerSnapshot> =>
@@ -219,6 +481,7 @@ export const getSlateReactRenderProfilerSnapshot = async (
     )
   })
 
+/** High-level kernel trace event family. */
 export type SlateBrowserKernelEventFamily =
   | 'beforeinput'
   | 'blur'
@@ -240,6 +503,7 @@ export type SlateBrowserKernelEventFamily =
   | 'repair'
   | 'selectionchange'
 
+/** Kernel state label captured in trace entries. */
 export type SlateBrowserKernelState =
   | 'app-owned'
   | 'clipboard'
@@ -252,6 +516,7 @@ export type SlateBrowserKernelState =
   | 'repairing'
   | 'shell-backed'
 
+/** Owner classification for the current browser editing target. */
 export type SlateBrowserKernelTargetOwner =
   | 'app-owned'
   | 'editor'
@@ -260,6 +525,7 @@ export type SlateBrowserKernelTargetOwner =
   | 'shell'
   | 'unknown'
 
+/** Model/native ownership classification for a kernel event. */
 export type SlateBrowserKernelOwnership =
   | 'app-owned'
   | 'deferred'
@@ -268,6 +534,7 @@ export type SlateBrowserKernelOwnership =
   | 'native-denied'
   | 'no-op'
 
+/** Source that produced the selection observed by the kernel trace. */
 export type SlateBrowserKernelSelectionSource =
   | 'app-owned'
   | 'composition-owned'
@@ -277,6 +544,7 @@ export type SlateBrowserKernelSelectionSource =
   | 'shell-backed'
   | 'unknown'
 
+/** Origin of a selection change captured by the kernel trace. */
 export type SlateBrowserKernelSelectionChangeOrigin =
   | 'browser-handle'
   | 'native-user'
@@ -284,6 +552,7 @@ export type SlateBrowserKernelSelectionChangeOrigin =
   | 'repair-induced'
   | 'unknown'
 
+/** Editing command observed by the browser kernel trace. */
 export type SlateBrowserKernelCommand =
   | {
       direction: 'backward' | 'forward'
@@ -307,6 +576,7 @@ export type SlateBrowserKernelCommand =
   | { blockType: string; kind: 'set-block'; wrap?: string }
   | { kind: 'toggle-mark'; mark: string }
 
+/** Ownership trace for keyboard or pointer movement through the editor. */
 export type SlateBrowserKernelMovementOwnershipTrace = {
   axis: 'horizontal' | 'line' | 'unknown' | 'vertical' | 'word'
   extend: boolean
@@ -324,6 +594,7 @@ export type SlateBrowserKernelMovementOwnershipTrace = {
   reverse: boolean | null
 }
 
+/** Selection policy attached to a kernel transition. */
 export type SlateBrowserKernelSelectionPolicy = {
   kind:
     | 'clear'
@@ -342,6 +613,7 @@ export type SlateBrowserKernelSelectionPolicy = {
     | 'unknown-selection'
 }
 
+/** Repair policy attached to a kernel transition. */
 export type SlateBrowserKernelRepairPolicy = {
   kind:
     | 'force-render'
@@ -358,21 +630,25 @@ export type SlateBrowserKernelRepairPolicy = {
     | 'sync-selection'
 }
 
+/** State transition recorded by the browser kernel trace. */
 export type SlateBrowserKernelTransition = {
   allowed: boolean
   reason: string | null
 }
 
+/** Slate operation summary attached to a kernel trace frame. */
 export type SlateBrowserKernelOperation = {
   type: string
   [key: string]: unknown
 }
 
+/** Repair request emitted while handling a kernel event frame. */
 export type SlateBrowserKernelRepairRequest = {
   kind: string
   [key: string]: unknown
 }
 
+/** Native event frame and derived editor evidence. */
 export type SlateBrowserKernelEventFrame = {
   active: boolean
   eventFamily: SlateBrowserKernelEventFamily
@@ -385,6 +661,7 @@ export type SlateBrowserKernelEventFrame = {
   targetOwner: SlateBrowserKernelTargetOwner
 }
 
+/** Kernel trace entry used by browser behavior assertions. */
 export type SlateBrowserKernelTraceEntry = {
   command: SlateBrowserKernelCommand | null
   epochId: number | null
@@ -409,6 +686,7 @@ export type SlateBrowserKernelTraceEntry = {
   transition: SlateBrowserKernelTransition
 }
 
+/** Expected kernel trace properties for one assertion. */
 export type SlateBrowserKernelTraceExpectation = {
   commandKind?: SlateBrowserKernelCommand['kind'] | null
   eventFamily?: SlateBrowserKernelEventFamily
@@ -424,7 +702,9 @@ export type SlateBrowserKernelTraceExpectation = {
   transition?: Partial<SlateBrowserKernelTransition>
 }
 
+/** Point shape reused from a model selection snapshot. */
 export type SelectionPoint = SelectionSnapshot['anchor']
+/** Affinity used when capturing or restoring selection bookmarks. */
 export type RangeRefAffinity =
   | 'forward'
   | 'backward'
@@ -432,29 +712,79 @@ export type RangeRefAffinity =
   | 'inward'
   | null
 
+/** Serializable selection bookmark used by replay helpers. */
 export type SelectionBookmark = {
   id: string
 }
 
+/** Options for capturing Slate and DOM selection snapshots. */
+/** Options for capturing model and DOM selection snapshots. */
 export type SelectionCaptureOptions = {
   affinity?: RangeRefAffinity
 }
 
+/** Options for resolving DOM paths in browser helpers. */
+/** Options for resolving a DOM node from a Slate path. */
+export type SlateBrowserDOMPathOptions = {
+  align?: 'center' | 'end' | 'nearest' | 'start'
+  timeoutMs?: number
+}
+
+/** Options for clicking a text range by Slate path. */
+/** Options for clicking a text range resolved by Slate path. */
+export type SlateBrowserTextPathRangeClickOptions =
+  SlateBrowserDOMPathOptions & {
+    endOffset: number
+    xAffinity?: 'center' | 'end' | 'start'
+    path: number[]
+    startOffset: number
+  }
+
+/** Options for clicking text by visible offset. */
+/** Options for clicking a text node at a character offset. */
+export type SlateBrowserTextOffsetClickOptions = {
+  clickCount?: number
+  offset: number
+  path: number[]
+  waitForSelectionSync?: boolean
+}
+
+/** Options for dragging across a resolved text range. */
 export type SlateBrowserDragTextRangeOptions = {
+  direction?: 'backward' | 'forward'
+  endAffinity?: 'after' | 'inside'
   endOffset: number
+  endText?: string
+  endTextNodeIndex?: number
+  settleMs?: number
   startOffset: number
   steps?: number
   text: string
   textNodeIndex?: number
 }
 
+/** Options for double-click drag selection across text. */
+export type SlateBrowserDoubleClickDragTextRangeOptions = {
+  doubleClickOffset: number
+  endOffset: number
+  gestureDelayMs?: number
+  steps?: number
+  text: string
+  textNodeIndex?: number
+}
+
+/** Exact or inclusive offset expectation for selection assertions. */
 export type OffsetExpectation = number | readonly [number, number]
 
+/** Expected Slate model selection shape. */
+/** Expected model selection snapshot shape. */
 export type SelectionSnapshotExpectation = {
   anchor: { path: number[]; offset: OffsetExpectation }
   focus: { path: number[]; offset: OffsetExpectation }
 }
 
+/** Expected browser DOM selection shape. */
+/** Expected browser-native DOM selection snapshot shape. */
 export type DOMSelectionSnapshotExpectation = {
   anchorNodeText: string | null
   anchorOffset: OffsetExpectation
@@ -462,12 +792,23 @@ export type DOMSelectionSnapshotExpectation = {
   focusOffset: OffsetExpectation
 }
 
+/** Combined expectation for a collapsed model and DOM selection. */
+/** Expected collapsed model and DOM selection agreement. */
+export type CollapsedModelDOMSelectionExpectation = {
+  offset: OffsetExpectation
+  path: number[]
+  text: string
+}
+
+/** Options for normalizing HTML before paste or clipboard assertions. */
 export type HtmlNormalizationOptions = {
   ignoreClasses?: boolean
   ignoreInlineStyles?: boolean
   ignoreDir?: boolean
 }
 
+/** Options for waiting until an example route is ready. */
+/** Options for waiting until a Slate example route is ready. */
 export type ReadyOptions = {
   editor?: 'visible'
   placeholder?: 'visible' | 'hidden'
@@ -476,11 +817,15 @@ export type ReadyOptions = {
   selection?: 'settled' | SelectionSnapshot
 }
 
+/** Options for selecting an editor surface on a page. */
+/** Options for locating an editor surface on an example route. */
 export type EditorSurfaceOptions = {
   frame?: string
   scope?: string
 }
 
+/** Options for opening an example route in the browser harness. */
+/** Options for opening and preparing a Slate example route. */
 export type OpenExampleOptions = {
   query?:
     | Record<string, boolean | null | number | string | undefined>
@@ -490,6 +835,8 @@ export type OpenExampleOptions = {
   surface?: EditorSurfaceOptions
 }
 
+/** Document, selection, and shell state captured from an editor. */
+/** Serialized editor state captured from an example route. */
 export type EditorSnapshot = {
   text: string
   blockTexts: string[]
@@ -503,6 +850,7 @@ export type EditorSnapshot = {
   placeholderShape: PlaceholderShape | null
 }
 
+/** Summary of a rendered Slate shell node. */
 export type SlateBrowserShellSummary = {
   isInline: boolean
   isVoid: boolean
@@ -512,6 +860,7 @@ export type SlateBrowserShellSummary = {
   tagName: string | null
 }
 
+/** Snapshot of selected rendered shell nodes. */
 export type SlateBrowserSelectedShellSnapshot = {
   element: SlateBrowserShellSummary | null
   node: SlateBrowserShellSummary | null
@@ -520,29 +869,36 @@ export type SlateBrowserSelectedShellSnapshot = {
   point: 'anchor' | 'focus'
 }
 
+/** Snapshot of rendered shell nodes related to selection. */
 export type SlateBrowserSelectionShellsSnapshot = {
   anchor: SlateBrowserSelectedShellSnapshot
   focus: SlateBrowserSelectedShellSnapshot
   runtimeIds: string[]
 }
 
+/** Full render state snapshot including selected and selection shells. */
+/** Editor snapshot with rendered shell and DOM shape evidence. */
 export type SlateBrowserRenderStateSnapshot = EditorSnapshot & {
   renderCounts: SlateReactRenderProfilerSnapshot
   selectionShells: SlateBrowserSelectionShellsSnapshot | null
 }
 
+/** Browser-side trace entry emitted by scenario runners. */
 export type SlateBrowserTraceEntry = {
   label: string
   snapshot: EditorSnapshot
   stepIndex: number | null
 }
 
+/** Caller-provided metadata for browser scenario execution. */
+/** Scenario metadata supplied by a browser scenario step. */
 export type SlateBrowserScenarioMetadata = {
   capabilities?: readonly string[]
   platform?: string
   transport?: string
 }
 
+/** Transport capability claim attached to a scenario step. */
 export type SlateBrowserTransportClaim =
   | 'desktop-native-clipboard'
   | 'desktop-native-ime-composition'
@@ -557,6 +913,7 @@ export type SlateBrowserTransportClaim =
   | 'synthetic-datatransfer'
   | 'unspecified'
 
+/** Normalized scenario metadata after transport classification. */
 export type SlateBrowserNormalizedScenarioMetadata = {
   capabilities: string[]
   claim: SlateBrowserTransportClaim
@@ -564,11 +921,14 @@ export type SlateBrowserNormalizedScenarioMetadata = {
   transport: string | null
 }
 
+/** Metadata attached to one executable scenario step. */
 export type SlateBrowserScenarioStepMetadata = {
   iteration?: number
   warmLoop?: string
 }
 
+/** Executable step in a browser scenario. */
+/** Executable browser scenario step. */
 export type SlateBrowserScenarioStep = (
   | {
       kind: 'applyOperations'
@@ -660,6 +1020,11 @@ export type SlateBrowserScenarioStep = (
       selection: SelectionSnapshotExpectation
     }
   | {
+      expectation: SlateBrowserSelectionContractExpectation
+      kind: 'assertSelectionContract'
+      label?: string
+    }
+  | {
       kind: 'assertSelectionLocation'
       label?: string
       location: Partial<DOMSelectionLocationSnapshot>
@@ -731,6 +1096,7 @@ export type SlateBrowserScenarioStep = (
       label?: string
       offset: number
       path: number[]
+      selectedText?: string
     }
   | { kind: 'deleteBackward'; label?: string }
   | { kind: 'deleteForward'; label?: string }
@@ -748,6 +1114,15 @@ export type SlateBrowserScenarioStep = (
   | { kind: 'fillControl'; label?: string; selector: string; value: string }
   | { kind: 'focus'; label?: string }
   | { kind: 'insertText'; label?: string; text: string }
+  | {
+      data?: string
+      inputType?: string
+      kind: 'mutateTextDOM'
+      label?: string
+      path: number[]
+      selectionOffset?: number
+      text: string
+    }
   | { html: string; kind: 'pasteHtml'; label?: string; text?: string }
   | { kind: 'pasteText'; label?: string; text: string }
   | { key: string; kind: 'press'; label?: string }
@@ -773,6 +1148,8 @@ export type SlateBrowserScenarioStep = (
 ) &
   SlateBrowserScenarioStepMetadata
 
+/** Result returned after running a browser scenario. */
+/** Result returned by a browser scenario run. */
 export type SlateBrowserScenarioResult = {
   metadata: SlateBrowserNormalizedScenarioMetadata
   name: string
@@ -781,6 +1158,8 @@ export type SlateBrowserScenarioResult = {
   trace: SlateBrowserTraceEntry[]
 }
 
+/** Options for running a browser scenario. */
+/** Options for running a browser scenario step list. */
 export type SlateBrowserScenarioRunOptions = {
   metadata?: SlateBrowserScenarioMetadata
   runtimeErrors?:
@@ -791,35 +1170,49 @@ export type SlateBrowserScenarioRunOptions = {
   tracePath?: string
 }
 
+/** Candidate reduced scenario produced from a failing run. */
+/** Candidate produced while reducing a failing scenario. */
 export type SlateBrowserScenarioReductionCandidate = {
   kind: 'iteration' | 'prefix' | 'single-step' | 'suffix'
   label: string
   removedRange: { end: number; start: number }
+  removedSteps: readonly SlateBrowserScenarioStep[]
   steps: readonly SlateBrowserScenarioStep[]
 }
 
+/** Serializable summary of a scenario reduction candidate. */
+/** Human-readable summary of a scenario reduction candidate. */
 export type SlateBrowserScenarioReductionCandidateSummary = Omit<
   SlateBrowserScenarioReductionCandidate,
-  'steps'
+  'removedSteps' | 'steps'
 > & {
+  removedStepLabels: string[]
+  removedStepSummaries: string[]
   replay: SlateBrowserScenarioReplay
   stepLabels: string[]
+  stepSummaries: string[]
 }
 
+/** Serialized scenario step used for replay artifacts. */
 export type SlateBrowserScenarioReplayStep = {
   iteration?: number
   kind: string
   label: string
   replayable: boolean
+  summary: string
   value: Record<string, unknown>
   warmLoop?: string
 }
 
+/** Replay artifact for a browser scenario. */
+/** Replay artifact for reproducing a browser scenario. */
 export type SlateBrowserScenarioReplay = {
   replayable: boolean
   steps: SlateBrowserScenarioReplayStep[]
 }
 
+/** Options for the navigation-plus-typing gauntlet. */
+/** Options for navigation-plus-typing gauntlet generation. */
 export type SlateBrowserNavigationTypingGauntletOptions = {
   insertedText: string
   movedSelection: SelectionSnapshot
@@ -827,18 +1220,22 @@ export type SlateBrowserNavigationTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for the clipboard paste gauntlet. */
+/** Options for clipboard paste gauntlet generation. */
 export type SlateBrowserClipboardPasteGauntletOptions = {
   html: string
   plainText?: string
   textAfterPaste: string
 }
 
+/** Options for drag/drop data gauntlet generation. */
 export type SlateBrowserDropDataGauntletOptions = {
   html: string
   plainText?: string
   textAfterDrop: string
 }
 
+/** Options for inline cut-and-type gauntlet generation. */
 export type SlateBrowserInlineCutTypingGauntletOptions = {
   domShape?: {
     afterCut?: RenderedDOMShapeExpectation
@@ -849,6 +1246,7 @@ export type SlateBrowserInlineCutTypingGauntletOptions = {
   textAfterTyping: string
 }
 
+/** Options for internal native-control gauntlet generation. */
 export type SlateBrowserInternalControlGauntletOptions = {
   controlSelector: string
   controlValue: string
@@ -857,6 +1255,7 @@ export type SlateBrowserInternalControlGauntletOptions = {
   textAfterFollowUp: string
 }
 
+/** Options for composition/IME gauntlet generation. */
 export type SlateBrowserCompositionGauntletOptions = {
   committedText?: string
   selection?: SelectionSnapshot
@@ -866,16 +1265,19 @@ export type SlateBrowserCompositionGauntletOptions = {
   transport?: 'native' | 'synthetic'
 }
 
+/** Options for text insertion gauntlet generation. */
 export type SlateBrowserTextInsertionGauntletOptions = {
   insertedText: string
   textAfterInsert: string
 }
 
+/** Options for shell activation gauntlet generation. */
 export type SlateBrowserShellActivationGauntletOptions = {
   buttonName: RegExp | string
   expectedSelection: SelectionSnapshotExpectation
 }
 
+/** Options for mark typing gauntlet generation. */
 export type SlateBrowserMarkTypingGauntletOptions = {
   hotkey: string
   insertedText: string
@@ -883,6 +1285,7 @@ export type SlateBrowserMarkTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for mark-click typing gauntlet generation. */
 export type SlateBrowserMarkClickTypingGauntletOptions = {
   clickPoint: SelectionPoint
   domCaretAfterInsert?: {
@@ -897,6 +1300,7 @@ export type SlateBrowserMarkClickTypingGauntletOptions = {
   textAfterInsert: string
 }
 
+/** Options for toolbar mark-click typing gauntlet generation. */
 export type SlateBrowserToolbarMarkClickTypingGauntletOptions = Omit<
   SlateBrowserMarkClickTypingGauntletOptions,
   'hotkey'
@@ -905,6 +1309,8 @@ export type SlateBrowserToolbarMarkClickTypingGauntletOptions = Omit<
   selectionTransport?: 'dom' | 'model'
 }
 
+/** Options for repeating warm-up scenario steps. */
+/** Options for warm-loop browser behavior packets. */
 export type SlateBrowserWarmLoopOptions = {
   createIteration: (iteration: number) => SlateBrowserScenarioStep[]
   iterations?: number
@@ -921,6 +1327,7 @@ type SlateBrowserWarmToolbarArrowIterationOverride = Partial<
   >
 >
 
+/** Options for warm toolbar-arrow gauntlet generation. */
 export type SlateBrowserWarmToolbarArrowGauntletOptions = {
   domCaretAfterInsert?: {
     offset: number
@@ -939,6 +1346,7 @@ export type SlateBrowserWarmToolbarArrowGauntletOptions = {
   warmIterations?: number
 }
 
+/** Options for mixed editing conformance gauntlet generation. */
 export type SlateBrowserMixedEditingConformanceGauntletOptions = {
   deleteKey: 'Backspace' | 'Delete'
   domCaretAfterDelete?: {
@@ -969,6 +1377,7 @@ export type SlateBrowserMixedEditingConformanceGauntletOptions = {
   toolbarSelectionAfterCommand: SelectionSnapshotExpectation
 }
 
+/** Options for destructive editing gauntlet generation. */
 export type SlateBrowserDestructiveEditingGauntletOptions = {
   deleteAfterPasteKey?: 'Backspace' | 'Delete'
   domShape?: {
@@ -993,6 +1402,7 @@ export type SlateBrowserDestructiveEditingGauntletOptions = {
   wordDeleteSelection: SelectionSnapshot
 }
 
+/** Options for semantic editing conformance gauntlet generation. */
 export type SlateBrowserSemanticEditingConformanceGauntletOptions = {
   insertedText: string
   selectionAfterDelete: SelectionSnapshotExpectation
@@ -1007,12 +1417,14 @@ export type SlateBrowserSemanticEditingConformanceGauntletOptions = {
   toolbarSelectionAfterCommand: SelectionSnapshotExpectation
 }
 
+/** Illegal kernel transition reported by kernel trace validation. */
 export type SlateBrowserIllegalKernelTransition = {
   label: string
   reason: string | null
   stepIndex: number | null
 }
 
+/** Create a scenario that mixes navigation and typing through editor content. */
 export const createSlateBrowserNavigationTypingGauntlet = ({
   insertedText,
   movedSelection,
@@ -1046,6 +1458,7 @@ export const createSlateBrowserNavigationTypingGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates clipboard paste behavior. */
 export const createSlateBrowserClipboardPasteGauntlet = ({
   html,
   plainText,
@@ -1085,6 +1498,7 @@ export const createSlateBrowserClipboardPasteGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates drag/drop data insertion behavior. */
 export const createSlateBrowserDropDataGauntlet = ({
   html,
   plainText,
@@ -1112,6 +1526,7 @@ export const createSlateBrowserDropDataGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates inline cut followed by typing. */
 export const createSlateBrowserInlineCutTypingGauntlet = ({
   domShape,
   replacementText,
@@ -1175,6 +1590,7 @@ export const createSlateBrowserInlineCutTypingGauntlet = ({
     : []),
 ]
 
+/** Create a scenario for editor behavior around internal native controls. */
 export const createSlateBrowserInternalControlGauntlet = ({
   controlSelector,
   controlValue,
@@ -1229,6 +1645,7 @@ export const createSlateBrowserInternalControlGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates composition/IME input behavior. */
 export const createSlateBrowserCompositionGauntlet = ({
   committedText,
   selection,
@@ -1285,6 +1702,7 @@ export const createSlateBrowserCompositionGauntlet = ({
   },
 ]
 
+/** Create a scenario for plain text insertion behavior. */
 export const createSlateBrowserTextInsertionGauntlet = ({
   insertedText,
   textAfterInsert,
@@ -1310,6 +1728,7 @@ export const createSlateBrowserTextInsertionGauntlet = ({
   },
 ]
 
+/** Create a scenario for shell activation and editor focus ownership. */
 export const createSlateBrowserShellActivationGauntlet = ({
   buttonName,
   expectedSelection,
@@ -1322,6 +1741,7 @@ export const createSlateBrowserShellActivationGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates mark toggling followed by typing. */
 export const createSlateBrowserMarkTypingGauntlet = ({
   hotkey,
   insertedText,
@@ -1346,6 +1766,7 @@ export const createSlateBrowserMarkTypingGauntlet = ({
   },
 ]
 
+/** Create a scenario that validates mark toolbar clicks followed by typing. */
 export const createSlateBrowserMarkClickTypingGauntlet = ({
   clickPoint,
   domCaretAfterInsert,
@@ -1403,6 +1824,7 @@ export const createSlateBrowserMarkClickTypingGauntlet = ({
     : []),
 ]
 
+/** Create a scenario that validates toolbar mark clicks and editor typing. */
 export const createSlateBrowserToolbarMarkClickTypingGauntlet = ({
   clickPoint,
   domCaretAfterInsert,
@@ -1484,6 +1906,7 @@ const createToolbarMarkClickStep = (
   testId: markButtonTestId,
 })
 
+/** Create repeated warm-up steps for a scenario packet. */
 export const createSlateBrowserWarmLoopSteps = ({
   createIteration,
   iterations = 1,
@@ -1589,6 +2012,7 @@ const createWarmToolbarArrowIteration = ({
   },
 ]
 
+/** Create a warm toolbar and arrow-navigation scenario. */
 export const createSlateBrowserWarmToolbarArrowGauntlet = ({
   domCaretAfterInsert,
   insertedText,
@@ -1670,6 +2094,7 @@ export const createSlateBrowserWarmToolbarArrowGauntlet = ({
     : []),
 ]
 
+/** Create a mixed editing conformance scenario across text and structure. */
 export const createSlateBrowserMixedEditingConformanceGauntlet = ({
   deleteKey,
   domCaretAfterDelete,
@@ -1858,6 +2283,7 @@ export const createSlateBrowserMixedEditingConformanceGauntlet = ({
     : []),
 ]
 
+/** Create a destructive editing conformance scenario. */
 export const createSlateBrowserDestructiveEditingGauntlet = ({
   deleteAfterPasteKey = 'Backspace',
   domShape,
@@ -2046,6 +2472,7 @@ export const createSlateBrowserDestructiveEditingGauntlet = ({
     : []),
 ]
 
+/** Create a semantic editing conformance scenario. */
 export const createSlateBrowserSemanticEditingConformanceGauntlet = ({
   insertedText,
   selectionAfterDelete,
@@ -2158,6 +2585,7 @@ export const createSlateBrowserSemanticEditingConformanceGauntlet = ({
   },
 ]
 
+/** Return kernel trace transitions that violate the expected policy. */
 export const getIllegalKernelTransitions = (
   result: SlateBrowserScenarioResult
 ): SlateBrowserIllegalKernelTransition[] =>
@@ -2177,6 +2605,7 @@ export const getIllegalKernelTransitions = (
     })
   )
 
+/** Assert that a kernel trace contains no illegal transitions. */
 export const assertNoIllegalKernelTransitions = (
   result: SlateBrowserScenarioResult
 ) => {
@@ -2192,6 +2621,7 @@ const matchesPartialObject = <T extends object>(
     ([key, value]) => actual[key as keyof T] === value
   )
 
+/** Return true when a kernel trace entry satisfies an expectation. */
 export const matchesSlateBrowserKernelTrace = (
   entry: SlateBrowserKernelTraceEntry,
   expected: SlateBrowserKernelTraceExpectation
@@ -2264,11 +2694,13 @@ export const matchesSlateBrowserKernelTrace = (
   )
 }
 
+/** Find the first kernel trace entry matching an expectation. */
 export const findSlateBrowserKernelTraceEntry = (
   trace: readonly SlateBrowserKernelTraceEntry[],
   expected: SlateBrowserKernelTraceExpectation
 ) => trace.find((entry) => matchesSlateBrowserKernelTrace(entry, expected))
 
+/** Assert that a kernel trace contains an expected entry. */
 export const assertSlateBrowserKernelTraceEntry = (
   trace: readonly SlateBrowserKernelTraceEntry[],
   expected: SlateBrowserKernelTraceExpectation
@@ -2286,6 +2718,7 @@ export const assertSlateBrowserKernelTraceEntry = (
   return entry
 }
 
+/** Create candidate reduced scenarios from a failing scenario result. */
 export const createScenarioReductionCandidates = (
   steps: readonly SlateBrowserScenarioStep[]
 ): SlateBrowserScenarioReductionCandidate[] => {
@@ -2305,6 +2738,7 @@ export const createScenarioReductionCandidates = (
       kind: 'iteration',
       label: `${warmRange.warmLoop}:iteration:${warmRange.iteration}`,
       removedRange: { end: warmRange.end, start: warmRange.start },
+      removedSteps: steps.slice(warmRange.start, warmRange.end),
       steps: [
         ...steps.slice(0, warmRange.start),
         ...steps.slice(warmRange.end),
@@ -2344,6 +2778,7 @@ export const createScenarioReductionCandidates = (
       kind: 'prefix',
       label: `prefix:${length}`,
       removedRange: { end: steps.length, start: length },
+      removedSteps: steps.slice(length),
       steps: steps.slice(0, length),
     })
   }
@@ -2353,6 +2788,7 @@ export const createScenarioReductionCandidates = (
       kind: 'suffix',
       label: `suffix:${start}`,
       removedRange: { end: start, start: 0 },
+      removedSteps: steps.slice(0, start),
       steps: steps.slice(start),
     })
   }
@@ -2362,6 +2798,7 @@ export const createScenarioReductionCandidates = (
       kind: 'single-step',
       label: `without:${index}`,
       removedRange: { end: index + 1, start: index },
+      removedSteps: steps.slice(index, index + 1),
       steps: [...steps.slice(0, index), ...steps.slice(index + 1)],
     })
   }
@@ -2371,6 +2808,93 @@ export const createScenarioReductionCandidates = (
 
 const getScenarioStepLabel = (step: SlateBrowserScenarioStep, index: number) =>
   step.label ?? `${index}:${step.kind}`
+
+const summarizeTextPayload = (text: string) => {
+  const preview = text.length > 24 ? `${text.slice(0, 24)}...` : text
+
+  return `"${preview}" len=${text.length}`
+}
+
+const summarizeSelectionOffset = (offset: OffsetExpectation) =>
+  Array.isArray(offset) ? `${offset[0]}..${offset[1]}` : `${offset}`
+
+const summarizeSelectionPoint = (point: {
+  offset: OffsetExpectation
+  path: readonly number[]
+}) => `${point.path.join('.')}:${summarizeSelectionOffset(point.offset)}`
+
+const summarizeSelectionPayload = (selection: SelectionSnapshotExpectation) =>
+  `${summarizeSelectionPoint(selection.anchor)} -> ${summarizeSelectionPoint(
+    selection.focus
+  )}`
+
+/** Summarize a scenario step for logs and reduction output. */
+export const summarizeScenarioStep = (
+  step: SlateBrowserScenarioStep,
+  index: number
+) => {
+  const label = getScenarioStepLabel(step, index)
+
+  switch (step.kind) {
+    case 'assertSelection':
+    case 'select':
+    case 'selectDOM':
+      return `${label}: ${step.kind} ${summarizeSelectionPayload(
+        step.selection
+      )}`
+    case 'assertSelectionContract':
+      return `${label}: assertSelectionContract`
+    case 'assertSelectedText':
+    case 'assertText':
+    case 'insertText':
+    case 'pasteText':
+    case 'type':
+      return `${label}: ${step.kind} ${summarizeTextPayload(step.text)}`
+    case 'mutateTextDOM':
+      return `${label}: mutateTextDOM ${step.path.join(
+        '.'
+      )} ${summarizeTextPayload(step.text)}`
+    case 'composeText':
+      return `${label}: composeText ${summarizeTextPayload(step.text)} via ${
+        step.transport ?? 'default'
+      }`
+    case 'press':
+      return `${label}: press ${step.key}`
+    case 'clickSelector':
+      return `${label}: clickSelector ${step.selector}`
+    case 'clickTestId':
+      return `${label}: clickTestId ${step.testId}`
+    case 'clickTextOffset':
+    case 'doubleClickTextOffset':
+      return `${label}: ${step.kind} ${step.path.join('.')}:${step.offset}${
+        step.kind === 'doubleClickTextOffset' && step.selectedText !== undefined
+          ? ` selects ${summarizeTextPayload(step.selectedText)}`
+          : ''
+      }`
+    case 'dragTextSelection':
+      return `${label}: dragTextSelection ${step.selector}`
+    case 'assertWindowSelectionText': {
+      if (step.text !== undefined) {
+        return `${label}: assertWindowSelectionText ${summarizeTextPayload(
+          step.text
+        )}`
+      }
+      if (step.contains !== undefined) {
+        return `${label}: assertWindowSelectionText contains ${summarizeTextPayload(
+          step.contains
+        )}`
+      }
+
+      return `${label}: assertWindowSelectionText ${
+        step.notEmpty ? 'not empty' : 'current'
+      }`
+    }
+    case 'custom':
+      return `${label}: custom non-replayable`
+    default:
+      return `${label}: ${step.kind}`
+  }
+}
 
 const toReplayValue = (
   value: unknown
@@ -2421,6 +2945,7 @@ const toReplayValue = (
   return { replayable: true, value }
 }
 
+/** Serialize a scenario step into a replayable description. */
 export const serializeScenarioStepForReplay = (
   step: SlateBrowserScenarioStep,
   index: number
@@ -2434,11 +2959,13 @@ export const serializeScenarioStepForReplay = (
     kind: step.kind,
     label: getScenarioStepLabel(step, index),
     replayable,
+    summary: summarizeScenarioStep(step, index),
     value: replayValue,
     warmLoop: step.warmLoop,
   }
 }
 
+/** Create a replay artifact from scenario metadata and steps. */
 export const createScenarioReplay = (
   steps: readonly SlateBrowserScenarioStep[]
 ): SlateBrowserScenarioReplay => {
@@ -2450,19 +2977,25 @@ export const createScenarioReplay = (
   }
 }
 
+/** Summarize a scenario reduction candidate for handoff output. */
 export const summarizeScenarioReductionCandidate = ({
   kind,
   label,
+  removedSteps,
   removedRange,
   steps,
 }: SlateBrowserScenarioReductionCandidate): SlateBrowserScenarioReductionCandidateSummary => ({
   kind,
   label,
+  removedStepLabels: removedSteps.map(getScenarioStepLabel),
+  removedStepSummaries: removedSteps.map(summarizeScenarioStep),
   removedRange,
   replay: createScenarioReplay(steps),
   stepLabels: steps.map(getScenarioStepLabel),
+  stepSummaries: steps.map(summarizeScenarioStep),
 })
 
+/** Normalize scenario metadata with defaults for transport and labels. */
 export const normalizeScenarioMetadata = (
   metadata: SlateBrowserScenarioMetadata = {}
 ): SlateBrowserNormalizedScenarioMetadata => ({
@@ -2472,6 +3005,7 @@ export const normalizeScenarioMetadata = (
   transport: metadata.transport ?? null,
 })
 
+/** Classify the proof strength of a scenario transport claim. */
 export const classifyScenarioTransportClaim = ({
   platform,
   transport,
@@ -2544,8 +3078,11 @@ const isIgnoredRuntimeError = (text: string) =>
   (NEXT_DATA_ACCESS_CONTROL_ERROR.test(text) &&
     text.includes('due to access control checks.')) ||
   (text.includes("Permission policy 'Fullscreen' check failed") &&
+    text.includes('https://player.vimeo.com')) ||
+  (text.includes('error loading dynamically imported module') &&
     text.includes('https://player.vimeo.com'))
 
+/** Start recording browser runtime errors for a Playwright page. */
 export const recordSlateBrowserRuntimeErrors = (
   page: Page,
   options: {
@@ -2691,6 +3228,7 @@ const dispatchSyntheticKey = async (
   await root.page().waitForTimeout(0)
 }
 
+/** Run a callback while holding the shared clipboard access lock. */
 export const withExclusiveClipboardAccess = async <T>(
   work: () => Promise<T> | T
 ) => {
@@ -2757,6 +3295,16 @@ const toPlainText = async (surface: SurfaceTarget, html: string) =>
     container.innerHTML = markup
     return container.textContent ?? ''
   }, html)
+
+const shouldUseSyntheticHtmlPaste = async (surface: SurfaceTarget) =>
+  surface.evaluate(() => {
+    const userAgent = navigator.userAgent
+
+    return (
+      userAgent.includes('AppleWebKit') &&
+      !['Chrome', 'Chromium', 'Edg/'].some((token) => userAgent.includes(token))
+    )
+  })
 
 const getBlockTexts = async (root: Locator): Promise<string[]> =>
   root.evaluate((element: HTMLElement) =>
@@ -3005,6 +3553,724 @@ const getSelectedText = async (root: Locator): Promise<string> =>
     return (selection?.toString() ?? '').replace(/\uFEFF/g, '')
   })
 
+/** Capture displayed selection overlays for one editor root. */
+export const takeDisplayedSelectionSnapshotForRoot = async (
+  root: Locator
+): Promise<SlateBrowserDisplayedSelectionSnapshot> =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const selection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : element.ownerDocument.getSelection()
+      const nativeText = (selection?.toString() ?? '').replace(/\uFEFF/g, '')
+      const viewSelection = handle?.getViewSelection?.() ?? null
+      const markers = Array.from(
+        element.querySelectorAll('[data-slate-view-selection="true"]')
+      )
+      const pointsEqual = (
+        left: SelectionPoint | null | undefined,
+        right: SelectionPoint | null | undefined
+      ) =>
+        !!left &&
+        !!right &&
+        left.offset === right.offset &&
+        left.path.length === right.path.length &&
+        left.path.every((part, index) => part === right.path[index])
+      const isExpanded = (range: SelectionSnapshot | null) =>
+        !!range && !pointsEqual(range.anchor, range.focus)
+      const getTextSegments = (owner: Element) =>
+        Array.from(
+          owner.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
+        ).map((segment) => {
+          const leafNode = segment.firstChild
+          const domLength = leafNode?.textContent?.length ?? 0
+          const attr = segment.getAttribute('data-slate-length')
+          const trueLength =
+            attr == null ? domLength : Number.parseInt(attr, 10)
+
+          return {
+            segment,
+            trueLength,
+          }
+        })
+      const findZeroWidthMarker = (node: Node | null) => {
+        const markerElement =
+          node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+        return markerElement?.closest('[data-slate-zero-width]') ?? null
+      }
+      const toEditorOffset = (node: Node | null, offset: number) => {
+        const owner =
+          node?.nodeType === 1
+            ? (node as Element).closest('[data-slate-node="text"]')
+            : node?.parentElement?.closest('[data-slate-node="text"]')
+        const segment =
+          node?.nodeType === 1
+            ? (node as Element).closest(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+            : node?.parentElement?.closest(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+
+        const localOffset = findZeroWidthMarker(node) ? 0 : offset
+
+        if (!owner || !segment) {
+          return localOffset
+        }
+
+        const segments = getTextSegments(owner)
+        const segmentIndex = segments.findIndex(
+          (entry) => entry.segment === segment
+        )
+
+        if (segmentIndex <= 0) {
+          return localOffset
+        }
+
+        return (
+          segments
+            .slice(0, segmentIndex)
+            .reduce((total, entry) => total + entry.trueLength, 0) + localOffset
+        )
+      }
+      const getPath = (node: Node | null) => {
+        const owner =
+          node?.nodeType === 1
+            ? (node as Element).closest('[data-slate-node="text"]')
+            : node?.parentElement?.closest('[data-slate-node="text"]')
+
+        if (!owner || !element.contains(owner)) {
+          return null
+        }
+
+        const path = owner
+          .getAttribute('data-slate-path')
+          ?.split(',')
+          .map((part) => Number.parseInt(part, 10))
+
+        return path?.every(Number.isInteger) ? path : null
+      }
+      const takeNativeSelection = (): SelectionSnapshot | null => {
+        if (
+          !selection?.rangeCount ||
+          !selection.anchorNode ||
+          !selection.focusNode ||
+          !element.contains(selection.anchorNode) ||
+          !element.contains(selection.focusNode)
+        ) {
+          return null
+        }
+
+        const anchorPath = getPath(selection.anchorNode)
+        const focusPath = getPath(selection.focusNode)
+
+        if (!anchorPath || !focusPath) {
+          return null
+        }
+
+        return {
+          anchor: {
+            offset: toEditorOffset(
+              selection.anchorNode,
+              selection.anchorOffset
+            ),
+            path: anchorPath,
+          },
+          focus: {
+            offset: toEditorOffset(selection.focusNode, selection.focusOffset),
+            path: focusPath,
+          },
+        }
+      }
+      const toViewPoint = (pointLike: any): SelectionPoint | null => {
+        const point = pointLike?.point ?? pointLike
+
+        return Array.isArray(point?.path) && Number.isInteger(point?.offset)
+          ? { offset: point.offset, path: [...point.path] }
+          : null
+      }
+      const nativeSelection = takeNativeSelection()
+      const viewAnchor = toViewPoint(viewSelection?.anchor)
+      const viewFocus = toViewPoint(viewSelection?.focus)
+      const hasNativeEditorSelection =
+        !!nativeSelection && nativeText.length > 0
+      const normalizedViewSelection =
+        viewAnchor && viewFocus
+          ? {
+              anchor: viewAnchor,
+              focus: viewFocus,
+            }
+          : null
+      const source =
+        isExpanded(nativeSelection) ||
+        (nativeSelection && !normalizedViewSelection)
+          ? 'native'
+          : normalizedViewSelection
+            ? 'view'
+            : nativeSelection
+              ? 'native'
+              : 'none'
+
+      return {
+        displayed:
+          source === 'native'
+            ? nativeSelection
+            : source === 'view'
+              ? normalizedViewSelection
+              : null,
+        doubleHighlighted: hasNativeEditorSelection && markers.length > 0,
+        hasVisibleEditorSelection:
+          hasNativeEditorSelection || markers.length > 0,
+        hasVisibleSelection: nativeText.length > 0 || markers.length > 0,
+        model: handle?.getSelection?.() ?? null,
+        native: {
+          collapsed: selection?.isCollapsed ?? null,
+          rangeCount: selection?.rangeCount ?? 0,
+          selection: nativeSelection,
+          textLength: nativeText.length,
+        },
+        source,
+        view: {
+          active: !!normalizedViewSelection,
+          anchor: viewAnchor,
+          focus: viewFocus,
+          markerCount: markers.length,
+          markerPaths: markers.map(
+            (marker) =>
+              marker
+                .closest('[data-slate-node="text"]')
+                ?.getAttribute('data-slate-path') ?? null
+          ),
+          markerRects: markers.map((marker) => {
+            const rect = marker.getBoundingClientRect()
+
+            return {
+              height: rect.height,
+              width: rect.width,
+              x: rect.x,
+              y: rect.y,
+            }
+          }),
+          selection: normalizedViewSelection,
+          textLength: markers.reduce(
+            (length, marker) =>
+              length + (marker.textContent ?? '').replace(/\uFEFF/g, '').length,
+            0
+          ),
+        },
+      } satisfies SlateBrowserDisplayedSelectionSnapshot
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
+/** Start native event tracing for a Slate browser root. */
+export const startSlateBrowserNativeEventTrace = async (
+  root: Locator,
+  options: SlateBrowserNativeEventTraceOptions = {}
+) => {
+  await root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        key,
+        options,
+      }: { key: string; options: SlateBrowserNativeEventTraceOptions }
+    ) => {
+      const previous = (element as Record<string, any>)[key] as
+        | { stop?: () => void }
+        | undefined
+
+      previous?.stop?.()
+
+      const maxEntries = Math.max(1, options.maxEntries ?? 100)
+      const enabledEvents = new Set<SlateBrowserNativeEventTraceType>(
+        options.events ?? [
+          'selectionchange',
+          'beforeinput',
+          'input',
+          'compositionstart',
+          'compositionupdate',
+          'compositionend',
+        ]
+      )
+      const entries: SlateBrowserNativeEventTraceEntry[] = []
+      const anomalies: SlateBrowserNativeEventTraceAnomaly[] = []
+      const nodeIds = new WeakMap<Text, string>()
+      let nodeId = 0
+      let beforeInputTextNodes:
+        | SlateBrowserNativeEventTraceTextNodeSnapshot[]
+        | null = null
+      let lastBeforeInput: SlateBrowserNativeEventTraceEntry | null = null
+      let lastComposition: SlateBrowserNativeEventTraceEntry | null = null
+
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const ownerDocument = element.ownerDocument
+
+      const getRootSelection = () =>
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : ownerDocument.getSelection()
+
+      const getParentSignature = (parent: Element | null) => {
+        if (!parent) {
+          return null
+        }
+
+        const path = parent
+          .closest('[data-slate-node="text"]')
+          ?.getAttribute('data-slate-path')
+        const ownPath = parent.getAttribute('data-slate-path')
+        const directParent = parent.parentElement
+        const sameTagIndex = directParent
+          ? Array.from(directParent.children)
+              .filter((sibling) => sibling.tagName === parent.tagName)
+              .indexOf(parent)
+          : 0
+
+        return `${parent.tagName.toLowerCase()}[${sameTagIndex}]${
+          ownPath ? `[path=${ownPath}]` : ''
+        }${path ? `[text=${path}]` : ''}`
+      }
+
+      const getNodeSnapshot = (
+        node: Node | null
+      ): SlateBrowserNativeEventTraceNodeSnapshot => {
+        if (!node) {
+          return {
+            nodeName: null,
+            parentNodeName: null,
+            parentPath: null,
+            parentSignature: null,
+            path: null,
+            text: null,
+          }
+        }
+
+        const elementNode =
+          node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null
+        const parent =
+          node.nodeType === Node.TEXT_NODE
+            ? node.parentElement
+            : (elementNode?.parentElement ?? null)
+        const textNodeOwner = (elementNode ?? parent)?.closest(
+          '[data-slate-node="text"]'
+        )
+
+        return {
+          nodeName: node.nodeName,
+          parentNodeName: parent?.nodeName ?? null,
+          parentPath: parent?.getAttribute('data-slate-path') ?? null,
+          parentSignature: getParentSignature(parent),
+          path: textNodeOwner?.getAttribute('data-slate-path') ?? null,
+          text: node.textContent ?? null,
+        }
+      }
+
+      const takeSelection =
+        (): SlateBrowserNativeEventTraceSelectionSnapshot => {
+          const selection = getRootSelection()
+
+          if (!selection || selection.rangeCount === 0) {
+            return {
+              anchor: null,
+              anchorOffset: null,
+              collapsed: null,
+              focus: null,
+              focusOffset: null,
+              rangeCount: selection?.rangeCount ?? 0,
+              selectedText: '',
+            }
+          }
+
+          return {
+            anchor: getNodeSnapshot(selection.anchorNode),
+            anchorOffset: selection.anchorOffset,
+            collapsed: selection.isCollapsed,
+            focus: getNodeSnapshot(selection.focusNode),
+            focusOffset: selection.focusOffset,
+            rangeCount: selection.rangeCount,
+            selectedText: (selection.toString() ?? '').replace(/\uFEFF/g, ''),
+          }
+        }
+
+      const toRectSnapshots = (
+        rects: DOMRectList | readonly DOMRect[]
+      ): SlateBrowserNativeEventTraceRect[] =>
+        Array.from(rects).map((rect) => ({
+          height: rect.height,
+          width: rect.width,
+          x: rect.x,
+          y: rect.y,
+        }))
+
+      const takeTargetRanges = (
+        event: InputEvent
+      ): SlateBrowserNativeEventTraceTargetRangeSnapshot[] => {
+        const ranges = event.getTargetRanges?.() ?? []
+
+        return Array.from(ranges).map((range) => {
+          let rects: SlateBrowserNativeEventTraceRect[] = []
+
+          try {
+            const liveRange = ownerDocument.createRange()
+
+            liveRange.setStart(range.startContainer, range.startOffset)
+            liveRange.setEnd(range.endContainer, range.endOffset)
+            rects = toRectSnapshots(liveRange.getClientRects())
+          } catch {
+            rects = []
+          }
+
+          return {
+            collapsed: range.collapsed,
+            end: getNodeSnapshot(range.endContainer),
+            endOffset: range.endOffset,
+            rects,
+            start: getNodeSnapshot(range.startContainer),
+            startOffset: range.startOffset,
+          }
+        })
+      }
+
+      const getTextNodeId = (textNode: Text) => {
+        let id = nodeIds.get(textNode)
+
+        if (!id) {
+          id = `text-${++nodeId}`
+          nodeIds.set(textNode, id)
+        }
+
+        return id
+      }
+
+      const snapshotTextNodes =
+        (): SlateBrowserNativeEventTraceTextNodeSnapshot[] => {
+          const snapshot: SlateBrowserNativeEventTraceTextNodeSnapshot[] = []
+          const walker = ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let node = walker.nextNode()
+
+          while (node) {
+            const textNode = node as Text
+            const parent = textNode.parentElement
+
+            if (parent) {
+              snapshot.push({
+                id: getTextNodeId(textNode),
+                parentPath: parent.getAttribute('data-slate-path'),
+                parentSignature: getParentSignature(parent) ?? parent.nodeName,
+                text: textNode.data,
+              })
+            }
+
+            node = walker.nextNode()
+          }
+
+          return snapshot
+        }
+
+      const diffTextNodes = (
+        before: SlateBrowserNativeEventTraceTextNodeSnapshot[] | null,
+        after: SlateBrowserNativeEventTraceTextNodeSnapshot[]
+      ): SlateBrowserNativeEventTraceDOMDelta | null => {
+        if (!before) {
+          return null
+        }
+
+        const deltas: SlateBrowserNativeEventTraceTextNodeDelta[] = []
+        const afterById = new Map(after.map((node) => [node.id, node]))
+        const beforeById = new Map(before.map((node) => [node.id, node]))
+
+        for (const beforeNode of before) {
+          const afterNode = afterById.get(beforeNode.id)
+
+          if (!afterNode) {
+            deltas.push({ after: null, before: beforeNode, type: 'deleted' })
+          } else if (beforeNode.text !== afterNode.text) {
+            deltas.push({
+              after: afterNode,
+              before: beforeNode,
+              type: 'modified',
+            })
+          } else if (beforeNode.parentSignature !== afterNode.parentSignature) {
+            deltas.push({ after: afterNode, before: beforeNode, type: 'moved' })
+          }
+        }
+
+        for (const afterNode of after) {
+          if (!beforeById.has(afterNode.id)) {
+            deltas.push({ after: afterNode, before: null, type: 'added' })
+          }
+        }
+
+        return { textNodes: deltas }
+      }
+
+      const addAnomaly = (
+        type: SlateBrowserNativeEventTraceAnomaly['type'],
+        detail: string
+      ) => {
+        anomalies.push({ detail, type })
+      }
+
+      const detectInputAnomalies = (
+        entry: SlateBrowserNativeEventTraceEntry
+      ) => {
+        if (
+          !lastBeforeInput ||
+          entry.timestamp - lastBeforeInput.timestamp > 100
+        ) {
+          addAnomaly(
+            'missing-beforeinput',
+            `inputType=${entry.inputType ?? 'unknown'}`
+          )
+          return
+        }
+
+        if (
+          lastBeforeInput.inputType &&
+          entry.inputType &&
+          lastBeforeInput.inputType !== entry.inputType
+        ) {
+          addAnomaly(
+            'inputtype-mismatch',
+            `${lastBeforeInput.inputType} -> ${entry.inputType}`
+          )
+        }
+
+        if (
+          lastBeforeInput.data &&
+          entry.data &&
+          !lastBeforeInput.data.includes(entry.data) &&
+          !entry.data.includes(lastBeforeInput.data)
+        ) {
+          addAnomaly(
+            'data-content-mismatch',
+            `beforeinput="${lastBeforeInput.data}" input="${entry.data}"`
+          )
+        }
+
+        const beforeAnchor = lastBeforeInput.selection.anchor
+        const inputAnchor = entry.selection.anchor
+
+        if (beforeAnchor?.path && inputAnchor?.path) {
+          if (beforeAnchor.path !== inputAnchor.path) {
+            addAnomaly(
+              'parent-mismatch',
+              `${beforeAnchor.path} -> ${inputAnchor.path}`
+            )
+          } else if (
+            lastBeforeInput.inputType?.startsWith('insert') &&
+            lastBeforeInput.data &&
+            lastBeforeInput.selection.anchorOffset != null &&
+            entry.selection.anchorOffset != null
+          ) {
+            const expected =
+              lastBeforeInput.selection.anchorOffset +
+              lastBeforeInput.data.length
+            const delta = Math.abs(entry.selection.anchorOffset - expected)
+
+            if (delta > 4) {
+              addAnomaly(
+                'selection-jump',
+                `expected offset ${expected}, got ${entry.selection.anchorOffset}`
+              )
+            }
+          }
+        }
+
+        if (
+          beforeAnchor?.nodeName &&
+          inputAnchor?.nodeName &&
+          beforeAnchor.nodeName !== inputAnchor.nodeName
+        ) {
+          addAnomaly(
+            'node-type-change',
+            `${beforeAnchor.nodeName} -> ${inputAnchor.nodeName}`
+          )
+        }
+
+        if (entry.domDelta?.textNodes.some((node) => node.type === 'added')) {
+          addAnomaly('sibling-created', 'input created a new text node')
+        }
+      }
+
+      const detectCompositionAnomalies = (
+        entry: SlateBrowserNativeEventTraceEntry
+      ) => {
+        if (
+          lastComposition?.data &&
+          entry.data &&
+          !lastComposition.data.includes(entry.data) &&
+          !entry.data.includes(lastComposition.data)
+        ) {
+          addAnomaly(
+            'composition-mismatch',
+            `composition="${lastComposition.data}" event="${entry.data}"`
+          )
+        }
+      }
+
+      const pushEntry = (entry: SlateBrowserNativeEventTraceEntry) => {
+        entries.push(entry)
+
+        if (entries.length > maxEntries) {
+          entries.splice(0, entries.length - maxEntries)
+        }
+      }
+
+      const record = (event: Event) => {
+        const type = event.type as SlateBrowserNativeEventTraceType
+
+        if (!enabledEvents.has(type)) {
+          return
+        }
+
+        const inputEvent =
+          event instanceof InputEvent ? event : (null as InputEvent | null)
+        const compositionEvent =
+          event instanceof CompositionEvent
+            ? event
+            : (null as CompositionEvent | null)
+
+        if (type === 'beforeinput') {
+          beforeInputTextNodes = snapshotTextNodes()
+        }
+
+        const entry: SlateBrowserNativeEventTraceEntry = {
+          data: inputEvent?.data ?? compositionEvent?.data ?? null,
+          domDelta:
+            type === 'input'
+              ? diffTextNodes(beforeInputTextNodes, snapshotTextNodes())
+              : null,
+          inputType: inputEvent?.inputType ?? null,
+          isComposing: inputEvent?.isComposing ?? null,
+          selection: takeSelection(),
+          targetRanges: inputEvent ? takeTargetRanges(inputEvent) : [],
+          timestamp: Date.now(),
+          type,
+        }
+
+        if (type === 'input') {
+          detectInputAnomalies(entry)
+        } else if (type === 'beforeinput') {
+          lastBeforeInput = entry
+        } else if (type.startsWith('composition')) {
+          detectCompositionAnomalies(entry)
+          lastComposition = entry
+        }
+
+        pushEntry(entry)
+      }
+
+      const eventTypes: SlateBrowserNativeEventTraceType[] = [
+        'beforeinput',
+        'input',
+        'compositionstart',
+        'compositionupdate',
+        'compositionend',
+      ]
+
+      eventTypes.forEach((type) => {
+        element.addEventListener(type, record, { capture: true })
+      })
+      ownerDocument.addEventListener('selectionchange', record)
+
+      ;(element as Record<string, any>)[key] = {
+        anomalies,
+        entries,
+        reset() {
+          entries.length = 0
+          anomalies.length = 0
+          beforeInputTextNodes = null
+          lastBeforeInput = null
+          lastComposition = null
+        },
+        stop() {
+          eventTypes.forEach((type) => {
+            element.removeEventListener(type, record, { capture: true })
+          })
+          ownerDocument.removeEventListener('selectionchange', record)
+        },
+      }
+    },
+    { key: NATIVE_EVENT_TRACE_KEY, options }
+  )
+}
+
+/** Clear the current native event trace for a Slate browser root. */
+export const resetSlateBrowserNativeEventTrace = async (root: Locator) => {
+  await root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      ;(element as Record<string, any>)[key]?.reset?.()
+    },
+    { key: NATIVE_EVENT_TRACE_KEY }
+  )
+}
+
+/** Stop native event tracing for a Slate browser root. */
+export const stopSlateBrowserNativeEventTrace = async (root: Locator) => {
+  await root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      ;(element as Record<string, any>)[key]?.stop?.()
+      delete (element as Record<string, any>)[key]
+    },
+    { key: NATIVE_EVENT_TRACE_KEY }
+  )
+}
+
+/** Read the native event trace captured for a Slate browser root. */
+export const takeSlateBrowserNativeEventTrace = async (
+  root: Locator
+): Promise<SlateBrowserNativeEventTraceSnapshot> =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const trace = (element as Record<string, any>)[key]
+
+      return {
+        anomalies:
+          trace?.anomalies?.map(
+            (anomaly: SlateBrowserNativeEventTraceAnomaly) => ({ ...anomaly })
+          ) ?? [],
+        entries:
+          trace?.entries?.map((entry: SlateBrowserNativeEventTraceEntry) => ({
+            ...entry,
+            domDelta: entry.domDelta
+              ? {
+                  textNodes: entry.domDelta.textNodes.map((node) => ({
+                    after: node.after ? { ...node.after } : null,
+                    before: node.before ? { ...node.before } : null,
+                    type: node.type,
+                  })),
+                }
+              : null,
+            selection: {
+              ...entry.selection,
+              anchor: entry.selection.anchor
+                ? { ...entry.selection.anchor }
+                : null,
+              focus: entry.selection.focus
+                ? { ...entry.selection.focus }
+                : null,
+            },
+            targetRanges: entry.targetRanges.map((range) => ({
+              ...range,
+              end: { ...range.end },
+              rects: range.rects.map((rect) => ({ ...rect })),
+              start: { ...range.start },
+            })),
+          })) ?? [],
+      } satisfies SlateBrowserNativeEventTraceSnapshot
+    },
+    { key: NATIVE_EVENT_TRACE_KEY }
+  )
+
 const readClipboardText = async (surface: SurfaceTarget) =>
   surface.evaluate(async () => navigator.clipboard.readText())
 
@@ -3044,7 +4310,10 @@ const copyPayloadThroughEvent = async (
     const event = new ClipboardEvent('copy', {
       bubbles: true,
       cancelable: true,
-      clipboardData: data,
+    })
+
+    Object.defineProperty(event, 'clipboardData', {
+      value: data,
     })
 
     element.dispatchEvent(event)
@@ -3065,7 +4334,10 @@ const cutPayloadThroughEvent = async (
     const event = new ClipboardEvent('cut', {
       bubbles: true,
       cancelable: true,
-      clipboardData: data,
+    })
+
+    Object.defineProperty(event, 'clipboardData', {
+      value: data,
     })
 
     element.dispatchEvent(event)
@@ -3186,6 +4458,91 @@ const insertTextThroughHandle = async (root: Locator, text: string) =>
     { key: SLATE_BROWSER_HANDLE_KEY, nextText: text }
   )
 
+const mutateTextDOM = async (
+  root: Locator,
+  step: Extract<SlateBrowserScenarioStep, { kind: 'mutateTextDOM' }>
+) => {
+  await root.evaluate(
+    (
+      element: HTMLElement,
+      payload: {
+        data: string | null
+        inputType: string
+        path: number[]
+        selectionOffset: number
+        text: string
+      }
+    ) => {
+      const textElement = element.querySelector(
+        `[data-slate-node="text"][data-slate-path="${payload.path.join(',')}"]`
+      )
+      const textHost =
+        textElement?.querySelector(
+          '[data-slate-string], [data-slate-zero-width]'
+        ) ?? textElement
+
+      if (!textHost) {
+        throw new Error(`Missing DOM text host for ${payload.path.join('.')}`)
+      }
+
+      const walker = document.createTreeWalker(textHost, NodeFilter.SHOW_TEXT)
+      const textNode = walker.nextNode()
+
+      if (!(textNode instanceof Text)) {
+        throw new Error(`Missing DOM text node for ${payload.path.join('.')}`)
+      }
+
+      if (payload.selectionOffset > payload.text.length) {
+        throw new Error(
+          `DOM text mutation selection offset ${payload.selectionOffset} exceeds text length ${payload.text.length}`
+        )
+      }
+
+      textNode.nodeValue = payload.text
+      element.focus({ preventScroll: true })
+
+      const range = document.createRange()
+      const selection = window.getSelection()
+
+      range.setStart(textNode, payload.selectionOffset)
+      range.collapse(true)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+
+      let event: Event
+
+      try {
+        event = new InputEvent('input', {
+          bubbles: true,
+          cancelable: true,
+          data: payload.data,
+          inputType: payload.inputType,
+        })
+      } catch {
+        event = new Event('input', {
+          bubbles: true,
+          cancelable: true,
+        })
+        Object.defineProperties(event, {
+          data: { value: payload.data },
+          inputType: { value: payload.inputType },
+        })
+      }
+
+      element.dispatchEvent(event)
+    },
+    {
+      data: step.data ?? null,
+      inputType: step.inputType ?? 'insertText',
+      path: step.path,
+      selectionOffset: step.selectionOffset ?? step.text.length,
+      text: step.text,
+    }
+  )
+
+  await waitForPendingNativeTextInputRepair(root)
+}
+
 const dropHtml = async (
   surface: SurfaceTarget,
   root: Locator,
@@ -3298,7 +4655,10 @@ const clickTextOffset = async (
   root: Locator,
   path: number[],
   offset: number,
-  options: { clickCount?: number } = {}
+  options: {
+    clickCount?: number
+    waitForSelectionSync?: boolean
+  } = {}
 ) => {
   const point = await root.evaluate(
     (
@@ -3424,10 +4784,112 @@ const clickTextOffset = async (
     { offset, path }
   )
 
-  await root.page().mouse.click(point.x, point.y, {
-    clickCount: options.clickCount,
-  })
-  await waitForSelectionSync(root)
+  const clickCount = options.clickCount
+
+  const readClickPointState = () =>
+    root.evaluate(
+      (
+        element: HTMLElement,
+        point: {
+          x: number
+          y: number
+        }
+      ) => {
+        const describeElement = (node: Element | null) => {
+          if (!node) {
+            return null
+          }
+
+          return {
+            ariaLabel: node.getAttribute('aria-label'),
+            path: node.getAttribute('data-slate-path'),
+            role: node.getAttribute('role'),
+            slateNode: node.getAttribute('data-slate-node'),
+            tagName: node.tagName,
+            text: node.textContent?.slice(0, 80) ?? '',
+          }
+        }
+        const resolveSlatePoint = (node: Node | null, offset: number) => {
+          const owner =
+            node?.nodeType === 1
+              ? (node as Element).closest('[data-slate-node="text"]')
+              : node?.parentElement?.closest('[data-slate-node="text"]')
+          const path = owner
+            ?.getAttribute('data-slate-path')
+            ?.split(',')
+            .map((part) => Number.parseInt(part, 10))
+
+          return {
+            offset,
+            ownerText: owner?.textContent?.slice(0, 80) ?? null,
+            path: path?.every(Number.isInteger) ? path : null,
+          }
+        }
+        const documentWithCaret = element.ownerDocument as Document & {
+          caretPositionFromPoint?: (
+            x: number,
+            y: number
+          ) => { offset: number; offsetNode: Node } | null
+          caretRangeFromPoint?: (x: number, y: number) => Range | null
+        }
+        const caretPosition = documentWithCaret.caretPositionFromPoint?.(
+          point.x,
+          point.y
+        )
+        const caretRange =
+          caretPosition == null
+            ? documentWithCaret.caretRangeFromPoint?.(point.x, point.y)
+            : null
+        const caretNode =
+          caretPosition?.offsetNode ?? caretRange?.startContainer ?? null
+        const caretOffset =
+          caretPosition?.offset ?? caretRange?.startOffset ?? null
+        const hit = element.ownerDocument.elementFromPoint(point.x, point.y)
+
+        return {
+          caret:
+            caretNode && caretOffset != null
+              ? resolveSlatePoint(caretNode, caretOffset)
+              : null,
+          hit: describeElement(hit),
+          point,
+        }
+      },
+      point
+    )
+
+  if (clickCount === 2) {
+    await root.page().mouse.dblclick(point.x, point.y)
+  } else {
+    await root.page().mouse.click(point.x, point.y, {
+      clickCount,
+    })
+  }
+  if (options.waitForSelectionSync ?? true) {
+    const isSingleClick = (clickCount ?? 1) === 1
+    await waitForSelectionSync(
+      root,
+      isSingleClick
+        ? {
+            anchor: { offset, path },
+            focus: { offset, path },
+          }
+        : undefined
+    ).catch(async (error: unknown) => {
+      const clickPointState = await readClickPointState().catch(
+        (stateError: unknown) => ({
+          error:
+            stateError instanceof Error
+              ? stateError.message
+              : String(stateError),
+        })
+      )
+
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nClick point state:\n${JSON.stringify(clickPointState, null, 2)}`
+      )
+    })
+  }
 }
 
 const hasDOMSelectionInRoot = async (root: Locator) =>
@@ -3633,6 +5095,330 @@ const waitForHandleSelection = async (
     .toBe(true)
 }
 
+const scrollTextPathIntoViewAndCheckMaterialized = async (
+  root: Locator,
+  path: number[],
+  options: SlateBrowserDOMPathOptions = {}
+) =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        align,
+        key,
+        path,
+      }: {
+        align: SlateBrowserDOMPathOptions['align']
+        key: string
+        path: number[]
+      }
+    ) => {
+      const handle = (element as Record<string, any>)[key]
+
+      handle?.scrollPathIntoView?.(path, align ?? 'center')
+
+      return !!element.querySelector(
+        `[data-slate-node="text"][data-slate-path="${path.join(',')}"]`
+      )
+    },
+    { align: options.align, key: SLATE_BROWSER_HANDLE_KEY, path }
+  )
+
+const waitForTextPathMaterialized = async (
+  root: Locator,
+  path: number[],
+  options: SlateBrowserDOMPathOptions = {}
+) => {
+  await expect
+    .poll(
+      () => scrollTextPathIntoViewAndCheckMaterialized(root, path, options),
+      {
+        timeout: options.timeoutMs ?? READY_TIMEOUT_MS,
+      }
+    )
+    .toBe(true)
+}
+
+const collapseDOMAtTextPath = async (
+  root: Locator,
+  point: SelectionPoint,
+  options: SlateBrowserDOMPathOptions = {}
+) => {
+  const selection = { anchor: point, focus: point }
+
+  if (
+    !(await scrollTextPathIntoViewAndCheckMaterialized(
+      root,
+      point.path,
+      options
+    )) &&
+    !(await setSelectionWithHandle(root, selection))
+  ) {
+    await setSelection(root, selection)
+  }
+
+  await waitForTextPathMaterialized(root, point.path, options)
+
+  if (!(await setSelectionWithHandle(root, selection))) {
+    await setSelection(root, selection)
+  }
+
+  await root.evaluate((element: HTMLElement) => {
+    element.focus({ preventScroll: true })
+  })
+
+  if (!(await setDOMSelection(root, selection))) {
+    throw new Error(`Missing DOM text node for ${point.path.join('.')}`)
+  }
+
+  await root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      if (rootNode instanceof ShadowRoot) {
+        rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      }
+
+      const handle = (element as Record<string, any>)[key]
+
+      handle?.importDOMSelection?.()
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+  await waitForHandleSelection(root, selection)
+  await waitForSelectionRange(root)
+}
+
+const clickTextPathRange = async (
+  root: Locator,
+  {
+    align,
+    endOffset,
+    path,
+    startOffset,
+    timeoutMs,
+    xAffinity = 'start',
+  }: SlateBrowserTextPathRangeClickOptions
+) => {
+  if (startOffset >= endOffset) {
+    throw new Error('clickTextPathRange expects startOffset < endOffset')
+  }
+
+  await waitForTextPathMaterialized(root, path, { align, timeoutMs })
+
+  const point = await root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        endOffset,
+        path,
+        startOffset,
+        xAffinity,
+      }: {
+        endOffset: number
+        path: number[]
+        startOffset: number
+        xAffinity: NonNullable<
+          SlateBrowserTextPathRangeClickOptions['xAffinity']
+        >
+      }
+    ) => {
+      const textElement = Array.from(
+        element.querySelectorAll('[data-slate-node="text"]')
+      ).find(
+        (node) =>
+          node.closest('[data-slate-editor="true"]') === element &&
+          node.getAttribute('data-slate-path') === path.join(',')
+      )
+
+      if (!textElement) {
+        throw new Error(`Missing DOM text node for ${path.join('.')}`)
+      }
+
+      const resolveOffset = (offset: number) => {
+        const stringElements = Array.from(
+          textElement.querySelectorAll(
+            '[data-slate-string], [data-slate-zero-width]'
+          )
+        )
+        let start = 0
+        let lastTextNode: Node | null = null
+        let lastTextLength = 0
+
+        for (const stringElement of stringElements) {
+          const textNode =
+            Array.from(stringElement.childNodes).find(
+              (node) => node.nodeType === Node.TEXT_NODE
+            ) ?? null
+
+          if (!textNode) {
+            continue
+          }
+
+          const length = textNode.textContent?.length ?? 0
+          const attr = stringElement.getAttribute('data-slate-length')
+          const trueLength = attr == null ? length : Number.parseInt(attr, 10)
+          const end = start + trueLength
+
+          lastTextNode = textNode
+          lastTextLength = length
+
+          if (
+            stringElement.hasAttribute('data-slate-zero-width') &&
+            offset === start &&
+            length <= 1
+          ) {
+            return {
+              node: textNode,
+              offset: length,
+            }
+          }
+
+          if (offset <= end) {
+            return {
+              node: textNode,
+              offset: Math.min(length, Math.max(0, offset - start)),
+            }
+          }
+
+          start = end
+        }
+
+        if (lastTextNode) {
+          return {
+            node: lastTextNode,
+            offset: lastTextLength,
+          }
+        }
+
+        return {
+          node: textElement,
+          offset: textElement.childNodes.length,
+        }
+      }
+
+      const range = element.ownerDocument.createRange()
+      const start = resolveOffset(startOffset)
+      const end = resolveOffset(endOffset)
+
+      range.setStart(start.node, start.offset)
+      range.setEnd(end.node, end.offset)
+
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error(
+          `Text range has no selectable rect: ${path.join('.')} ${startOffset}-${endOffset}`
+        )
+      }
+
+      return {
+        x:
+          xAffinity === 'center'
+            ? rect.left + rect.width / 2
+            : xAffinity === 'end'
+              ? Math.max(rect.left + 1, rect.right - 1)
+              : rect.left,
+        y: rect.top + rect.height / 2,
+      }
+    },
+    { endOffset, path, startOffset, xAffinity }
+  )
+
+  await root.page().mouse.click(point.x, point.y)
+}
+
+const waitForPendingNativeTextInputRepair = async (
+  root: Locator,
+  { timeoutMs = READY_TIMEOUT_MS }: { timeoutMs?: number } = {}
+) => {
+  let actual: {
+    clearSettled: boolean | null
+    domRaw: {
+      anchorNodeText: string | null
+      anchorOffset: number
+      focusNodeText: string | null
+      focusOffset: number
+    } | null
+    domResolved: SelectionSnapshot | null
+    inputState: unknown
+    kernelTrace: unknown[]
+    repairTrace: unknown[]
+    model: SelectionSnapshot | null
+    pendingPath: string | null
+  } | null = null
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          actual = await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+              const clearSettled =
+                handle?.clearSettledPendingNativeTextInputRepair?.() ?? null
+              const state = handle?.getInputState?.() as
+                | { pendingNativeTextInputRepairPathKey?: string | null }
+                | null
+                | undefined
+              const kernelTrace = handle?.getKernelTrace?.() ?? []
+              const root = element.getRootNode() as Document | ShadowRoot
+              const selection =
+                'getSelection' in root ? root.getSelection() : null
+
+              return {
+                clearSettled,
+                domRaw:
+                  selection && selection.rangeCount > 0
+                    ? {
+                        anchorNodeText:
+                          selection.anchorNode?.textContent?.replace(
+                            /\uFEFF/g,
+                            ''
+                          ) ?? null,
+                        anchorOffset: selection.anchorOffset,
+                        focusNodeText:
+                          selection.focusNode?.textContent?.replace(
+                            /\uFEFF/g,
+                            ''
+                          ) ?? null,
+                        focusOffset: selection.focusOffset,
+                      }
+                    : null,
+                domResolved: handle?.getDOMSelection?.() ?? null,
+                inputState: state ?? null,
+                kernelTrace: kernelTrace.slice(-8),
+                model: handle?.getSelection?.() ?? null,
+                pendingPath: state?.pendingNativeTextInputRepairPathKey ?? null,
+                repairTrace: kernelTrace
+                  .filter(
+                    (entry: { eventFamily?: unknown }) =>
+                      entry?.eventFamily === 'repair'
+                  )
+                  .slice(-8),
+              }
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
+
+          return actual.pendingPath
+        },
+        { timeout: timeoutMs }
+      )
+      .toBe(null)
+  } catch {
+    throw new Error(
+      `Expected pending native text input repair to settle but received ${JSON.stringify(
+        actual
+      )}`
+    )
+  }
+}
+
 const matchesOffsetExpectation = (
   expected: OffsetExpectation,
   actual: number
@@ -3669,6 +5455,13 @@ const matchesSelectionExpectation = (
   )
 }
 
+const pathsEqual = (left: readonly number[], right: readonly number[]) =>
+  left.length === right.length &&
+  left.every((segment, index) => segment === right[index])
+
+const normalizeDOMSelectionText = (value: string | null | undefined) =>
+  value?.replace(/\uFEFF/g, '') ?? null
+
 const matchesDOMSelectionExpectation = (
   actual: DOMSelectionSnapshot | null,
   expected: DOMSelectionSnapshotExpectation
@@ -3683,6 +5476,98 @@ const matchesDOMSelectionExpectation = (
     matchesOffsetExpectation(expected.anchorOffset, actual.anchorOffset) &&
     matchesOffsetExpectation(expected.focusOffset, actual.focusOffset)
   )
+}
+
+const assertCollapsedModelDOMSelectionExpectation = async (
+  root: Locator,
+  expected: CollapsedModelDOMSelectionExpectation
+) => {
+  let actual: {
+    dom: DOMSelectionSnapshot | null
+    domResolved: SelectionSnapshot | null
+    inputState: unknown
+    kernelTrace: unknown[]
+    model: SelectionSnapshot | null
+  } | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        const [model, dom, domResolved, inputState, kernelTrace] =
+          await Promise.all([
+            takeSelectionSnapshotForRoot(root),
+            takeDOMSelectionSnapshotForRoot(root),
+            takeResolvedDOMSelectionSnapshotForRoot(root),
+            root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                return handle?.getInputState?.() ?? null
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            ),
+            root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                return handle?.getKernelTrace?.()?.slice(-8) ?? []
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            ),
+          ])
+
+        actual = { dom, domResolved, inputState, kernelTrace, model }
+
+        if (!model || !dom) {
+          return false
+        }
+
+        const modelCollapsed =
+          pathsEqual(model.anchor.path, model.focus.path) &&
+          model.anchor.offset === model.focus.offset
+        const domCollapsed = dom.anchorOffset === dom.focusOffset
+        const modelAtPath =
+          pathsEqual(model.anchor.path, expected.path) &&
+          pathsEqual(model.focus.path, expected.path)
+        const domText =
+          normalizeDOMSelectionText(dom.anchorNodeText) === expected.text &&
+          normalizeDOMSelectionText(dom.focusNodeText) === expected.text
+        const rawSameOffset =
+          model.anchor.offset === dom.anchorOffset &&
+          model.focus.offset === dom.focusOffset
+        const resolvedDOMCollapsed =
+          !!domResolved &&
+          pathsEqual(domResolved.anchor.path, domResolved.focus.path) &&
+          domResolved.anchor.offset === domResolved.focus.offset
+        const resolvedDOMAtPath =
+          !!domResolved &&
+          pathsEqual(domResolved.anchor.path, expected.path) &&
+          pathsEqual(domResolved.focus.path, expected.path)
+        const resolvedSameOffset =
+          !!domResolved &&
+          model.anchor.offset === domResolved.anchor.offset &&
+          model.focus.offset === domResolved.focus.offset
+        const sameOffset = domResolved
+          ? resolvedDOMCollapsed && resolvedDOMAtPath && resolvedSameOffset
+          : rawSameOffset
+
+        return (
+          modelCollapsed &&
+          domCollapsed &&
+          modelAtPath &&
+          domText &&
+          sameOffset &&
+          matchesOffsetExpectation(expected.offset, model.anchor.offset)
+        )
+      })
+      .toBe(true)
+  } catch {
+    throw new Error(
+      `Expected collapsed Slate/DOM selection ${JSON.stringify(
+        expected
+      )} but received ${JSON.stringify(actual)}`
+    )
+  }
 }
 
 const assertSelectionExpectation = async (
@@ -3758,6 +5643,8 @@ const assertDOMCaretExpectation = async (
     })
 }
 
+/** Playwright helper bundle for opening routes and inspecting editors. */
+/** Browser editor harness returned by `createSlateBrowserEditorHarness`. */
 export type SlateBrowserEditorHarness = {
   name: string
   page: Page
@@ -3765,15 +5652,19 @@ export type SlateBrowserEditorHarness = {
   rootAt: (selector: string) => SlateBrowserEditorHarness
   get: {
     modelText: () => Promise<string>
+    modelBlockText: (index: number) => Promise<string | null>
+    modelBlockTexts: () => Promise<string[]>
     text: () => Promise<string>
     blockTexts: () => Promise<string[]>
     renderedDOMShape: () => Promise<RenderedBlockDOMShapeSnapshot[]>
     selectedText: () => Promise<string>
+    displayedSelection: () => Promise<SlateBrowserDisplayedSelectionSnapshot>
     html: () => Promise<string>
     selection: () => Promise<SelectionSnapshot | null>
     domSelection: () => Promise<DOMSelectionSnapshot | null>
     focusOwner: () => Promise<FocusOwnerSnapshot>
     kernelTrace: () => Promise<SlateBrowserKernelTraceEntry[]>
+    history: () => Promise<unknown>
     lastCommit: () => Promise<unknown | null>
     placeholderShape: (selector?: string) => Promise<PlaceholderShape | null>
   }
@@ -3781,6 +5672,9 @@ export type SlateBrowserEditorHarness = {
     select: (selection: SelectionSnapshot) => Promise<void>
     selectDOM: (selection: SelectionSnapshot) => Promise<void>
     dragTextRange: (options: SlateBrowserDragTextRangeOptions) => Promise<void>
+    doubleClickDragTextRange: (
+      options: SlateBrowserDoubleClickDragTextRangeOptions
+    ) => Promise<void>
     collapse: (point: SelectionPoint) => Promise<void>
     capture: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
     bookmark: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
@@ -3789,10 +5683,30 @@ export type SlateBrowserEditorHarness = {
     unref: (bookmark: SelectionBookmark) => Promise<SelectionSnapshot | null>
     selectAll: () => Promise<void>
     get: () => Promise<SelectionSnapshot | null>
+    displayed: () => Promise<SlateBrowserDisplayedSelectionSnapshot>
     dom: () => Promise<DOMSelectionSnapshot | null>
     location: () => Promise<DOMSelectionLocationSnapshot | null>
     importDOM: () => Promise<SelectionSnapshot | null>
     rect: () => Promise<SelectionRectSnapshot | null>
+  }
+  dom: {
+    clickTextOffset: (
+      options: SlateBrowserTextOffsetClickOptions
+    ) => Promise<void>
+    clickTextRange: (
+      options: SlateBrowserTextPathRangeClickOptions
+    ) => Promise<void>
+    collapseAtTextPath: (
+      point: SelectionPoint,
+      options?: SlateBrowserDOMPathOptions
+    ) => Promise<void>
+    waitForPendingNativeTextInputRepair: (options?: {
+      timeoutMs?: number
+    }) => Promise<void>
+    waitForTextPath: (
+      path: number[],
+      options?: SlateBrowserDOMPathOptions
+    ) => Promise<void>
   }
   locator: {
     block: (path: number[]) => Locator
@@ -3814,8 +5728,13 @@ export type SlateBrowserEditorHarness = {
   selectAll: () => Promise<void>
   assert: {
     text: (text: RegExp | string) => Promise<void>
+    modelBlockText: (index: number, text: string | null) => Promise<void>
+    modelBlockTexts: (texts: string[]) => Promise<void>
     blockTexts: (texts: string[]) => Promise<void>
-    html: (expectedFragment: string) => Promise<void>
+    html: (
+      expectedHtml: string,
+      options?: HtmlNormalizationOptions
+    ) => Promise<void>
     htmlContains: (expectedFragment: string) => Promise<void>
     htmlEquals: (
       expectedHtml: string,
@@ -3824,6 +5743,12 @@ export type SlateBrowserEditorHarness = {
     focusOwner: (expected: FocusOwnerSnapshot['kind']) => Promise<void>
     kernelTrace: (expected: SlateBrowserKernelTraceExpectation) => Promise<void>
     selection: (expected: SelectionSnapshotExpectation) => Promise<void>
+    collapsedModelDOMSelection: (
+      expected: CollapsedModelDOMSelectionExpectation
+    ) => Promise<void>
+    noDoubleSelectionHighlight: () => Promise<void>
+    caretVisibleInScrollableParent: () => Promise<void>
+    noVisibleCaretInRoot: () => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
     domCaret: (expected: { offset: number; text: string }) => Promise<void>
     domSelectionTarget: (
@@ -3850,6 +5775,7 @@ export type SlateBrowserEditorHarness = {
       slateFragment?: string | null
       text: string
     }) => Promise<void>
+    pasteNativeText: (text: string) => Promise<void>
     pasteText: (text: string) => Promise<void>
     pasteHtml: (html: string, plainText?: string) => Promise<void>
     assert: {
@@ -3861,6 +5787,9 @@ export type SlateBrowserEditorHarness = {
   }
   ime: {
     enableKeyEvents: () => Promise<void>
+    startSynthetic: (options?: { text?: string }) => Promise<void>
+    updateSynthetic: (options: { text: string }) => Promise<void>
+    commitSynthetic: (options: { text: string }) => Promise<void>
     compose: (options: {
       text: string
       steps?: readonly string[]
@@ -3885,6 +5814,249 @@ export type SlateBrowserEditorHarness = {
   withExtension: <T>(extend: (editor: SlateBrowserEditorHarness) => T) => T
 }
 
+/** Contract expectation for model, DOM, native, and visual selection proof. */
+/** Expected selection state for `assertSlateBrowserSelectionContract`. */
+export type SlateBrowserSelectionContractExpectation = {
+  domSelection?: DOMSelectionSnapshotExpectation
+  domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
+  hasVisibleEditorSelection?: boolean
+  hasVisibleSelection?: boolean
+  noDoubleSelectionHighlight?: boolean
+  selectedText?: string
+  selection?: SelectionSnapshotExpectation
+}
+
+/** Snapshot used to prove caret visibility inside a scroll container. */
+/** Caret visibility evidence captured inside a scrollable parent. */
+export type CaretVisibilitySnapshot = {
+  activeElementTestId: string | null
+  activeElementTagName: string | null
+  anchorInRoot: boolean
+  anchorNodeText: string | null
+  focusInRoot: boolean
+  hasSelection: boolean
+  parentRect: { bottom: number; top: number } | null
+  rangeCount: number
+  rootContainsActiveElement: boolean
+  scrollParentTagName: string | null
+  textHostText: string | null
+  visible: boolean
+  visibleRect: {
+    bottom: number
+    height: number
+    top: number
+    width: number
+  } | null
+}
+
+/** Assert model, DOM, native, and visual selection expectations. */
+export const assertSlateBrowserSelectionContract = async (
+  harness: SlateBrowserEditorHarness,
+  expected: SlateBrowserSelectionContractExpectation
+) => {
+  if (expected.selection) {
+    await harness.assert.selection(expected.selection)
+  }
+
+  if (expected.selectedText !== undefined) {
+    await expect
+      .poll(() => harness.get.selectedText())
+      .toBe(expected.selectedText)
+  }
+
+  if (expected.domSelection) {
+    await harness.assert.domSelection(expected.domSelection)
+  }
+
+  if (expected.domSelectionTarget) {
+    await harness.assert.domSelectionTarget(expected.domSelectionTarget)
+  }
+
+  if (expected.hasVisibleSelection !== undefined) {
+    await expect
+      .poll(
+        async () => (await harness.selection.displayed()).hasVisibleSelection
+      )
+      .toBe(expected.hasVisibleSelection)
+  }
+
+  if (expected.hasVisibleEditorSelection !== undefined) {
+    await expect
+      .poll(
+        async () =>
+          (await harness.selection.displayed()).hasVisibleEditorSelection
+      )
+      .toBe(expected.hasVisibleEditorSelection)
+  }
+
+  if (expected.noDoubleSelectionHighlight) {
+    await harness.assert.noDoubleSelectionHighlight()
+  }
+}
+
+const takeCaretVisibilitySnapshot = async (
+  root: Locator
+): Promise<CaretVisibilitySnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const selection = element.ownerDocument.getSelection()
+    const activeElement = element.ownerDocument.activeElement
+    const anchorInRoot =
+      !!selection?.anchorNode && element.contains(selection.anchorNode)
+    const focusInRoot =
+      !!selection?.focusNode && element.contains(selection.focusNode)
+    const base = {
+      activeElementTestId:
+        (activeElement as HTMLElement | null)?.dataset?.testId ?? null,
+      activeElementTagName: activeElement?.tagName?.toLowerCase() ?? null,
+      anchorInRoot,
+      anchorNodeText: selection?.anchorNode?.textContent ?? null,
+      focusInRoot,
+      hasSelection: !!selection,
+      parentRect: null,
+      rangeCount: selection?.rangeCount ?? 0,
+      rootContainsActiveElement:
+        !!activeElement && element.contains(activeElement),
+      scrollParentTagName: null,
+      textHostText: null,
+      visible: false,
+      visibleRect: null,
+    } satisfies CaretVisibilitySnapshot
+
+    if (!selection || selection.rangeCount === 0) {
+      return base
+    }
+
+    const scrollParent = [
+      element,
+      ...Array.from(
+        (function* parents() {
+          for (
+            let parent = element.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            if (parent.scrollHeight > parent.clientHeight) {
+              yield parent
+            }
+          }
+        })()
+      ),
+    ].find((parent) => parent.scrollHeight > parent.clientHeight)
+    const scrollParentTagName = scrollParent?.tagName ?? null
+    const anchorElement =
+      selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode instanceof Text
+          ? selection.anchorNode.parentElement
+          : null
+    const textHost = anchorElement?.closest('[data-slate-node="text"]')
+    const range = selection.getRangeAt(0)
+    const caretRect =
+      Array.from(range.getClientRects())[0] ?? range.getBoundingClientRect()
+    const visibleRect =
+      caretRect.width === 0 && caretRect.height === 0
+        ? textHost?.getBoundingClientRect()
+        : caretRect
+
+    if (!visibleRect || (visibleRect.width === 0 && visibleRect.height === 0)) {
+      return {
+        ...base,
+        scrollParentTagName,
+        textHostText: textHost?.textContent ?? null,
+      }
+    }
+
+    const parentRect = scrollParent?.getBoundingClientRect() ?? {
+      bottom: window.innerHeight,
+      top: 0,
+    }
+    const visible =
+      anchorInRoot &&
+      focusInRoot &&
+      !!activeElement &&
+      element.contains(activeElement) &&
+      visibleRect.top >= parentRect.top - 1 &&
+      visibleRect.bottom <= parentRect.bottom + 1
+
+    return {
+      ...base,
+      parentRect: {
+        bottom: parentRect.bottom,
+        top: parentRect.top,
+      },
+      scrollParentTagName,
+      textHostText: textHost?.textContent ?? null,
+      visible,
+      visibleRect: {
+        bottom: visibleRect.bottom,
+        height: visibleRect.height,
+        top: visibleRect.top,
+        width: visibleRect.width,
+      },
+    }
+  })
+
+const assertCaretVisibleInScrollableParent = async (root: Locator) => {
+  let lastSnapshot: CaretVisibilitySnapshot | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        lastSnapshot = await takeCaretVisibilitySnapshot(root)
+
+        return lastSnapshot.visible
+      })
+      .toBe(true)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(
+      `${message}\nLast caret visibility snapshot: ${JSON.stringify(
+        lastSnapshot,
+        null,
+        2
+      )}`
+    )
+  }
+}
+
+const assertNoVisibleCaretInRoot = async (root: Locator) => {
+  let lastSnapshot: CaretVisibilitySnapshot | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        lastSnapshot = await takeCaretVisibilitySnapshot(root)
+
+        return {
+          rootContainsActiveElement: lastSnapshot.rootContainsActiveElement,
+          visible: lastSnapshot.visible,
+        }
+      })
+      .toEqual({
+        rootContainsActiveElement: false,
+        visible: false,
+      })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(
+      `${message}\nLast caret visibility snapshot: ${JSON.stringify(
+        lastSnapshot,
+        null,
+        2
+      )}`
+    )
+  }
+}
+
+/** Assert the caret is visible inside its scrollable ancestor. */
+export const assertSlateBrowserCaretVisibleInScrollableParent = async (
+  editor: SlateBrowserEditorHarness
+) => {
+  await assertCaretVisibleInScrollableParent(editor.root)
+}
+
 const getSelectionRect = async (
   root: Locator
 ): Promise<SelectionRectSnapshot | null> =>
@@ -3906,13 +6078,62 @@ const getSelectionRect = async (
       return null
     }
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    const clientRect = Array.from(range.getClientRects()).find(
+      (candidate) => candidate.width > 0 || candidate.height > 0
+    )
+    const usableRect =
+      clientRect ??
+      (rect.width > 0 || rect.height > 0 ? rect : null) ??
+      (() => {
+        if (!range.collapsed) {
+          return null
+        }
+
+        const start =
+          range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.startContainer as Element)
+            : range.startContainer.parentElement
+
+        if (!start) {
+          return null
+        }
+
+        const nearestSlateRectOwner = start.closest(
+          [
+            '[data-slate-string]',
+            '[data-slate-zero-width]',
+            '[data-slate-leaf]',
+            '[data-slate-node="text"]',
+            '[data-slate-node="element"]',
+          ].join(',')
+        )
+
+        let current: Element | null = nearestSlateRectOwner
+
+        while (current && element.contains(current)) {
+          const fallbackRect = current.getBoundingClientRect()
+
+          if (fallbackRect.width > 0 || fallbackRect.height > 0) {
+            return fallbackRect
+          }
+
+          current = current.parentElement
+        }
+
+        return null
+      })()
+
+    if (!usableRect) {
+      return null
+    }
 
     return {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
+      x: usableRect.x,
+      y: usableRect.y,
+      width: usableRect.width,
+      height: usableRect.height,
     }
   })
 
@@ -3968,6 +6189,7 @@ const getFocusOwnerSnapshot = async (
     }
   })
 
+/** Capture the current DOM selection from a Playwright page. */
 export const takeDOMSelectionSnapshot = async (
   page: Page
 ): Promise<DOMSelectionSnapshot | null> =>
@@ -4015,6 +6237,32 @@ const takeDOMSelectionSnapshotForRoot = async (
     }
   })
 
+const takeResolvedDOMSelectionSnapshotForRoot = async (
+  root: Locator
+): Promise<SelectionSnapshot | null> =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+      const selection = handle?.getDOMSelection?.()
+
+      if (!selection) {
+        return null
+      }
+
+      return {
+        anchor: {
+          offset: selection.anchor.offset,
+          path: [...selection.anchor.path],
+        },
+        focus: {
+          offset: selection.focus.offset,
+          path: [...selection.focus.path],
+        },
+      }
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
 const takeDOMSelectionLocationSnapshotForRoot = async (
   root: Locator
 ): Promise<DOMSelectionLocationSnapshot | null> =>
@@ -4051,6 +6299,7 @@ const takeDOMSelectionLocationSnapshotForRoot = async (
     }
   })
 
+/** Capture the current Slate model selection from a Playwright page. */
 export const takeSelectionSnapshot = async (
   page: Page
 ): Promise<SelectionSnapshot | null> =>
@@ -4304,32 +6553,208 @@ const takeSelectionSnapshotForRoot = async (
     { key: SLATE_BROWSER_HANDLE_KEY }
   )
 
-const waitForSelectionSync = async (root: Locator) => {
-  await expect
-    .poll(() =>
-      root.evaluate((element: HTMLElement) => {
+const waitForSelectionSync = async (
+  root: Locator,
+  expectedSelection?: SelectionSnapshot
+) => {
+  const readSyncState = () =>
+    root.evaluate(
+      (
+        element: HTMLElement,
+        {
+          expectedSelection,
+          key,
+        }: { expectedSelection?: SelectionSnapshot; key: string }
+      ) => {
+        const pointsEqual = (
+          left: SelectionPoint | null | undefined,
+          right: SelectionPoint | null | undefined
+        ) =>
+          !!left &&
+          !!right &&
+          left.offset === right.offset &&
+          left.path.length === right.path.length &&
+          left.path.every((part, index) => part === right.path[index])
+        const selectionsEqual = (
+          left: SelectionSnapshot | null | undefined,
+          right: SelectionSnapshot | null | undefined
+        ) =>
+          !!left &&
+          !!right &&
+          pointsEqual(left.anchor, right.anchor) &&
+          pointsEqual(left.focus, right.focus)
         const rootNode = element.getRootNode() as Document | ShadowRoot
         const selection =
           'getSelection' in rootNode
             ? rootNode.getSelection()
             : element.ownerDocument.getSelection()
+        const nativeSelectionInRoot = Boolean(
+          selection?.rangeCount &&
+            selection.anchorNode &&
+            selection.focusNode &&
+            element.contains(selection.anchorNode) &&
+            element.contains(selection.focusNode)
+        )
+        const getNativeSelectionSnapshot = () => {
+          if (
+            !selection?.rangeCount ||
+            !selection.anchorNode ||
+            !selection.focusNode ||
+            !element.contains(selection.anchorNode) ||
+            !element.contains(selection.focusNode)
+          ) {
+            return null
+          }
 
-        if (
-          !selection ||
-          selection.rangeCount === 0 ||
-          !selection.anchorNode ||
-          !selection.focusNode
-        ) {
-          return false
+          const getTextSegments = (owner: Element) =>
+            Array.from(
+              owner.querySelectorAll(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+            ).map((segment) => {
+              const leafNode = segment.firstChild
+              const domLength = leafNode?.textContent?.length ?? 0
+              const attr = segment.getAttribute('data-slate-length')
+              const trueLength =
+                attr == null ? domLength : Number.parseInt(attr, 10)
+
+              return {
+                segment,
+                trueLength,
+              }
+            })
+
+          const findZeroWidthMarker = (node: Node | null) => {
+            const markerElement =
+              node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+            return markerElement?.closest('[data-slate-zero-width]') ?? null
+          }
+
+          const toEditorOffset = (node: Node | null, offset: number) => {
+            const owner =
+              node?.nodeType === 1
+                ? (node as Element).closest('[data-slate-node="text"]')
+                : node?.parentElement?.closest('[data-slate-node="text"]')
+            const segment =
+              node?.nodeType === 1
+                ? (node as Element).closest(
+                    '[data-slate-string], [data-slate-zero-width]'
+                  )
+                : node?.parentElement?.closest(
+                    '[data-slate-string], [data-slate-zero-width]'
+                  )
+
+            const localOffset = findZeroWidthMarker(node) ? 0 : offset
+
+            if (!owner || !segment) {
+              return localOffset
+            }
+
+            const segments = getTextSegments(owner)
+            const segmentIndex = segments.findIndex(
+              (entry) => entry.segment === segment
+            )
+
+            if (segmentIndex <= 0) {
+              return localOffset
+            }
+
+            return (
+              segments
+                .slice(0, segmentIndex)
+                .reduce((total, entry) => total + entry.trueLength, 0) +
+              localOffset
+            )
+          }
+
+          const getPath = (node: Node | null) => {
+            const owner =
+              node?.nodeType === 1
+                ? (node as Element).closest('[data-slate-node="text"]')
+                : node?.parentElement?.closest('[data-slate-node="text"]')
+
+            if (!owner || !element.contains(owner)) {
+              return null
+            }
+
+            const path = owner
+              .getAttribute('data-slate-path')
+              ?.split(',')
+              .map((part) => Number.parseInt(part, 10))
+
+            return path?.every(Number.isInteger) ? path : null
+          }
+
+          const anchorPath = getPath(selection.anchorNode)
+          const focusPath = getPath(selection.focusNode)
+
+          if (!anchorPath || !focusPath) {
+            return null
+          }
+
+          return {
+            anchor: {
+              offset: toEditorOffset(
+                selection.anchorNode,
+                selection.anchorOffset
+              ),
+              path: anchorPath,
+            },
+            focus: {
+              offset: toEditorOffset(
+                selection.focusNode,
+                selection.focusOffset
+              ),
+              path: focusPath,
+            },
+          }
         }
 
-        return (
-          element.contains(selection.anchorNode) &&
-          element.contains(selection.focusNode)
-        )
-      })
+        const handle = (element as Record<string, any>)[key]
+        const handleSelection =
+          typeof handle?.getSelection === 'function'
+            ? handle.getSelection()
+            : null
+
+        const nativeSelection = getNativeSelectionSnapshot()
+        const modelBackedSelection =
+          element.getAttribute('data-slate-dom-strategy-selection') ===
+            'partial-dom-backed' ||
+          !!element.querySelector('[data-slate-view-selection="true"]')
+        const synced = expectedSelection
+          ? handle?.getSelection
+            ? selectionsEqual(handleSelection, expectedSelection) &&
+              (modelBackedSelection ||
+                selectionsEqual(nativeSelection, expectedSelection))
+            : selectionsEqual(nativeSelection, expectedSelection)
+          : nativeSelectionInRoot || (modelBackedSelection && !!handleSelection)
+
+        return {
+          expectedSelection,
+          handleSelection,
+          modelBackedSelection,
+          nativeSelection,
+          nativeSelectionInRoot,
+          synced,
+        }
+      },
+      { expectedSelection, key: SLATE_BROWSER_HANDLE_KEY }
     )
-    .toBe(true)
+
+  await expect
+    .poll(() => readSyncState())
+    .toMatchObject({ synced: true })
+    .catch(async (error: unknown) => {
+      const state = await readSyncState().catch((stateError: unknown) => ({
+        error:
+          stateError instanceof Error ? stateError.message : String(stateError),
+      }))
+
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nSelection sync state:\n${JSON.stringify(state, null, 2)}`
+      )
+    })
   await root.page().waitForTimeout(100)
 }
 
@@ -4381,12 +6806,16 @@ const waitForSelectionRange = async (root: Locator) => {
     .poll(() =>
       root.evaluate((element: HTMLElement) => {
         const rootNode = element.getRootNode() as Document | ShadowRoot
-        const selection =
+        const rootSelection =
           'getSelection' in rootNode
             ? rootNode.getSelection()
             : element.ownerDocument.getSelection()
+        const documentSelection = element.ownerDocument.getSelection()
 
-        return (selection?.rangeCount ?? 0) > 0
+        return (
+          (rootSelection?.rangeCount ?? 0) > 0 ||
+          (documentSelection?.rangeCount ?? 0) > 0
+        )
       })
     )
     .toBe(true)
@@ -4593,105 +7022,128 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
 }
 
 const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
-  await root.evaluate((element: HTMLElement, nextSelection) => {
-    const selectionPointToDOMPoint = (point: SelectionPoint) => {
-      const textElements = Array.from(
-        element.querySelectorAll('[data-slate-node="text"]')
-      ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
-      const textElement =
-        textElements.find(
+  return root.evaluate(
+    (element: HTMLElement, payload) => {
+      const { key, selection: nextSelection } = payload
+      const handle = (element as Record<string, any>)[key]
+
+      if (handle?.setNativeDOMSelection?.(nextSelection)) {
+        return true
+      }
+
+      const selectionPointToDOMPoint = (point: SelectionPoint) => {
+        const textElements = Array.from(
+          element.querySelectorAll('[data-slate-node="text"]')
+        ).filter(
+          (node) => node.closest('[data-slate-editor="true"]') === element
+        )
+        const textElement = textElements.find(
           (node) =>
             node.getAttribute('data-slate-path') === point.path.join(',')
-        ) ?? textElements[point.path.at(-1) ?? 0]
-      const stringElements = Array.from(
-        textElement?.querySelectorAll(
-          '[data-slate-string], [data-slate-zero-width]'
-        ) ?? []
-      )
-      let start = 0
-      let lastTextNode: Node | null = null
-      let lastTextLength = 0
+        )
 
-      for (const stringElement of stringElements) {
-        const textNode =
-          Array.from(stringElement.childNodes).find(
-            (node) => node.nodeType === Node.TEXT_NODE
-          ) ?? null
-
-        if (!textNode) {
-          continue
+        if (!textElement) {
+          return null
         }
 
-        const length = textNode.textContent?.length ?? 0
-        const attr = stringElement.getAttribute('data-slate-length')
-        const trueLength = attr == null ? length : Number.parseInt(attr, 10)
-        const end = start + trueLength
+        const stringElements = Array.from(
+          textElement?.querySelectorAll(
+            '[data-slate-string], [data-slate-zero-width]'
+          ) ?? []
+        )
+        let start = 0
+        let lastTextNode: Node | null = null
+        let lastTextLength = 0
 
-        lastTextNode = textNode
-        lastTextLength = length
+        for (const stringElement of stringElements) {
+          const textNode =
+            Array.from(stringElement.childNodes).find(
+              (node) => node.nodeType === Node.TEXT_NODE
+            ) ?? null
 
-        if (
-          stringElement.hasAttribute('data-slate-zero-width') &&
-          point.offset === start &&
-          length <= 1
-        ) {
+          if (!textNode) {
+            continue
+          }
+
+          const length = textNode.textContent?.length ?? 0
+          const attr = stringElement.getAttribute('data-slate-length')
+          const trueLength = attr == null ? length : Number.parseInt(attr, 10)
+          const end = start + trueLength
+
+          lastTextNode = textNode
+          lastTextLength = length
+
+          if (
+            stringElement.hasAttribute('data-slate-zero-width') &&
+            point.offset === start &&
+            length <= 1
+          ) {
+            return {
+              node: textNode,
+              offset: length,
+            }
+          }
+
+          if (point.offset <= end) {
+            return {
+              node: textNode,
+              offset: Math.min(length, Math.max(0, point.offset - start)),
+            }
+          }
+
+          start = end
+        }
+
+        if (lastTextNode) {
           return {
-            node: textNode,
-            offset: length,
+            node: lastTextNode,
+            offset: lastTextLength,
           }
         }
 
-        if (point.offset <= end) {
-          return {
-            node: textNode,
-            offset: Math.min(length, Math.max(0, point.offset - start)),
-          }
-        }
-
-        start = end
-      }
-
-      if (lastTextNode) {
         return {
-          node: lastTextNode,
-          offset: lastTextLength,
+          node: textElement,
+          offset: textElement.childNodes.length,
         }
       }
 
-      if (!textElement) {
-        throw new Error(`Missing DOM text node for ${point.path.join('.')}`)
+      const anchor = selectionPointToDOMPoint(nextSelection.anchor)
+      const focus = selectionPointToDOMPoint(nextSelection.focus)
+
+      if (!anchor || !focus) {
+        return false
       }
 
-      return {
-        node: textElement,
-        offset: textElement.childNodes.length,
+      const range = element.ownerDocument.createRange()
+
+      range.setStart(anchor.node, anchor.offset)
+      range.setEnd(focus.node, focus.offset)
+
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const domSelection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : element.ownerDocument.getSelection()
+
+      if (!domSelection) {
+        return false
       }
-    }
 
-    const anchor = selectionPointToDOMPoint(nextSelection.anchor)
-    const focus = selectionPointToDOMPoint(nextSelection.focus)
-    const range = element.ownerDocument.createRange()
+      element.focus()
+      domSelection.removeAllRanges()
+      domSelection.addRange(range)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
 
-    range.setStart(anchor.node, anchor.offset)
-    range.setEnd(focus.node, focus.offset)
+      if (rootNode instanceof ShadowRoot) {
+        rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      }
 
-    const rootNode = element.getRootNode() as Document | ShadowRoot
-    const domSelection =
-      'getSelection' in rootNode
-        ? rootNode.getSelection()
-        : element.ownerDocument.getSelection()
-
-    element.focus()
-    domSelection?.removeAllRanges()
-    domSelection?.addRange(range)
-    element.ownerDocument.dispatchEvent(
-      new Event('selectionchange', { bubbles: true })
-    )
-
-    if (rootNode instanceof ShadowRoot) {
-      rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
-    }
-  }, selection)
+      return domSelection.rangeCount > 0
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY, selection }
+  )
 }
 
 const hasExpandedSelection = (selection: SelectionSnapshot | null) =>
@@ -4752,7 +7204,12 @@ const dragTextSelection = async (
 const dragTextRange = async (
   root: Locator,
   {
+    direction = 'forward',
+    endAffinity = 'inside',
     endOffset,
+    endText,
+    endTextNodeIndex,
+    settleMs = 0,
     startOffset,
     steps = 16,
     text,
@@ -4763,16 +7220,160 @@ const dragTextRange = async (
     (
       element,
       {
+        endAffinity,
         endOffset,
+        endText,
+        endTextNodeIndex,
         startOffset,
         text,
         textNodeIndex,
-      }: Required<Omit<SlateBrowserDragTextRangeOptions, 'steps'>>
+      }: Omit<SlateBrowserDragTextRangeOptions, 'settleMs' | 'steps'> & {
+        endAffinity: NonNullable<
+          SlateBrowserDragTextRangeOptions['endAffinity']
+        >
+        textNodeIndex: number
+      }
     ) => {
-      if (startOffset > endOffset) {
-        throw new Error('dragTextRange expects startOffset <= endOffset')
+      const ownerDocument = element.ownerDocument
+      const walker = ownerDocument.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT
+      )
+      const matches: Node[] = []
+
+      while (walker.nextNode()) {
+        matches.push(walker.currentNode)
       }
 
+      const findTextNode = (targetText: string, targetIndex: number) => {
+        const targetMatches = matches.filter(
+          (node) => node.textContent === targetText
+        )
+        const target = targetMatches[targetIndex]
+
+        if (!target) {
+          throw new Error(`Text node not found for drag range: ${targetText}`)
+        }
+
+        return target
+      }
+      const startNode = findTextNode(text, textNodeIndex)
+      const resolvedEndText = endText ?? text
+      const resolvedEndTextNodeIndex = endTextNodeIndex ?? textNodeIndex
+      const endNode = findTextNode(resolvedEndText, resolvedEndTextNodeIndex)
+
+      if (startNode === endNode && startOffset > endOffset) {
+        throw new Error('dragTextRange expects startOffset <= endOffset')
+      }
+      const pointAt = (
+        node: Node,
+        offset: number,
+        affinity: 'end' | 'start'
+      ) => {
+        const textLength = node.textContent?.length ?? 0
+
+        if (textLength === 0) {
+          throw new Error('Text range has no selectable rect')
+        }
+
+        const range = ownerDocument.createRange()
+        const charIndex =
+          affinity === 'end'
+            ? Math.max(0, Math.min(offset - 1, textLength - 1))
+            : Math.max(0, Math.min(offset, textLength - 1))
+
+        range.setStart(node, charIndex)
+        range.setEnd(node, Math.min(textLength, charIndex + 1))
+
+        const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          throw new Error('Text range has no selectable rect')
+        }
+
+        if (affinity === 'start') {
+          return {
+            x: rect.left + 1,
+            y: rect.top + rect.height / 2,
+          }
+        }
+
+        const shouldEndAfterText =
+          endAffinity === 'after' && offset >= textLength
+
+        return {
+          x: shouldEndAfterText
+            ? rect.right + 2
+            : Math.max(rect.left + 1, rect.right - 1),
+          y: rect.top + rect.height / 2,
+        }
+      }
+      const start = pointAt(startNode, startOffset, 'start')
+      const end = pointAt(endNode, endOffset, 'end')
+
+      return {
+        endX: end.x,
+        endY: end.y,
+        startX: start.x,
+        startY: start.y,
+      }
+    },
+    {
+      endAffinity,
+      endOffset,
+      endText,
+      endTextNodeIndex,
+      startOffset,
+      text,
+      textNodeIndex,
+    }
+  )
+  const page = root.page()
+
+  const startPoint =
+    direction === 'backward'
+      ? { x: points.endX, y: points.endY }
+      : { x: points.startX, y: points.startY }
+  const endPoint =
+    direction === 'backward'
+      ? { x: points.startX, y: points.startY }
+      : { x: points.endX, y: points.endY }
+
+  await page.mouse.move(startPoint.x, startPoint.y)
+  await page.mouse.down()
+  await page.mouse.move(endPoint.x, endPoint.y, { steps })
+  if (settleMs > 0) {
+    await page.waitForTimeout(settleMs)
+  }
+  await page.mouse.up()
+}
+
+const doubleClickDragTextRange = async (
+  root: Locator,
+  {
+    doubleClickOffset,
+    endOffset,
+    gestureDelayMs = 35,
+    steps = 16,
+    text,
+    textNodeIndex = 0,
+  }: SlateBrowserDoubleClickDragTextRangeOptions
+) => {
+  const points = await root.evaluate(
+    (
+      element,
+      {
+        doubleClickOffset,
+        endOffset,
+        text,
+        textNodeIndex,
+      }: Required<
+        Pick<
+          SlateBrowserDoubleClickDragTextRangeOptions,
+          'doubleClickOffset' | 'endOffset' | 'text' | 'textNodeIndex'
+        >
+      >
+    ) => {
       const ownerDocument = element.ownerDocument
       const walker = ownerDocument.createTreeWalker(
         element,
@@ -4789,34 +7390,76 @@ const dragTextRange = async (
       const textNode = matches[textNodeIndex]
 
       if (!textNode) {
-        throw new Error(`Text node not found for drag range: ${text}`)
+        throw new Error(`Text node not found for double-click drag: ${text}`)
       }
 
-      const range = ownerDocument.createRange()
+      const textLength = textNode.textContent?.length ?? 0
 
-      range.setStart(textNode, startOffset)
-      range.setEnd(textNode, endOffset)
-
-      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
-
-      if (!rect || rect.width <= 0 || rect.height <= 0) {
-        throw new Error('Text range has no selectable rect')
+      if (textLength === 0) {
+        throw new Error('Cannot double-click drag an empty text node')
       }
+
+      const clampOffset = (offset: number) =>
+        Math.max(0, Math.min(offset, textLength))
+      const pointAt = (
+        offset: number,
+        affinity: 'anchor' | 'end' | 'start'
+      ) => {
+        const safeOffset = clampOffset(offset)
+        const probeStart =
+          affinity === 'end'
+            ? Math.max(0, Math.min(safeOffset - 1, textLength - 1))
+            : Math.max(0, Math.min(safeOffset, textLength - 1))
+        const probeEnd = Math.min(textLength, probeStart + 1)
+        const range = ownerDocument.createRange()
+
+        range.setStart(textNode, probeStart)
+        range.setEnd(textNode, probeEnd)
+
+        const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          throw new Error(
+            `Text offset has no selectable rect: ${text} @ ${offset}`
+          )
+        }
+
+        const x =
+          affinity === 'anchor'
+            ? rect.left + rect.width / 2
+            : affinity === 'end'
+              ? Math.max(rect.left + 1, rect.right - 1)
+              : rect.left + 1
+
+        return {
+          x,
+          y: rect.top + rect.height / 2,
+        }
+      }
+      const forward = endOffset >= doubleClickOffset
+
+      textNode.parentElement?.scrollIntoView({
+        block: 'center',
+        inline: 'nearest',
+      })
 
       return {
-        endX: Math.max(rect.left + 1, rect.right - 1),
-        startX: rect.left + 1,
-        y: rect.top + rect.height / 2,
+        end: pointAt(endOffset, forward ? 'end' : 'start'),
+        start: pointAt(doubleClickOffset, 'anchor'),
       }
     },
-    { endOffset, startOffset, text, textNodeIndex }
+    { doubleClickOffset, endOffset, text, textNodeIndex }
   )
   const page = root.page()
 
-  await page.mouse.move(points.startX, points.y)
+  await page.mouse.move(points.start.x, points.start.y)
   await page.mouse.down()
-  await page.mouse.move(points.endX, points.y, { steps })
   await page.mouse.up()
+  await page.waitForTimeout(gestureDelayMs)
+  await page.mouse.down({ clickCount: 2 })
+  await page.waitForTimeout(gestureDelayMs)
+  await page.mouse.move(points.end.x, points.end.y, { steps })
+  await page.mouse.up({ clickCount: 2 })
 }
 
 const waitForReady = async (
@@ -4925,10 +7568,45 @@ const createEditorHarness = (
           },
           { key: SLATE_BROWSER_HANDLE_KEY }
         ),
+      modelBlockText: async (index) =>
+        root.evaluate(
+          (
+            element: HTMLElement,
+            { index, key }: { index: number; key: string }
+          ) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.getBlockText) {
+              throw new Error(
+                'This editor surface does not expose getBlockText'
+              )
+            }
+
+            return handle.getBlockText(index)
+          },
+          { index, key: SLATE_BROWSER_HANDLE_KEY }
+        ),
+      modelBlockTexts: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.getBlockTexts) {
+              throw new Error(
+                'This editor surface does not expose getBlockTexts'
+              )
+            }
+
+            return handle.getBlockTexts()
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       text: async () => (await root.textContent()) ?? '',
       blockTexts: async () => getBlockTexts(root),
       renderedDOMShape: async () => getRenderedBlockDOMShapes(root),
       selectedText: async () => getSelectedText(root),
+      displayedSelection: async () =>
+        takeDisplayedSelectionSnapshotForRoot(root),
       html: async () => root.evaluate((el: HTMLElement) => el.innerHTML),
       selection: async () => takeSelectionSnapshotForRoot(root),
       domSelection: async () => takeDOMSelectionSnapshotForRoot(root),
@@ -4942,6 +7620,15 @@ const createEditorHarness = (
           },
           { key: SLATE_BROWSER_HANDLE_KEY }
         ) as Promise<SlateBrowserKernelTraceEntry[]>,
+      history: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            return handle?.getHistory ? handle.getHistory() : null
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       lastCommit: async () =>
         root.evaluate(
           (element: HTMLElement, { key }: { key: string }) => {
@@ -5024,7 +7711,11 @@ const createEditorHarness = (
       },
       selectDOM: async (selection: SelectionSnapshot) => {
         await page.waitForTimeout(0)
-        await setDOMSelection(root, selection)
+        if (!(await setDOMSelection(root, selection))) {
+          throw new Error(
+            `Missing DOM text node for ${selection.anchor.path.join('.')} or ${selection.focus.path.join('.')}`
+          )
+        }
         await root.evaluate((element: HTMLElement) => {
           const rootNode = element.getRootNode() as Document | ShadowRoot
 
@@ -5068,7 +7759,11 @@ const createEditorHarness = (
           if (!(await handleSelectionMatches(root, selection))) {
             await setSelectionWithHandle(root, selection)
             await page.waitForTimeout(0)
-            await setDOMSelection(root, selection)
+            if (!(await setDOMSelection(root, selection))) {
+              throw new Error(
+                `Missing DOM text node for ${selection.anchor.path.join('.')} or ${selection.focus.path.join('.')}`
+              )
+            }
             await root.evaluate(
               (element: HTMLElement, { key }: { key: string }) => {
                 const handle = (element as Record<string, any>)[key]
@@ -5087,6 +7782,11 @@ const createEditorHarness = (
       },
       dragTextRange: async (options: SlateBrowserDragTextRangeOptions) => {
         await dragTextRange(root, options)
+      },
+      doubleClickDragTextRange: async (
+        options: SlateBrowserDoubleClickDragTextRangeOptions
+      ) => {
+        await doubleClickDragTextRange(root, options)
       },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
@@ -5110,15 +7810,19 @@ const createEditorHarness = (
         const selectedWithHandle =
           (await waitForSelectionHandle(root)) &&
           (await selectAllWithHandle(root))
+        const expectedSelection = selectedWithHandle
+          ? await takeSelectionSnapshotForRoot(root)
+          : null
 
         if (!selectedWithHandle) {
           await harness.focus()
           await page.keyboard.press('ControlOrMeta+A')
         }
 
-        await waitForSelectionSync(root)
+        await waitForSelectionSync(root, expectedSelection ?? undefined)
       },
       get: async () => takeSelectionSnapshotForRoot(root),
+      displayed: async () => takeDisplayedSelectionSnapshotForRoot(root),
       dom: async () => takeDOMSelectionSnapshotForRoot(root),
       location: async () => takeDOMSelectionLocationSnapshotForRoot(root),
       importDOM: async () =>
@@ -5138,6 +7842,31 @@ const createEditorHarness = (
         ),
       rect: async () => getSelectionRect(root),
     },
+    dom: {
+      clickTextOffset: async ({
+        clickCount,
+        offset,
+        path,
+        waitForSelectionSync,
+      }) => {
+        await clickTextOffset(root, path, offset, {
+          clickCount,
+          waitForSelectionSync,
+        })
+      },
+      clickTextRange: async (options) => {
+        await clickTextPathRange(root, options)
+      },
+      collapseAtTextPath: async (point, options) => {
+        await collapseDOMAtTextPath(root, point, options)
+      },
+      waitForPendingNativeTextInputRepair: async (options) => {
+        await waitForPendingNativeTextInputRepair(root, options)
+      },
+      waitForTextPath: async (path, options) => {
+        await waitForTextPathMaterialized(root, path, options)
+      },
+    },
     locator: {
       block: (path: number[]) => locateBlock(root, path),
       text: (path: number[]) => locateText(root, path),
@@ -5154,6 +7883,7 @@ const createEditorHarness = (
       domSelection: await harness.get.domSelection(),
       focusOwner: await harness.get.focusOwner(),
       kernelTrace: await harness.get.kernelTrace(),
+      history: await harness.get.history(),
       lastCommit: await harness.get.lastCommit(),
       placeholderShape: await harness.get.placeholderShape(),
     }),
@@ -5348,11 +8078,20 @@ const createEditorHarness = (
       text: async (text: RegExp | string) => {
         await expect(root).toContainText(text)
       },
+      modelBlockText: async (index: number, text: string | null) => {
+        await expect.poll(() => harness.get.modelBlockText(index)).toBe(text)
+      },
+      modelBlockTexts: async (texts: string[]) => {
+        await expect.poll(() => harness.get.modelBlockTexts()).toEqual(texts)
+      },
       blockTexts: async (texts: string[]) => {
         await expect.poll(() => getBlockTexts(root)).toEqual(texts)
       },
-      html: async (expectedFragment: string) => {
-        await harness.assert.htmlContains(expectedFragment)
+      html: async (
+        expectedHtml: string,
+        options: HtmlNormalizationOptions = {}
+      ) => {
+        await harness.assert.htmlEquals(expectedHtml, options)
       },
       htmlContains: async (expectedFragment: string) => {
         await expect
@@ -5398,6 +8137,26 @@ const createEditorHarness = (
       },
       selection: async (expected: SelectionSnapshotExpectation) => {
         await assertSelectionExpectation(root, expected)
+      },
+      collapsedModelDOMSelection: async (
+        expected: CollapsedModelDOMSelectionExpectation
+      ) => {
+        await assertCollapsedModelDOMSelectionExpectation(root, expected)
+      },
+      noDoubleSelectionHighlight: async () => {
+        await expect
+          .poll(async () => {
+            const snapshot = await takeDisplayedSelectionSnapshotForRoot(root)
+
+            return snapshot.doubleHighlighted
+          })
+          .toBe(false)
+      },
+      caretVisibleInScrollableParent: async () => {
+        await assertCaretVisibleInScrollableParent(root)
+      },
+      noVisibleCaretInRoot: async () => {
+        await assertNoVisibleCaretInRoot(root)
       },
       domSelection: async (expected: DOMSelectionSnapshotExpectation) => {
         await assertDOMSelectionExpectation(root, expected)
@@ -5504,6 +8263,13 @@ const createEditorHarness = (
       }) => {
         await pastePayloadThroughEvent(root, payload)
       },
+      pasteNativeText: async (text: string) => {
+        await withExclusiveClipboardAccess(async () => {
+          await writeClipboardText(surface, text)
+          await root.press('ControlOrMeta+V')
+          await page.waitForTimeout(50)
+        })
+      },
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
           const beforeSelectedText = await harness.get.selectedText()
@@ -5511,15 +8277,15 @@ const createEditorHarness = (
           const beforeText = await harness.get.modelText()
           const beforeTraceLength = (await harness.get.kernelTrace()).length
 
+          await harness.focus()
+
           try {
             await writeClipboardText(surface, text)
           } catch {
-            await harness.focus()
             await insertDataThroughHandle(root, { text })
             return
           }
 
-          await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 
@@ -5552,15 +8318,20 @@ const createEditorHarness = (
           const beforeTraceLength = (await harness.get.kernelTrace()).length
           const text = plainText ?? (await toPlainText(surface, html))
 
+          await harness.focus()
+
+          if (await shouldUseSyntheticHtmlPaste(surface)) {
+            await pastePayloadThroughEvent(root, { html, text })
+            return
+          }
+
           try {
             await writeClipboardHtml(surface, html, text)
           } catch {
-            await harness.focus()
             await insertDataThroughHandle(root, { html, text })
             return
           }
 
-          await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 
@@ -5607,6 +8378,16 @@ const createEditorHarness = (
     ime: {
       enableKeyEvents: async () => {
         await enableCompositionKeyEvents(surface)
+      },
+      startSynthetic: async ({ text = '' } = {}) => {
+        await enableCompositionKeyEvents(surface)
+        await startSyntheticComposition(surface, text)
+      },
+      updateSynthetic: async ({ text }) => {
+        await updateSyntheticComposition(surface, text)
+      },
+      commitSynthetic: async ({ text }) => {
+        await commitSyntheticCompositionText(surface, text)
       },
       compose: async ({
         text,
@@ -5843,12 +8624,18 @@ const createEditorHarness = (
               }
               case 'assertRenderBudget': {
                 const snapshot = await getSlateReactRenderProfilerSnapshot(page)
+                const budgetLabel = (label: string) =>
+                  `${label} ${JSON.stringify({
+                    byKey: snapshot.byKey,
+                    byKind: snapshot.byKind,
+                    events: snapshot.events,
+                  })}`
 
                 if (step.budget.total !== undefined) {
                   assertNumberBudget(
                     snapshot.total,
                     step.budget.total,
-                    'render total'
+                    budgetLabel('render total')
                   )
                 }
 
@@ -5861,7 +8648,7 @@ const createEditorHarness = (
                   assertNumberBudget(
                     snapshot.byKind[kind] ?? 0,
                     expected,
-                    `render kind ${kind}`
+                    budgetLabel(`render kind ${kind}`)
                   )
                 }
                 break
@@ -5886,9 +8673,30 @@ const createEditorHarness = (
                 await assertDOMCaretExpectation(root, step)
                 break
               case 'assertBlockTexts':
-                expect(
-                  (await harness.get.blockTexts()).slice(step.startIndex ?? 0)
-                ).toEqual(step.texts)
+                {
+                  const actualBlockTexts = (
+                    await harness.get.blockTexts()
+                  ).slice(step.startIndex ?? 0)
+
+                  expect(
+                    actualBlockTexts,
+                    JSON.stringify({
+                      actualBlockTexts,
+                      domSelection: await harness.get.domSelection(),
+                      expectedBlockTexts: step.texts,
+                      inputState: await root.evaluate(
+                        (element: HTMLElement, { key }: { key: string }) => {
+                          const handle = (element as Record<string, any>)[key]
+
+                          return handle?.getInputState?.() ?? null
+                        },
+                        { key: SLATE_BROWSER_HANDLE_KEY }
+                      ),
+                      kernelTrace: await harness.get.kernelTrace(),
+                      selection: await harness.selection.get(),
+                    })
+                  ).toEqual(step.texts)
+                }
                 break
               case 'assertRenderedDOMShape':
                 await harness.assert.renderedDOMShape(step.shape)
@@ -5903,26 +8711,36 @@ const createEditorHarness = (
                 await harness.assert.kernelTrace(step.trace)
                 break
               case 'assertLastCommit':
-                expect(await harness.get.lastCommit()).toBeTruthy()
+                await expect.poll(() => harness.get.lastCommit()).toBeTruthy()
                 break
               case 'assertLastCommitTags': {
-                const lastCommit = (await harness.get.lastCommit()) as {
-                  tags?: readonly string[]
-                } | null
+                await expect
+                  .poll(async () => {
+                    const lastCommit = (await harness.get.lastCommit()) as {
+                      tags?: readonly string[]
+                    } | null
 
-                expect(lastCommit?.tags).toEqual(step.tags)
+                    return lastCommit?.tags
+                  })
+                  .toEqual(step.tags)
                 break
               }
               case 'assertLastCommitCommand': {
-                const lastCommit = (await harness.get.lastCommit()) as {
-                  command?: { origin?: string; type?: string } | null
-                } | null
+                await expect
+                  .poll(async () => {
+                    const lastCommit = (await harness.get.lastCommit()) as {
+                      command?: { origin?: string; type?: string } | null
+                    } | null
 
-                expect(lastCommit?.command).toEqual(step.command)
+                    return lastCommit?.command
+                  })
+                  .toEqual(step.command)
                 break
               }
               case 'assertModelText':
-                expect(await harness.get.modelText()).toContain(step.text)
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.text)
                 break
               case 'assertLocatorText': {
                 const locator = page.locator(step.selector).first()
@@ -5940,13 +8758,21 @@ const createEditorHarness = (
               case 'assertSelection':
                 await harness.assert.selection(step.selection)
                 break
+              case 'assertSelectionContract':
+                await assertSlateBrowserSelectionContract(
+                  harness,
+                  step.expectation
+                )
+                break
               case 'assertSelectionLocation':
                 await expect
                   .poll(() => harness.selection.location())
                   .toMatchObject(step.location)
                 break
               case 'assertSelectedText':
-                expect(await harness.get.selectedText()).toBe(step.text)
+                await expect
+                  .poll(() => harness.get.selectedText())
+                  .toBe(step.text)
                 break
               case 'assertText':
                 await harness.assert.text(step.text)
@@ -6009,9 +8835,66 @@ const createEditorHarness = (
                 await clickTextOffset(root, step.path, step.offset)
                 break
               case 'doubleClickTextOffset':
-                await clickTextOffset(root, step.path, step.offset, {
-                  clickCount: 2,
-                })
+                if (step.selectedText === undefined) {
+                  await clickTextOffset(root, step.path, step.offset, {
+                    clickCount: 2,
+                  })
+                } else {
+                  const retryDelayMs = 650
+                  let lastError: unknown = null
+
+                  for (let attempt = 0; attempt < 3; attempt++) {
+                    await clickTextOffset(root, step.path, step.offset, {
+                      clickCount: 2,
+                    })
+
+                    try {
+                      await expect
+                        .poll(() => harness.get.selectedText(), {
+                          timeout: 1500,
+                        })
+                        .toBe(step.selectedText)
+                      lastError = null
+                      break
+                    } catch (error) {
+                      lastError = error
+
+                      // Firefox can fold rapid repeated double-click attempts
+                      // into one multi-click gesture. Wait past that window
+                      // before retrying the proof gesture.
+                      if (attempt < 2) {
+                        await root.page().waitForTimeout(retryDelayMs)
+                      }
+                    }
+                  }
+
+                  if (lastError) {
+                    const displayedSelection =
+                      await harness.selection.displayed()
+                    const windowSelectionText = await page.evaluate(
+                      () => window.getSelection()?.toString() ?? ''
+                    )
+                    const selectedText = await harness.get.selectedText()
+                    const selection = await harness.selection.get()
+                    const domSelection = await harness.get.domSelection()
+
+                    throw new Error(
+                      `Double-click text selection did not settle on ${JSON.stringify(
+                        step.selectedText
+                      )}.\nSelected text: ${JSON.stringify(
+                        selectedText
+                      )}\nWindow selection text: ${JSON.stringify(
+                        windowSelectionText
+                      )}\nSelection: ${JSON.stringify(
+                        selection
+                      )}\nDOM selection: ${JSON.stringify(
+                        domSelection
+                      )}\nDisplayed selection: ${JSON.stringify(
+                        displayedSelection
+                      )}\n${lastError instanceof Error ? lastError.message : String(lastError)}`
+                    )
+                  }
+                }
                 break
               case 'dropHtml':
                 await dropHtml(surface, root, step.html, step.text)
@@ -6028,6 +8911,9 @@ const createEditorHarness = (
                 break
               case 'insertText':
                 await harness.insertText(step.text)
+                break
+              case 'mutateTextDOM':
+                await mutateTextDOM(root, step)
                 break
               case 'pasteHtml':
                 await harness.clipboard.pasteHtml(step.html, step.text)
@@ -6071,9 +8957,9 @@ const createEditorHarness = (
               case 'typeThenUndo': {
                 await harness.type(step.text)
                 await assertDOMCaretExpectation(root, step.caretAfterType)
-                expect(await harness.get.modelText()).toContain(
-                  step.expectedModelTextAfterType
-                )
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.expectedModelTextAfterType)
 
                 const hotkey = await page.evaluate(() =>
                   navigator.userAgent.includes('Mac OS X')
@@ -6083,9 +8969,9 @@ const createEditorHarness = (
 
                 await harness.press(hotkey)
                 await assertDOMCaretExpectation(root, step.caretAfterUndo)
-                expect(await harness.get.modelText()).toContain(
-                  step.expectedModelTextAfterUndo
-                )
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.expectedModelTextAfterUndo)
                 break
               }
               case 'type':
@@ -6093,9 +8979,9 @@ const createEditorHarness = (
                 break
               case 'undo': {
                 if (step.expectedModelTextBefore) {
-                  expect(await harness.get.modelText()).toContain(
-                    step.expectedModelTextBefore
-                  )
+                  await expect
+                    .poll(() => harness.get.modelText())
+                    .toContain(step.expectedModelTextBefore)
                 }
 
                 const hotkey = await page.evaluate(() =>
@@ -6143,6 +9029,7 @@ const createEditorHarness = (
   return harness
 }
 
+/** Create a Playwright harness for opening examples and inspecting editors. */
 export const createSlateBrowserEditorHarness = (
   page: Page,
   name: string,
@@ -6239,6 +9126,7 @@ const takeSelectionShellsSnapshot = async (
   }, selection)
 }
 
+/** Capture editor render state, selected shells, and selection shells. */
 export const takeSlateBrowserRenderStateSnapshot = async (
   editor: SlateBrowserEditorHarness
 ): Promise<SlateBrowserRenderStateSnapshot> => {
@@ -6254,18 +9142,54 @@ export const takeSlateBrowserRenderStateSnapshot = async (
   }
 }
 
+/** Open a Slate example route with default harness options. */
 export const openExample = async (
   page: Page,
   name: string,
   options: OpenExampleOptions = {}
 ) => openExampleWithOptions(page, name, options)
 
+/** Open a Slate example route with explicit harness options. */
 export const openExampleWithOptions = async (
   page: Page,
   name: string,
   { query, ready, surface }: OpenExampleOptions
 ) => {
-  await page.goto(`${baseUrl}/examples/${name}${formatExampleQuery(query)}`)
+  if (!EXAMPLE_FONT_ROUTES.has(page)) {
+    EXAMPLE_FONT_ROUTES.add(page)
+    await Promise.all([
+      page.route('https://fonts.googleapis.com/**', (route) =>
+        route.fulfill({
+          body: '',
+          contentType: 'text/css',
+          status: 200,
+        })
+      ),
+      page.route('https://fonts.gstatic.com/**', (route) =>
+        route.fulfill({
+          body: '',
+          contentType: 'font/woff2',
+          status: 200,
+        })
+      ),
+    ])
+  }
+
+  const examplePath = `/examples/${name}`
+  const exampleUrl = `${baseUrl}${examplePath}${formatExampleQuery(query)}`
+  const currentUrl = page.url()
+  const currentPath =
+    currentUrl && currentUrl !== 'about:blank'
+      ? new URL(currentUrl).pathname
+      : null
+
+  if (query && currentPath === examplePath) {
+    await page.goto('about:blank', { waitUntil: 'commit' })
+  }
+
+  await page.goto(exampleUrl, {
+    waitUntil: 'commit',
+  })
   const resolvedSurface = await resolveSurface(page, surface)
   const editor = createEditorHarness(page, name, resolvedSurface, surface)
 

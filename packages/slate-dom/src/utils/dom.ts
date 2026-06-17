@@ -2,8 +2,8 @@
  * Types.
  */
 
-// COMPAT: Keep explicit aliases so Slate can talk about DOM types without
-// colliding with its own exported node/range names.
+// Keep DOM type names explicit so Slate can talk about browser nodes and
+// ranges without colliding with its own exported node/range names.
 type DOMNode = globalThis.Node
 type DOMComment = globalThis.Comment
 type DOMElement = globalThis.Element
@@ -44,15 +44,23 @@ export type DOMPoint = [Node, number]
  * Returns the host window of a DOM node
  */
 
-export const getDefaultView = (value: any): Window | null => {
-  return value?.ownerDocument?.defaultView || null
+export const getDefaultView = (value: unknown): Window | null => {
+  if (value == null || typeof value !== 'object') {
+    return null
+  }
+
+  const { ownerDocument } = value as {
+    ownerDocument?: { defaultView?: Window | null }
+  }
+
+  return ownerDocument?.defaultView ?? null
 }
 
 /**
  * Check if a DOM node is a comment node.
  */
 
-export const isDOMComment = (value: any): value is DOMComment => {
+export const isDOMComment = (value: unknown): value is DOMComment => {
   return isDOMNode(value) && value.nodeType === 8
 }
 
@@ -60,7 +68,7 @@ export const isDOMComment = (value: any): value is DOMComment => {
  * Check if a DOM node is an element node.
  */
 
-export const isDOMElement = (value: any): value is DOMElement => {
+export const isDOMElement = (value: unknown): value is DOMElement => {
   return isDOMNode(value) && value.nodeType === 1
 }
 
@@ -68,25 +76,34 @@ export const isDOMElement = (value: any): value is DOMElement => {
  * Check if a value is a DOM node.
  */
 
-export const isDOMNode = (value: any): value is DOMNode => {
+export const isDOMNode = (value: unknown): value is DOMNode => {
   const window = getDefaultView(value)
-  return !!window && value instanceof window.Node
+  const Node = window?.Node
+
+  return typeof Node === 'function' && value instanceof Node
 }
 
 /**
  * Check if a value is a DOM selection.
  */
 
-export const isDOMSelection = (value: any): value is DOMSelection => {
-  const window = value?.anchorNode && getDefaultView(value.anchorNode)
-  return !!window && value instanceof window.Selection
+export const isDOMSelection = (value: unknown): value is DOMSelection => {
+  if (value == null || typeof value !== 'object') {
+    return false
+  }
+
+  const { anchorNode } = value as { anchorNode?: unknown }
+  const window = anchorNode ? getDefaultView(anchorNode) : null
+  const Selection = window?.Selection
+
+  return typeof Selection === 'function' && value instanceof Selection
 }
 
 /**
  * Check if a DOM node is an element node.
  */
 
-export const isDOMText = (value: any): value is DOMText => {
+export const isDOMText = (value: unknown): value is DOMText => {
   return isDOMNode(value) && value.nodeType === 3
 }
 

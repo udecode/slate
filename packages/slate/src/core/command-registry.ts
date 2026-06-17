@@ -5,7 +5,6 @@ import type {
   EditorCommandHandler,
   EditorCommandOptions,
   EditorCommandReference,
-  EditorCommandResult,
 } from '../interfaces/editor'
 import { getExtensionRegistry } from './extension-registry'
 import {
@@ -101,15 +100,12 @@ export const registerCommand = <TCommand extends EditorCommand>(
 export const executeCommand = <TCommand extends EditorCommand>(
   editor: Editor,
   command: TCommand,
-  defaultHandler: (command: TCommand) => EditorCommandResult,
+  defaultHandler: (command: TCommand) => boolean,
   options: { implicitUpdate?: boolean } = {}
-): EditorCommandResult => {
+): boolean => {
   const handlers = getCommandRegistry(editor).get(command.type) ?? []
 
-  const dispatch = (
-    index: number,
-    nextCommand: TCommand
-  ): EditorCommandResult => {
+  const dispatch = (index: number, nextCommand: TCommand): boolean => {
     const registration = profileCommandDuration(
       `command-${command.type}-read-handler`,
       () => handlers[index]
@@ -166,7 +162,7 @@ export const executeCommand = <TCommand extends EditorCommand>(
     )
   }
 
-  let result: EditorCommandResult = false
+  let result = false
   profileCommandDuration(`command-${command.type}-implicit-update`, () =>
     updateEditor(editor, () => {
       result = withCommandContext(

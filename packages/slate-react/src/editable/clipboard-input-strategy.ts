@@ -1,5 +1,5 @@
 import type { ClipboardEvent, DragEvent } from 'react'
-import { NodeApi, RangeApi } from 'slate'
+import { NodeApi, type Range, RangeApi } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   IS_WEBKIT,
@@ -35,6 +35,8 @@ type EditablePasteHandler = (
 type EditableDragHandler = (event: DragEvent<HTMLDivElement>) => boolean | void
 
 type EditableDragState = {
+  draggedBlock: boolean
+  draggedRange: Range | null
   isDraggingInternally: boolean
 }
 
@@ -151,6 +153,67 @@ const resolveDragTarget = (editor: ReactRuntimeEditor, target: EventTarget) => {
   }
 
   return { node, path: fallbackPath }
+}
+
+const isBlockVoidRange = (editor: ReactRuntimeEditor, range: Range) => {
+  const voidMatch = Editor.void(editor, { at: range, voids: true })
+
+  if (!voidMatch) {
+    return false
+  }
+
+  const [node] = voidMatch
+
+  return NodeApi.isElement(node) && !Editor.isInline(editor, node)
+}
+
+const resolveBlockDropRangeFromEvent = (
+  editor: ReactRuntimeEditor,
+  event: DragEvent<HTMLDivElement>
+) => {
+  const target = resolveDragTarget(editor, event.target)
+
+  if (!target) {
+    return null
+  }
+
+  const blockMatch =
+    NodeApi.isElement(target.node) && Editor.isBlock(editor, target.node)
+      ? ([target.node, target.path] as const)
+      : Editor.above(editor, {
+          at: target.path,
+          match: (node) =>
+            NodeApi.isElement(node) && Editor.isBlock(editor, node),
+        })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (!NodeApi.isElement(block) || Editor.isVoid(editor, block)) {
+    return null
+  }
+
+  const blockElement = editor.api.dom.resolveDOMNode(block)
+
+  if (!blockElement) {
+    return null
+  }
+
+  const rect = blockElement.getBoundingClientRect()
+  const isBefore =
+    event.nativeEvent.clientY - rect.top <
+    rect.bottom - event.nativeEvent.clientY
+  const edge = Editor.point(editor, blockPath, {
+    edge: isBefore ? 'start' : 'end',
+  })
+  const point = isBefore
+    ? (Editor.before(editor, edge) ?? edge)
+    : (Editor.after(editor, edge) ?? edge)
+
+  return Editor.range(editor, point)
 }
 
 const isClipboardEventTargetInput = ({
@@ -436,10 +499,12 @@ export const applyEditableDragOver = ({
   editor,
   event,
   onDragOver,
+  state,
 }: {
   editor: ReactRuntimeEditor
   event: DragEvent<HTMLDivElement>
   onDragOver?: EditableDragHandler
+  state: EditableDragState
 }) => {
   if (
     shouldHandleEditorDragEvent({
@@ -448,6 +513,10 @@ export const applyEditableDragOver = ({
       handler: onDragOver,
     })
   ) {
+    if (state.isDraggingInternally) {
+      event.dataTransfer.dropEffect = 'move'
+    }
+
     // Only when the target is void, call `preventDefault` to signal
     // that drops are allowed. Editable content is droppable by
     // default, and calling `preventDefault` hides the cursor.
@@ -488,21 +557,31 @@ export const applyEditableDragStart = ({
     }
 
     const { node, path } = target
-    const voidMatch =
-      (NodeApi.isElement(node) && Editor.isVoid(editor, node)) ||
-      Editor.void(editor, { at: path, voids: true })
+    const voidEntry =
+      NodeApi.isElement(node) && Editor.isVoid(editor, node)
+        ? ([node, path] as const)
+        : Editor.void(editor, { at: path, voids: true })
+    let draggedBlock = false
+    let draggedRange = readRuntimeSelection(editor)
 
     // If starting a drag on a void node, make sure it is selected
     // so that it shows up in the selection's fragment.
-    if (voidMatch) {
-      const range = Editor.range(editor, path)
+    if (voidEntry) {
+      const [voidNode, voidPath] = voidEntry
+      const range = Editor.range(editor, voidPath)
       applyEditableCommand({
         command: { kind: 'select', selection: range },
         editor,
       })
+      draggedBlock =
+        NodeApi.isElement(voidNode) && !Editor.isInline(editor, voidNode)
+      draggedRange = range
     }
 
+    state.draggedBlock = draggedBlock
+    state.draggedRange = draggedRange
     state.isDraggingInternally = true
+    event.dataTransfer.effectAllowed = 'move'
 
     editor.api.clipboard.writeSelection(event.dataTransfer)
   }
@@ -538,11 +617,23 @@ export const applyEditableDrop = ({
   ) {
     event.preventDefault()
 
-    // Keep a reference to the dragged range before updating selection
-    const draggedRange = readRuntimeSelection(editor)
+    // Keep the drag-start payload range. Native drop handling can move the
+    // live selection to the text drop target before this handler runs.
+    const draggedRange = state.draggedRange ?? readRuntimeSelection(editor)
+    const isBlockDrag =
+      state.draggedBlock ||
+      (draggedRange ? isBlockVoidRange(editor, draggedRange) : false)
 
     // Find the range where the drop happened
-    const range = ReactEditor.resolveEventRange(editor, event)
+    const defaultRange = ReactEditor.resolveEventRange(editor, event)
+    const blockDropRange =
+      state.isDraggingInternally && isBlockDrag
+        ? resolveBlockDropRangeFromEvent(editor, event)
+        : null
+    const range =
+      state.isDraggingInternally && isBlockDrag
+        ? (blockDropRange ?? defaultRange)
+        : defaultRange
 
     if (!range) {
       return clipboardResult({ command: null })

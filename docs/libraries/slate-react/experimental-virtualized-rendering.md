@@ -62,7 +62,7 @@ is also the reason this mode stays experimental.
 | Copy | Slate uses `copyPolicy="model"` for ranges crossing unmounted content. |
 | Browser find | Native find only sees mounted blocks. |
 | Screen readers | Screen readers only traverse mounted blocks. |
-| IME and mobile selection | Still release-gated before this can be production-ready. |
+| IME and mobile selection | Still outside the production claim until raw-device proof exists. |
 
 Do not use this mode when the product requires native find, full screen-reader
 traversal, or production-grade mobile selection over the full document.
@@ -99,7 +99,7 @@ mounted.
 If `effectiveStrategy` is not `virtualized`, Slate is telling you
 that the virtualized path did not activate.
 
-## Release Gate
+## Production Gate
 
 Keep this mode behind explicit product flags until these rows are green:
 

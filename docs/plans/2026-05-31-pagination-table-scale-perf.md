@@ -194,7 +194,7 @@ Verification evidence:
 - `bun run test:vitest -- ./test/dom-coverage-boundary-contract.test.tsx -t "child ranges without materializing all children|slots cover child ranges"` in `packages/slate-react`: 2 passed.
 - `bun --filter slate-layout typecheck` in `.tmp/slate-v2`: exited 0.
 - `bun --filter slate-react typecheck` in `.tmp/slate-v2`: exited 0.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/pagination.test.ts --project=chromium -g "keeps staged burst typing responsive|500-row provider-owned table|insert breaks at the model caret|1000-page virtualized document"`: 6 passed.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium -g "keeps staged burst typing responsive|500-row provider-owned table|insert breaks at the model caret|1000-page virtualized document"`: 6 passed.
 - Final standalone rows=8 probe: load 407.1ms, p95 7.5ms, max 7.5ms, 733 DOM elements, 7 table rows, 21 cells.
 - Final standalone rows=500 probe: load 488.3ms, p95 9.6ms, max 9.6ms, burst 170.6ms, 771 DOM elements, 7 table rows, 21 cells.
 - `/Users/zbeyens/git/plate-2/.agents/skills/autoreview/scripts/autoreview --mode local --engine codex --thinking high`: initial run found two accepted P1 findings; rerun after fixes exited 0 with "autoreview clean: no accepted/actionable findings reported".

@@ -4,12 +4,8 @@ import {
   type Descendant,
   type Operation,
 } from 'slate'
-import {
-  EDITOR_TO_PENDING_DIFFS,
-  mergeStringDiffs,
-  normalizeStringDiff,
-  type StringDiff,
-} from '../src'
+import { mergeStringDiffs, normalizeStringDiff, type StringDiff } from '../src'
+import { EDITOR_TO_PENDING_DIFFS } from '../src/internal'
 import {
   transformPendingPoint,
   transformTextDiff,
@@ -86,10 +82,8 @@ describe('slate-dom diff text', () => {
   test('transforms implicit pending points against the view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -141,10 +135,8 @@ describe('slate-dom diff text', () => {
   test('transforms pending text diffs against the view root only', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header'), paragraph('pending')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header'), paragraph('pending')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

@@ -11,6 +11,7 @@ import type {
   EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
+import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
@@ -19,7 +20,6 @@ import type {
 } from './input-state'
 import type { DeferredOperation } from './model-input-strategy'
 import type { EditableRepairRequest } from './mutation-controller'
-import type { RuntimeAndroidInputManager } from './runtime-android-engine'
 import { useRuntimeBeforeInputEvents } from './runtime-before-input-events'
 import { useRuntimeBrowserHandle } from './runtime-browser-handle-events'
 import { useRuntimeClipboardEvents } from './runtime-clipboard-events'
@@ -32,6 +32,7 @@ import type { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeKeyboardEvents } from './runtime-keyboard-events'
 import type { RuntimeSelectionImportController } from './runtime-selection-engine'
 import { useRuntimeTargetBridge } from './runtime-target-bridge'
+import type { EditableDOMSelectionSyncOptions } from './selection-controller'
 
 type ApplyInputRules = ({
   data,
@@ -86,7 +87,7 @@ type EditableKernelTraceRuntime = ReturnType<typeof useRuntimeKernelTraceEngine>
 
 export type EditableEventRuntimeCore = {
   android: {
-    managerRef: RefObject<RuntimeAndroidInputManager | null | undefined>
+    managerRef: RefObject<AndroidInputManager | null | undefined>
   }
   composition: {
     setComposing: (nextValue: boolean) => void
@@ -128,9 +129,7 @@ export const useEditableEventRuntime = ({
   syncDOMSelectionToEditor,
   trace,
 }: {
-  androidInputManagerRef: RefObject<
-    RuntimeAndroidInputManager | null | undefined
-  >
+  androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   applyInputRules: ApplyInputRules
   browserHandleNextId: RefObject<number>
   browserHandleRangeRefs: RefObject<
@@ -156,7 +155,7 @@ export const useEditableEventRuntime = ({
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
   partialDOMBackedSelection: boolean
   state: EditableInputControllerState
-  syncDOMSelectionToEditor: () => void
+  syncDOMSelectionToEditor: (options?: EditableDOMSelectionSyncOptions) => void
   trace: EditableKernelTraceRuntime
 }): EditableEventRuntime => {
   const runtime = useMemo(
@@ -190,6 +189,7 @@ export const useEditableEventRuntime = ({
     readOnly,
     repair: runtime.repair,
     rootRef,
+    syncDOMSelectionToEditor,
     trace: runtime.trace,
     onInput: callbacks.onInput as
       | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
@@ -235,6 +235,7 @@ export const useEditableEventRuntime = ({
   })
   const clipboardHandlers = useRuntimeClipboardEvents({
     editor,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
     inputController,
     onCopy: callbacks.onCopy,
     onCut: callbacks.onCut,

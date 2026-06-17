@@ -8,8 +8,8 @@ import {
 } from 'slate'
 import { Editor } from 'slate/internal'
 
+import { dom } from '../src/index'
 import {
-  dom,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -19,7 +19,7 @@ import {
   NODE_TO_INDEX,
   NODE_TO_PARENT,
   NODE_TO_RUNTIME_ID,
-} from '../src/index'
+} from '../src/internal'
 
 const createParagraphEditor = (text = 'alpha beta') => {
   const editor = createEditor({ extensions: [dom()] })
@@ -368,6 +368,41 @@ describe('slate-dom bridge', () => {
           exactMatch: false,
         })
       ).toBeNull()
+    })
+  })
+
+  it('preserves backward native selection direction when resolving Slate ranges', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor('abcd')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('abcd')
+      const domSelection = document.getSelection()
+
+      if (!domSelection) {
+        throw new Error('Expected DOM selection')
+      }
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+
+      domSelection.setBaseAndExtent(domText, 3, domText, 1)
+
+      expect(
+        editor.api.dom.resolveSlateRange(domSelection, {
+          exactMatch: false,
+        })
+      ).toEqual({
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 1 },
+      })
     })
   })
 

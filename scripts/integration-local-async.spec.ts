@@ -1,6 +1,8 @@
 import { createServer } from 'node:net'
 
 import {
+  buildPlaywrightCommand,
+  buildSlateBrowserBuildCommand,
   commandKeyFor,
   extractFailuresFromPlaywrightReport,
   findAvailablePort,
@@ -107,6 +109,36 @@ describe('integration-local async failure summaries', () => {
       passthrough: ['--project=chromium'],
       targets: ['playwright/integration'],
     })
+  })
+
+  test('builds slate-browser before async Playwright integration', () => {
+    expect(buildSlateBrowserBuildCommand()).toEqual([
+      'bun',
+      '--filter',
+      'slate-browser',
+      'build',
+    ])
+
+    expect(buildPlaywrightCommand(['--project=chromium'])).toEqual([
+      expect.stringContaining('/node_modules/.bin/playwright'),
+      'test',
+      'playwright/integration',
+      '--reporter=json',
+      '--project=chromium',
+    ])
+
+    expect(
+      buildPlaywrightCommand(
+        ['playwright/integration/examples/huge-document.test.ts'],
+        ['--output=.tmp/integration-runs/run/test-results']
+      )
+    ).toEqual([
+      expect.stringContaining('/node_modules/.bin/playwright'),
+      'test',
+      'playwright/integration/examples/huge-document.test.ts',
+      '--reporter=json',
+      '--output=.tmp/integration-runs/run/test-results',
+    ])
   })
 
   test('skips ports that are already bound', async () => {

@@ -1,11 +1,17 @@
 import type {
+  Descendant,
+  EditorCommit,
   EditorCommitSource,
   EditorSnapshot,
+  Path,
+  Point,
+  ProjectedRangeSegment,
   Range,
   RuntimeId,
-  SnapshotChange,
 } from 'slate'
-import { Editor } from './editable/runtime-editor-api'
+import { NodeApi, RangeApi } from 'slate'
+import { Editor, projectRangeInSnapshot } from './editable/runtime-editor-api'
+import { recordSlateReactRender } from './render-profiler'
 
 export type SlateRangeProjection<T = unknown> = {
   data?: T
@@ -34,7 +40,7 @@ export type SlateSourceDirtinessClass =
   | 'external'
 
 export type SlateSourceDirtinessContext = {
-  change?: SnapshotChange
+  change?: EditorCommit
   forceInvalidate?: boolean
   reason: 'annotation' | 'editor' | 'external' | 'refresh'
   requiresDOMSelectionExport?: boolean
@@ -71,7 +77,7 @@ export type SlateProjectionStoreOptions = {
 }
 
 export type SlateProjectionStoreRefreshOptions = {
-  change?: SnapshotChange
+  change?: EditorCommit
   forceInvalidate?: boolean
   reason?: SlateSourceDirtinessContext['reason']
   /**
@@ -151,6 +157,24 @@ const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
   []
 ) as readonly SlateProjectionSlice<unknown>[]
 const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
+
+const profileProjectionStorePhase = <T>(id: string, run: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return run()
+  }
+
+  const startedAt = performance.now()
+
+  try {
+    return run()
+  } finally {
+    recordSlateReactRender({
+      duration: performance.now() - startedAt,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
 
 const createProjectionRefreshResult = ({
   changedRuntimeIds,
@@ -344,6 +368,135 @@ const getRuntimeScope = (
     : runtimeScope
 }
 
+const getPathKey = (path: Path) => path.join('.')
+
+const getDescendantAtPath = (
+  children: readonly Descendant[],
+  path: Path
+): Descendant | null => {
+  if (path.length === 0) {
+    return null
+  }
+
+  let node: Descendant | null = children[path[0]!] ?? null
+
+  for (const index of path.slice(1)) {
+    if (!node || !NodeApi.isElement(node)) {
+      return null
+    }
+
+    node = node.children[index] ?? null
+  }
+
+  return node
+}
+
+const getBoundaryPoint = (
+  node: Descendant,
+  path: Path,
+  edge: 'end' | 'start'
+): Point | null => {
+  if (NodeApi.isText(node)) {
+    return {
+      offset: edge === 'start' ? 0 : node.text.length,
+      path: [...path],
+    }
+  }
+
+  const indexes =
+    edge === 'start'
+      ? node.children.keys()
+      : [...node.children.keys()].reverse()
+
+  for (const index of indexes) {
+    const child = node.children[index]
+    const point = child && getBoundaryPoint(child, path.concat(index), edge)
+
+    if (point) {
+      return point
+    }
+  }
+
+  return null
+}
+
+const getScopedNodeRange = (
+  snapshot: EditorSnapshot,
+  path: Path
+): Range | null => {
+  const node = getDescendantAtPath(snapshot.children, path)
+
+  if (!node) {
+    return null
+  }
+
+  const anchor = getBoundaryPoint(node, path, 'start')
+  const focus = getBoundaryPoint(node, path, 'end')
+
+  return anchor && focus ? { anchor, focus } : null
+}
+
+const getScopedProjectionRanges = (
+  snapshot: EditorSnapshot,
+  range: Range,
+  runtimeScope: readonly RuntimeId[] | null
+): readonly Range[] => {
+  if (!runtimeScope) {
+    return [range]
+  }
+
+  const ranges: Range[] = []
+  const visitedRangeKeys = new Set<string>()
+  const visitedPathKeys = new Set<string>()
+  const addScopedPath = (path: Path) => {
+    const pathKey = getPathKey(path)
+
+    if (visitedPathKeys.has(pathKey)) {
+      return
+    }
+
+    visitedPathKeys.add(pathKey)
+
+    const scopedRange = getScopedNodeRange(snapshot, path)
+    const intersection = scopedRange
+      ? RangeApi.intersection(range, scopedRange)
+      : null
+
+    if (!intersection) {
+      return
+    }
+
+    const rangeKey = `${getPathKey(intersection.anchor.path)}:${intersection.anchor.offset}->${getPathKey(intersection.focus.path)}:${intersection.focus.offset}`
+
+    if (visitedRangeKeys.has(rangeKey)) {
+      return
+    }
+
+    visitedRangeKeys.add(rangeKey)
+    ranges.push(intersection)
+  }
+
+  runtimeScope.forEach((runtimeId) => {
+    const path = snapshot.index.idToPath[runtimeId]
+
+    if (!path) {
+      return
+    }
+
+    addScopedPath(path)
+  })
+
+  ;[range.anchor, range.focus].forEach((point) => {
+    const topLevelIndex = point.path[0]
+
+    if (typeof topLevelIndex === 'number') {
+      addScopedPath([topLevelIndex] as Path)
+    }
+  })
+
+  return ranges
+}
+
 const isRuntimeScopeDirty = (
   runtimeScope: SlateProjectionRuntimeScope | undefined,
   context: SlateSourceDirtinessContext
@@ -366,8 +519,9 @@ const isRuntimeScopeDirty = (
 }
 
 const buildProjectionSnapshot = <T>(
-  editor: Editor,
-  projections: readonly SlateProjection<T>[]
+  snapshot: EditorSnapshot,
+  projections: readonly SlateProjection<T>[],
+  runtimeScope: readonly RuntimeId[] | null
 ): {
   invalidRangeDropCount: number
   projectedRangeCount: number
@@ -388,8 +542,15 @@ const buildProjectionSnapshot = <T>(
 
   projections.forEach((projection) => {
     try {
-      const segments = Editor.projectRange(editor, projection.range)
-      projectedRangeCount += 1
+      const scopedRanges = getScopedProjectionRanges(
+        snapshot,
+        projection.range,
+        runtimeScope
+      )
+      const segments = scopedRanges.flatMap<ProjectedRangeSegment>(
+        (scopedRange) => [...projectRangeInSnapshot(snapshot, scopedRange)]
+      )
+      projectedRangeCount += scopedRanges.length
 
       segments.forEach((segment) => {
         const entries = projectionByRuntimeId[segment.runtimeId] ?? []
@@ -450,11 +611,12 @@ export const createSlateProjectionStore = <T>(
     initialContext
   )
   const initialBuild = buildProjectionSnapshot(
-    editor,
+    initialSnapshot,
     source(initialSnapshot, {
       ...initialContext,
       runtimeScope: initialRuntimeScope,
-    })
+    }),
+    initialRuntimeScope
   )
   let metrics = Object.freeze({
     ...EMPTY_METRICS,
@@ -463,6 +625,18 @@ export const createSlateProjectionStore = <T>(
     sourceReadCount: 1,
   }) as SlateProjectionStoreMetrics
   let snapshot = initialBuild.snapshot
+  const sourceProfileId = options.sourceId
+    ? `projection-store.source-read:${options.sourceId}`
+    : 'projection-store.source-read'
+  const buildProfileId = options.sourceId
+    ? `projection-store.build-snapshot:${options.sourceId}`
+    : 'projection-store.build-snapshot'
+  const diffProfileId = options.sourceId
+    ? `projection-store.diff-runtime-ids:${options.sourceId}`
+    : 'projection-store.diff-runtime-ids'
+  const notifyProfileId = options.sourceId
+    ? `projection-store.notify:${options.sourceId}`
+    : 'projection-store.notify'
 
   const emitProjectionRefresh = (result: SlateProjectionRefreshResult) => {
     if (!result.didChange) {
@@ -495,12 +669,14 @@ export const createSlateProjectionStore = <T>(
     }
 
     const runtimeScope = getRuntimeScope(options.runtimeScope, context)
-    const nextBuild = buildProjectionSnapshot(
-      editor,
+    const projections = profileProjectionStorePhase(sourceProfileId, () =>
       source(context.snapshot, {
         ...context,
         runtimeScope,
       })
+    )
+    const nextBuild = profileProjectionStorePhase(buildProfileId, () =>
+      buildProjectionSnapshot(context.snapshot, projections, runtimeScope)
     )
     const nextSnapshot = nextBuild.snapshot
     const fullFallbackCount = context.forceInvalidate || !runtimeScope ? 1 : 0
@@ -515,15 +691,17 @@ export const createSlateProjectionStore = <T>(
       sourceReadCount: metrics.sourceReadCount + 1,
     })
 
-    const changedRuntimeIds = context.forceInvalidate
-      ? Array.from(
-          new Set([
-            ...Object.keys(snapshot),
-            ...Object.keys(nextSnapshot),
-            ...runtimeListeners.keys(),
-          ])
-        )
-      : getChangedRuntimeIds(snapshot, nextSnapshot)
+    const changedRuntimeIds = profileProjectionStorePhase(diffProfileId, () =>
+      context.forceInvalidate
+        ? Array.from(
+            new Set([
+              ...Object.keys(snapshot),
+              ...Object.keys(nextSnapshot),
+              ...runtimeListeners.keys(),
+            ])
+          )
+        : getChangedRuntimeIds(snapshot, nextSnapshot)
+    )
 
     if (changedRuntimeIds.length === 0) {
       return createProjectionRefreshResult({
@@ -554,19 +732,21 @@ export const createSlateProjectionStore = <T>(
       sourceSubscriberWakeCount:
         metrics.sourceSubscriberWakeCount + sourceSubscriberWakeCount,
     })
-    listeners.forEach((listener) => {
-      listener()
-    })
-    changedRuntimeIds.forEach((runtimeId) => {
-      runtimeListeners.get(runtimeId)?.forEach((listener) => {
+    profileProjectionStorePhase(notifyProfileId, () => {
+      listeners.forEach((listener) => {
         listener()
       })
-    })
-    if (options.sourceId) {
-      sourceListeners.get(options.sourceId)?.forEach((listener) => {
-        listener()
+      changedRuntimeIds.forEach((runtimeId) => {
+        runtimeListeners.get(runtimeId)?.forEach((listener) => {
+          listener()
+        })
       })
-    }
+      if (options.sourceId) {
+        sourceListeners.get(options.sourceId)?.forEach((listener) => {
+          listener()
+        })
+      }
+    })
 
     const result = createProjectionRefreshResult({
       changedRuntimeIds,
@@ -584,7 +764,7 @@ export const createSlateProjectionStore = <T>(
     Editor.subscribeSource(
       editor,
       editorSource,
-      (nextSnapshot: EditorSnapshot, change?: SnapshotChange) => {
+      (nextSnapshot: EditorSnapshot, change?: EditorCommit) => {
         recompute({
           change,
           reason: 'editor',

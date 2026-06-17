@@ -1,8 +1,12 @@
 # Slate React Hooks
 
+## Editor Hooks
+
 #### `useEditor(): Editor`
 
 Get the current editor object from React context.
+Use `useSlateEditor` to create an editor; use `useEditor` inside descendants
+that read the provider editor.
 
 #### `useEditorComposing(): boolean`
 
@@ -92,6 +96,124 @@ const latestOperationCount = useEditorSelector((_editor, operations) => {
 })
 ```
 
+#### `useSlateHistory(options?): SlateHistoryController`
+
+Create undo/redo commands and keyboard handling for the active root.
+
+```tsx
+const history = useSlateHistory()
+
+return (
+  <button disabled={!history.canUndo} onClick={history.undo}>
+    Undo
+  </button>
+)
+```
+
+Pass `options.root` to bind history controls to one root. Pass
+`focusPolicy: 'preserve'` when undo/redo is controlled from external UI and
+DOM focus should stay outside the editor. `history.root` is `undefined` for the
+primary document and the root key for an extra root.
+
+## Runtime And Root Hooks
+
+Use these when one editor owns multiple roots or external chrome.
+
+- Runtime hooks read the whole editor runtime.
+- Root state hooks read one root.
+- Root editor hooks return a command-capable editor for one root.
+
+Prefer `useSlateRootEditor(root)` when UI knows its root. Use
+`useSlateActiveEditor()` only for UI that should follow the current selection.
+
+#### `useSlateRuntime(options?): SlateRuntimeValue`
+
+Create a React runtime value, or read the nearest runtime from `SlateRuntime`.
+Most app code should use `Slate` directly.
+
+#### `useSlateRuntimeState<T>(selector, options?): T`
+
+Subscribe to whole-runtime editor state. The selector runs in a read boundary and
+re-renders only when the selected value changes.
+
+Shared selector options are `deps`, `equalityFn`, `shouldUpdate`, and
+`deferred`. Pass `deps` when the selector closes over props. Use
+`shouldUpdate(change, operations)` to skip commits that cannot affect the
+selected value.
+
+#### `useSlateRootState<T>(root, selector, options?): T`
+
+Subscribe to one root's state. The selector skips commits that cannot affect
+that root.
+
+#### `useSlateActiveRoot(): RootKey | undefined`
+
+Read the extra root key that owns the current selection. It returns `undefined`
+for the primary document.
+
+#### `useSlateRootEditor(root?, options?): SlateRootEditor`
+
+Create a command-capable editor for one root.
+
+Use this for root-specific toolbar or sidebar commands. Pass `{ readOnly:
+true }` when the editor should only read state.
+Omit `root` for the primary document.
+
+#### `useSlateActiveEditor(): SlateRootEditor`
+
+Create a command-capable editor for the root that owns the selection.
+
+#### `useSlateRootChrome(root?, options?): SlateRootChromeController`
+
+Create root chrome props for mouse interaction outside the editable content,
+such as margin clicks and drag selection around a root.
+
+```tsx
+const chrome = useSlateRootChrome('body')
+
+return <div {...chrome.props}>{children}</div>
+```
+
+Pass `selection: 'end'` for chrome that should place the caret at the end of a
+root when clicked.
+
+#### `useSlateContentRoot(element?, options?): SlateContentRootController`
+
+Resolve a schema-owned child content root and its chrome controller.
+
+Use this inside an element renderer for editable voids or nested editor
+surfaces.
+
+#### `useSlateChildRoot(element?, slot?): RootKey`
+
+Resolve the stable child-root key for an element and slot.
+
+Prefer persisted `childRoots[slot]` when the child root is part of document
+data. The runtime fallback is for ephemeral editor islands.
+
+#### `useSlateRootEffect(effect, options?)`
+
+Run after Slate flushes mounted roots. Use this when a command or
+measurement needs the live root editor.
+
+Pass `root` to target one root. Pass `deps` for React-style rerun control.
+Omit `deps` when the effect should rerun after every React render.
+
+#### `useSlateCommandCallback(callback, options?): (...args) => result`
+
+Create a stable callback that resolves the mounted root editor at call time.
+
+```tsx
+const toggleTitle = useSlateCommandCallback(editor => {
+  editor.update(tx => tx.text.insert('Title'))
+})
+```
+
+Pass `focus: 'restore-root'` when the command should move focus back to the
+editor root before running. Pass `focus: 'none'` to leave focus alone. The
+default is `focus: 'preserve'`. Pass `root` when the command should target a
+known root instead of the editable or active root.
+
 #### `useElement(): Element`
 
 Get the current element object inside an element renderer.
@@ -119,6 +241,14 @@ type UseElementSelectedOptions = {
 }
 ```
 
+#### `useSlateNodeRef(runtimeId, options?): (node) => void`
+
+Bind a custom node element to Slate's runtime id, path, and DOM lookup maps.
+
+Use this only when replacing Slate's render primitives with a custom DOM shell.
+Normal renderers should use `SlateElement`, `SlateText`, `SlateLeaf`, or
+`SlatePlaceholder` so the required DOM attributes stay attached.
+
 #### `useNodeSelector<T>(selector, equalityFn?, options?): T`
 
 Subscribe to a value derived from one mounted node.
@@ -140,6 +270,13 @@ Subscribe to decoration/projection data for one mounted runtime target.
 Pass `options.runtimeId` to target a specific runtime node, or call it inside a
 renderer that already has runtime target context.
 
+#### `useSlateProjectionEntries<T>(runtimeId): readonly SlateProjectionEntry<T>[]`
+
+Subscribe to low-level projected range entries for one runtime node. Normal app
+UI should use decoration sources, annotation stores, or widget stores first.
+Use projection entries only when custom inline rendering needs the exact
+projected slices for one mounted runtime id.
+
 #### `useSlateDecorationSource<T>(editor, options): SlateDecorationSource<T>`
 
 Create a provider-owned decoration source from React state.
@@ -160,7 +297,30 @@ return (
 )
 ```
 
-#### `useSlateAnnotationStore<TData, TProjection>(editor, annotations): SlateAnnotationStore<TData, TProjection>`
+#### `useSlateRangeDecorationSource<T>(editor, options): SlateDecorationSource<T>`
+
+Create a provider-owned decoration source from Slate ranges.
+
+The hook accepts `SlateRangeDecorationSourceOptions`, reads ranges from the
+current editor snapshot, and converts them to keyed decorations for the
+shared projection runtime. Use it for search matches, diagnostics, or highlight
+data that already lives as Slate ranges.
+
+```tsx
+const searchSource = useSlateRangeDecorationSource(editor, {
+  id: 'search',
+  read: ({ snapshot }) => findSearchRanges(snapshot, query),
+})
+```
+
+#### `useDOMStrategyVirtualOffset(): number`
+
+Read the vertical document offset for the current virtualized row.
+
+Use this inside DOM-strategy renderers that paint projected content against
+absolute document coordinates. Normal editor UI should not need it.
+
+#### `useSlateAnnotationStore<TData, TProjection>(editor, annotationsOrOptions): SlateAnnotationStore<TData, TProjection>`
 
 Create an annotation store for durable anchored ranges such as comments,
 suggestions, diagnostics, or external review markers.
@@ -168,23 +328,57 @@ suggestions, diagnostics, or external review markers.
 Pass the store to `Slate` so `Editable`, sidebars, and widget UI read one
 annotation snapshot.
 
+Pass an array for simple static annotation lists. Pass a projector when
+annotations are derived from React state and should refresh from explicit
+dependencies.
+
+```tsx
+const annotationStore = useSlateAnnotationStore(editor, {
+  deps: [comments],
+  project: () =>
+    comments.map(comment => ({
+      anchor: comment.anchor,
+      data: comment,
+      id: comment.id,
+      projection: { tone: comment.tone },
+    })),
+})
+```
+
 #### `useSlateAnnotations<TData, TProjection>(store?): SlateAnnotationSnapshot<TData, TProjection>`
 
 Read the current annotation snapshot. Without an explicit store, the hook reads
 the store from the nearest `Slate` provider.
 
-#### `useSlateAnnotation<TData, TProjection>(id, store?): SlateAnnotationEntry<TData, TProjection> | null`
+#### `useSlateAnnotation<TData, TProjection>(id, store?): SlateResolvedAnnotation<TData, TProjection> | null`
 
 Read one annotation by id.
 
-#### `useSlateWidgetStore<TWidget, TAnnotation>(editor, widgets, annotationStore?): SlateWidgetStore<TWidget, TAnnotation>`
+#### `useSlateWidgetStore<TWidget, TAnnotation>(editor, widgetsOrOptions, annotationStore?): SlateWidgetStore<TWidget, TAnnotation>`
 
 Create a widget store for UI anchored to nodes, selections, or annotations.
+
+Pass an array for simple static widget lists. Pass a projector when widget
+creation depends on React state and should refresh from explicit dependencies.
+
+```tsx
+const widgetStore = useSlateWidgetStore(editor, {
+  annotationStore,
+  deps: [commentId],
+  project: () => [
+    {
+      anchor: { annotationId: commentId, type: 'annotation' },
+      data: { label: 'Comment' },
+      id: 'comment-widget',
+    },
+  ],
+})
+```
 
 #### `useSlateWidgets<TWidget, TAnnotation>(store): SlateWidgetSnapshot<TWidget, TAnnotation>`
 
 Read every widget in a widget store.
 
-#### `useSlateWidget<TWidget, TAnnotation>(store, id): SlateWidgetEntry<TWidget, TAnnotation> | null`
+#### `useSlateWidget<TWidget, TAnnotation>(store, id): SlateResolvedWidget<TWidget, TAnnotation> | null`
 
 Read one widget by id.

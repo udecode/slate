@@ -6,14 +6,16 @@ jsx
 
 export const run = (editor, options = {}) => {
   editor.fragment.insert(
-    <block>
+    <fragment>
       <block>
         <block>
-          <block>New 1</block>
-          <block>New 2</block>
+          <block>
+            <block>New 1</block>
+            <block>New 2</block>
+          </block>
         </block>
       </block>
-    </block>,
+    </fragment>,
     options
   )
 }
@@ -32,7 +34,10 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: paste "Existing 2" before / after "New 2" in second cell?
+// Core policy: insertFragment is structural, not table-grid aware. The first
+// compatible source cell merges into the active cell; later source cells stay
+// as inserted siblings before the existing following cells. Positional grid
+// merge belongs in a table extension.
 export const output = (
   <editor>
     <block>
@@ -48,4 +53,3 @@ export const output = (
     </block>
   </editor>
 )
-export const skip = true

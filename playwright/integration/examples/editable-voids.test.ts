@@ -99,7 +99,7 @@ test.describe('editable voids', () => {
 
   test('make sure you can edit editable void', async ({ page }) => {
     await page.locator(input).fill('Typing')
-    expect(await page.locator(input).inputValue()).toBe('Typing')
+    await expect(page.locator(input)).toHaveValue('Typing')
   })
 
   test('undo from a new editable void input removes the inserted void block', async ({
@@ -198,6 +198,66 @@ test.describe('editable voids', () => {
     await expect(inputElement).toHaveValue('helloello')
   })
 
+  test('keeps focused editable void input range selection native-owned', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native input range-selection proof needs desktop keyboard input'
+    )
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const inputElement = page.locator(input)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    await outer.selection.select(outerSelection)
+    await inputElement.fill('Typing')
+    await inputElement.evaluate((element: HTMLInputElement) => {
+      element.focus()
+      element.setSelectionRange(1, 5)
+    })
+
+    await expect(inputElement).toBeFocused()
+    await expect
+      .poll(() =>
+        inputElement.evaluate((element: HTMLInputElement) => ({
+          selectedText: element.value.slice(
+            element.selectionStart ?? 0,
+            element.selectionEnd ?? 0
+          ),
+          selectionEnd: element.selectionEnd,
+          selectionStart: element.selectionStart,
+        }))
+      )
+      .toEqual({
+        selectedText: 'ypin',
+        selectionEnd: 5,
+        selectionStart: 1,
+      })
+
+    await expect
+      .poll(() => outer.selection.displayed())
+      .toMatchObject({
+        doubleHighlighted: false,
+        hasVisibleEditorSelection: false,
+        hasVisibleSelection: true,
+        source: 'none',
+      })
+    await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+
+    await page.keyboard.type('!')
+    await expect(inputElement).toHaveValue('T!g')
+    await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+  })
+
   test('restores outer editor selection after editing input inside editable void', async ({
     page,
   }, testInfo) => {
@@ -246,10 +306,6 @@ test.describe('editable voids', () => {
   test('runs generated internal-control gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'webkit') {
-      return
-    }
-
     const editor = await openExample(page, 'editable-voids', {
       ready: {
         editor: 'visible',
@@ -286,9 +342,10 @@ test.describe('editable voids', () => {
   test('keeps ArrowLeft inside editable void input native-owned', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop editable-void keyboard proof'
+    )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
     const inputElement = page.locator(input)
@@ -495,26 +552,24 @@ test.describe('editable voids', () => {
         anchor: { path: [0, 0], offset: 'Child '.length },
         focus: { path: [0, 0], offset: 'Child '.length },
       })
-    if (testInfo.project.name === 'mobile') {
-      return
+    if (testInfo.project.name !== 'mobile') {
+      await expect
+        .poll(() => childRoot.selection.dom())
+        .toEqual({
+          anchorNodeText: 'Child This is editable ',
+          anchorOffset: 'Child '.length,
+          focusNodeText: 'Child This is editable ',
+          focusOffset: 'Child '.length,
+        })
     }
-
-    await expect
-      .poll(() => childRoot.selection.dom())
-      .toEqual({
-        anchorNodeText: 'Child This is editable ',
-        anchorOffset: 'Child '.length,
-        focusNodeText: 'Child This is editable ',
-        focusOffset: 'Child '.length,
-      })
   })
 
   test('keeps same-runtime child-root caret usable after real mouse clicks', async ({
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Issue 18 covers desktop Chrome mouse caret behavior'
+      testInfo.project.name === 'mobile',
+      'Desktop child-root mouse caret proof uses native click and key events'
     )
 
     const childEditor = page
@@ -615,7 +670,7 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
+      testInfo.project.name === 'mobile',
       'Desktop child-root arrow navigation proof uses native click and key events'
     )
 
@@ -784,8 +839,8 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Desktop vertical content-root proof uses Chromium caret geometry'
+      testInfo.project.name === 'mobile',
+      'Desktop vertical content-root proof'
     )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
@@ -863,8 +918,8 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Desktop projected selection proof uses Chromium keyboard events'
+      testInfo.project.name === 'mobile',
+      'Desktop projected selection proof'
     )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
@@ -986,7 +1041,7 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
+      testInfo.project.name === 'mobile',
       'Desktop child-root unfocus proof uses real mouse clicks'
     )
 
@@ -1119,6 +1174,83 @@ test.describe('editable voids', () => {
       await expect
         .poll(() => outer.get.modelText())
         .toContain('Outer In addition to nodes')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('copies and cuts same-runtime child-root selection without editing outer text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop child-root copy/cut proof needs clipboard events'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const childEditor = page
+      .locator('[aria-label="Editable void rich content"]')
+      .first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const childRoot = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-child-root',
+      childEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+    const childSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 1], offset: 'rich'.length },
+    }
+
+    try {
+      await outer.selection.select(outerSelection)
+      await childRoot.selection.select(childSelection)
+      await childEditor.evaluate((element: HTMLElement) => element.focus())
+
+      const copyPayload = await childRoot.clipboard.copyEventPayload()
+
+      expect(copyPayload.text).toBe('This is editable rich')
+      expect(copyPayload.slateFragment).toBeTruthy()
+      expect(copyPayload.types).toEqual(
+        expect.arrayContaining([
+          'application/x-slate-fragment',
+          'text/html',
+          'text/plain',
+        ])
+      )
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .toContain('This is editable rich text')
+
+      const cutPayload = await childRoot.clipboard.cutEventPayload()
+
+      expect(cutPayload.text).toBe('This is editable rich')
+      expect(cutPayload.slateFragment).toBeTruthy()
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .toContain(' text, much better than a <textarea>!')
+      await expect
+        .poll(() => childRoot.get.modelText())
+        .not.toContain('This is editable rich')
+
+      await outer.focus()
+      await outer.selection.select(outerSelection)
+      await page.keyboard.type('Outer ')
+
+      await expect
+        .poll(() => outer.get.modelText())
+        .toContain('Outer In addition to nodes')
+      await expect.poll(() => childRoot.get.modelText()).not.toContain('Outer ')
+      runtimeErrors.assertNone()
     } finally {
       runtimeErrors.stop()
     }

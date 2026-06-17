@@ -78,8 +78,7 @@ const ExamplePage = ({ example }: { example: string }) => {
   )
 }
 
-// Disable SSR because it results in a double rendering which makes debugging
-// examples more challenging. No idea how any of this works.
+// Disable SSR so example debugging sees one client-owned editor mount.
 const NoSsrExamplePage = dynamic(() => Promise.resolve(ExamplePage), {
   ssr: false,
 })

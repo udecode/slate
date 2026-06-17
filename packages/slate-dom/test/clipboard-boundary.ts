@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import {
   createEditor,
   type Descendant,
+  defineEditorExtension,
   type Node,
   type Range,
   ElementApi as SlateElement,
@@ -9,8 +10,9 @@ import {
 import { Editor } from 'slate/internal'
 import { history } from 'slate-history'
 
+import { dom } from '../src/index'
 import {
-  dom,
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -18,8 +20,7 @@ import {
   NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_PARENT,
-} from '../src/index'
-import { DOMCoverage } from '../src/internal'
+} from '../src/internal'
 
 class FakeDataTransfer {
   private readonly store = new Map<string, string>()
@@ -385,6 +386,70 @@ describe('slate-dom clipboard boundary', () => {
     expect(typeof editor.api.clipboard.insertData).toBe('function')
     expect(typeof editor.api.clipboard.writeSelection).toBe('function')
     expect('clipboard' in editor).toBe(false)
+  })
+
+  it('lets clipboard middleware consume app paste data and delegate fallback paste', () => {
+    const seen: string[] = []
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: 'beta' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      undefined,
+      (target) => {
+        target.extend(
+          defineEditorExtension({
+            name: 'product-card-paste',
+            clipboard: {
+              insertData(data, { editor, next, state }) {
+                const title = data.getData('application/x-product-card-title')
+
+                seen.push(
+                  `${title ? 'consume' : 'delegate'}:${
+                    state.selection.get()?.anchor.offset ?? -1
+                  }`
+                )
+
+                if (!title) {
+                  return next()
+                }
+
+                editor.update((tx) => {
+                  tx.text.insert(`Card: ${title}`)
+                })
+                return true
+              },
+            },
+          })
+        )
+      }
+    )
+    const productCard = new FakeDataTransfer()
+    const plainText = new FakeDataTransfer()
+
+    productCard.setData('application/x-product-card-title', 'Ada')
+    productCard.setData('text/plain', 'fallback')
+    plainText.setData('text/plain', '!')
+
+    editor.update(() => {
+      expect(
+        editor.api.clipboard.insertData(productCard as unknown as DataTransfer)
+      ).toBe(true)
+    })
+    editor.update(() => {
+      expect(
+        editor.api.clipboard.insertData(plainText as unknown as DataTransfer)
+      ).toBe(true)
+    })
+
+    expect(Editor.string(editor, [0])).toBe('Card: Ada!beta')
+    expect(seen).toEqual(['consume:0', 'delegate:9'])
   })
 
   it('round-trips a selected fragment through clipboard payloads and replaces the target selection', () => {
@@ -1114,6 +1179,105 @@ describe('slate-dom clipboard boundary', () => {
     ).toEqual({ text: 'hello' })
   })
 
+  it('applies collapsed active marks to plain text fallback', () => {
+    const editor = createClipboardEditor(createChildren(), {
+      anchor: { path: [1, 0], offset: 4 },
+      focus: { path: [1, 0], offset: 4 },
+    })
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'hello')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(
+      (Editor.getSnapshot(editor).children[1] as SlateElement).children
+    ).toEqual([{ text: 'beta' }, { bold: true, text: 'hello' }])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 1], offset: 'hello'.length },
+      focus: { path: [1, 1], offset: 'hello'.length },
+    })
+  })
+
+  it('applies collapsed active marks to multiline plain text fallback', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Hello ' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 'Hello '.length },
+        focus: { path: [0, 0], offset: 'Hello '.length },
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'world\nNext')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'Hello ' }, { bold: true, text: 'world' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Next' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'Next'.length },
+      focus: { path: [1, 0], offset: 'Next'.length },
+    })
+  })
+
+  it('applies collapsed active marks to multiline plain text replacing an empty block', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'One\nTwo')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'One' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Two' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'Two'.length },
+      focus: { path: [1, 0], offset: 'Two'.length },
+    })
+  })
+
   it('keeps plain-text fallback outside selected inline text', () => {
     const editor = createClipboardEditor(
       [
@@ -1284,8 +1448,10 @@ describe('slate-dom clipboard boundary', () => {
       },
     })
 
-    Editor.insertText(editor, 'C')
-    Editor.deleteForward(editor, { unit: 'word' })
+    editor.update((tx) => {
+      tx.text.insert('C')
+      tx.text.deleteForward({ unit: 'word' })
+    })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
       {

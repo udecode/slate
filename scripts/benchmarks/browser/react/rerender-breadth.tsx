@@ -23,7 +23,6 @@ import type {
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
   createReactEditor,
-  createSlateProjectionStore,
   Editable,
   EditableElement,
   Slate,
@@ -35,12 +34,13 @@ import {
   useEditor as useSlate,
   useSlateAnnotationStore,
   useSlateAnnotations,
-  useSlateProjections,
+  useSlateProjectionEntries,
   useEditorSelection as useSlateSelection,
   useEditorSelector as useSlateSelector,
   useSlateWidgetStore,
   useSlateWidgets,
 } from '../../../../packages/slate-react/src/index.ts'
+import { createSlateProjectionStore } from '../../../../packages/slate-react/src/projection-store.ts'
 import {
   cloneCounts,
   deltaCounts,
@@ -330,7 +330,9 @@ const ProjectionSlice = memo(
     runtimeId: RuntimeId | null
     slot: string
   }) => {
-    const projections = useSlateProjections<{ highlight?: boolean }>(runtimeId)
+    const projections = useSlateProjectionEntries<{ highlight?: boolean }>(
+      runtimeId
+    )
 
     increment(counts, slot)
 
@@ -701,7 +703,7 @@ const AnnotationProjectionSlice = memo(
     counts: Record<string, number>
     runtimeId: RuntimeId | null
   }) => {
-    useSlateProjections<{
+    useSlateProjectionEntries<{
       annotationId: string
       kind: string
       tone?: string

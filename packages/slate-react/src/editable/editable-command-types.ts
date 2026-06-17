@@ -20,7 +20,7 @@ export type EditableCommand =
   | { kind: 'transpose-character' }
   | {
       kind: 'move-selection'
-      axis: 'horizontal' | 'line' | 'word'
+      axis: 'document' | 'horizontal' | 'line' | 'word'
       extend?: boolean
       reverse?: boolean
     }

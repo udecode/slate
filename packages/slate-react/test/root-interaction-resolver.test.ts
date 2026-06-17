@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import { shouldReplayMouseUpDOMSelection } from '../src/editable/root-interaction-controller'
 import {
   resolveRootInteractionMouseDown,
   resolveRootInteractionMouseUp,
@@ -187,6 +188,28 @@ describe('root interaction resolver', () => {
     })
   })
 
+  test('places focused native text targets from mouseup coordinates', () => {
+    const editable = document.createElement('div')
+    const text = document.createElement('span')
+
+    editable.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    editable.append(text)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: editable,
+      target: text,
+    })
+
+    expect(target.kind).toBe('native-editable')
+    expect(
+      resolveRootInteractionMouseDown({
+        editableRootFocused: true,
+        target,
+      })
+    ).toEqual({ type: 'place-native-editable' })
+  })
+
   test('lets root chrome ignore editable descendants', () => {
     const root = createRootChrome()
     const editable = document.createElement('div')
@@ -249,5 +272,43 @@ describe('root interaction resolver', () => {
 
     expect(target.kind).toBe('interactive-descendant')
     expect(resolveRootInteractionMouseDown({ target }).type).toBe('ignore')
+  })
+
+  test('replays Firefox mouseup DOM selection only for moved native selections', () => {
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: false,
+        pointerMoved: true,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: false,
+        pointerMoved: false,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: true,
+        pointerMoved: true,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: false,
+        nativeSelectedTextClick: false,
+        pointerMoved: true,
+      })
+    ).toBe(false)
   })
 })

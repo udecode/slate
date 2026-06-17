@@ -9,6 +9,13 @@ export type PlaywrightFailure = {
 
 export function commandKeyFor(command: readonly string[]): string
 
+export function buildPlaywrightCommand(
+  extraPlaywrightArgs: readonly string[],
+  additionalPlaywrightArgs?: readonly string[]
+): string[]
+
+export function buildSlateBrowserBuildCommand(): string[]
+
 export function extractFailuresFromPlaywrightReport(
   report: unknown
 ): PlaywrightFailure[]

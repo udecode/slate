@@ -1,6 +1,6 @@
 # Slate Benchmarks
 
-This is the canonical benchmark home for `/Users/zbeyens/git/slate-v2`.
+This is the canonical benchmark home for `/Users/zbeyens/git/plate-2/.tmp/slate-v2`.
 
 If you add a benchmark and it does not live here, you are making the repo
 worse.
@@ -15,7 +15,7 @@ scripts/benchmarks/
     current/       # headless current-only lanes
     compare/       # headless current-vs-legacy lanes
   shared/          # helper code used by multiple lanes
-  slate/           # compatibility wrappers for issue-shaped or legacy command names
+  slate/           # issue-shaped benchmark entrypoints
 ```
 
 ## What Goes Where
@@ -28,6 +28,8 @@ Current live family owners:
 
 - rerender breadth
 - huge-document overlays
+- huge-document browser trace
+- huge-document full gate wrapper
 - huge-document legacy compare
 - huge-document cross-editor browser comparison
 
@@ -60,8 +62,8 @@ Current live compare owners:
 
 ### `slate/`
 
-Use only for compatibility wrappers where a kept public command name or issue
-lane should stay stable.
+Use only for issue-shaped benchmark entrypoints whose command name is the
+benchmark contract.
 
 Current live example:
 
@@ -85,7 +87,7 @@ The folder already tells you it is a benchmark.
 
 ## Command Rules
 
-Public command names in `/Users/zbeyens/git/slate-v2/package.json` stay stable.
+Public command names in `/Users/zbeyens/git/plate-2/.tmp/slate-v2/package.json` stay stable.
 
 That means:
 
@@ -99,8 +101,8 @@ This folder is the implementation.
 
 Use the helpers in `shared/` instead of re-copying boilerplate:
 
-- [shared/stats.mjs](/Users/zbeyens/git/slate-v2/scripts/benchmarks/shared/stats.mjs)
-- [shared/repo-compare.mjs](/Users/zbeyens/git/slate-v2/scripts/benchmarks/shared/repo-compare.mjs)
+- [shared/stats.mjs](/Users/zbeyens/git/plate-2/.tmp/slate-v2/scripts/benchmarks/shared/stats.mjs)
+- [shared/repo-compare.mjs](/Users/zbeyens/git/plate-2/.tmp/slate-v2/scripts/benchmarks/shared/repo-compare.mjs)
 
 If a new lane needs the same setup a second time, extract it.
 Do not copy another private helper block and call it “temporary”.
@@ -118,6 +120,10 @@ Current artifact owners:
 - `tmp/slate-clipboard-large-payload-benchmark.json`
 - `tmp/slate-react-huge-document-legacy-compare-benchmark.json`
 - `tmp/slate-react-huge-document-cross-editor-benchmark.json`
+- `tmp/slate-react-huge-document-cross-editor-benchmark-*.json`
+- `tmp/slate-react-huge-document-browser-trace-benchmark.json`
+- `tmp/slate-react-huge-document-browser-trace-benchmark-*.json`
+- `tmp/slate-react-huge-document-full-benchmark.json`
 - `tmp/slate-normalization-benchmark.json`
 - `tmp/slate-query-ref-observation-benchmark.json`
 - `tmp/slate-node-transform-benchmark.json`
@@ -135,7 +141,7 @@ The artifact name should stay stable unless the lane meaning changes.
 
 ## How To Run
 
-From `/Users/zbeyens/git/slate-v2`:
+From `/Users/zbeyens/git/plate-2/.tmp/slate-v2`:
 
 ```bash
 bun run bench:slate:6038:local
@@ -175,6 +181,26 @@ check/notify/subscription count metrics so listener fanout has a
 machine-readable target before any architecture work.
 The route trace also records model-backed ready, type-to-paint, and burst/op
 metrics; DOM-visible typing alone is not enough proof for virtualized editors.
+Do not collapse huge-document DOM budget to `domNodeCount`. Use
+`mountedTopLevelCount` and `pendingTopLevelCount` for the viewport-like mounted
+range, `domCoverageBoundaryCount` and `viewportVirtualizationBoundaryCount` for
+hidden/projected range boundaries, and `selectMaterializationFrames` plus
+`materializedSelect*` metrics for endpoint materialization cost. Visual
+selection rows also record projected selection marker counts; those are the
+proof surface for "rendered selection exists" and "native and projected
+selection did not double-render the same range."
+`interactionSequenceToPaintMs` is the whole scripted packet from cold selection
+through materialized selection, click, and typing. It is a soak/sequence
+diagnostic, not a direct click latency budget. Use `clickToSelectionReadyMs`,
+`clickToPaintMs`, `selectionReadyMs`, and `selectToPaintMs` for user-facing
+selection decisions.
+For select-all/delete follow-up typing, `SLATE_BROWSER_TRACE_AFTER_DELETE_INPUT_MODE=type`
+measures native browser plus Playwright per-character dispatch. Use it when the
+question is real keyboard-event behavior. Use `insertText` when the question is
+Slate/model latency after the editor receives one text insertion. Do not treat a
+slow `typeAfterDeleteDispatchMs` or long `beforeinput`/`input` span in `type`
+mode as a Slate hot path unless the same problem appears in `insertText` or in
+model-ready/profiler metrics.
 
 The cross-editor huge-document benchmark compares Slate auto, Slate virtualized,
 ProseMirror, and Lexical on the same large-document browser packet. It emits
@@ -182,6 +208,11 @@ type-to-paint p95, cold select-to-paint p95, materialized select-to-paint p95,
 burst/op p95, DOM p95, and long-task p95 metrics per surface. Cold select
 includes any first-time virtualized materialization; materialized select isolates
 paint-settled latency after the target block exists in the editor surface.
+Treat `selectCommandMs` as harness/programmatic setup cost. It can include
+browser-bridge, scroll/materialization, and editor-handle selection setup, so it
+must be attributed with the route browser trace before runtime optimization.
+Do not use cross-editor `selectCommandMs` alone as a user-facing selection
+budget.
 
 The large clipboard payload lane defaults to a bounded local stress size. To run
 the exact #5945/#5992 issue-size gate:

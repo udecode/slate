@@ -24,7 +24,7 @@ Normalizing is multi-pass. A normalizer should fix one invalid structure and ret
 
 Imagine this invalid document:
 
-```jsx
+```tsx
 <editor>
   <paragraph a>
     <paragraph b>
@@ -44,7 +44,7 @@ editor.update((tx) => {
 
 That repair changes the parent, so Slate can normalize the parent on the next pass. The document eventually becomes:
 
-```jsx
+```tsx
 <editor>
   <paragraph a>word</paragraph>
 </editor>
@@ -90,20 +90,20 @@ editor.update((tx) => {
 
 Sometimes a command needs several structural edits before the tree is valid again. Wrap related writes in one `editor.update(...)`, and use `tx.withoutNormalizing(...)` when the tree should not normalize between those writes.
 
-```javascript
+```ts
+import { ElementApi, type Editor } from 'slate'
+
 const LIST_TYPES = ['numbered-list', 'bulleted-list']
 
-function changeBlockType(editor, type) {
+function changeBlockType(editor: Editor, type: string) {
   editor.update((tx) => {
     tx.withoutNormalizing(() => {
       const isActive = isBlockActive(editor, type)
       const isList = LIST_TYPES.includes(type)
 
       tx.nodes.unwrap({
-        match: n =>
-          LIST_TYPES.includes(
-            SlateElement.isElement(n) && n.type
-          ),
+        match: (node) =>
+          ElementApi.isElement(node) && LIST_TYPES.includes(node.type),
         split: true,
       })
 
@@ -123,6 +123,8 @@ The update still publishes one commit. `withoutNormalizing` only delays normaliz
 
 ## Extension Normalizers
 
-Reusable schema rules belong in editor extensions. Extensions can register named normalizer entries alongside element specs, state groups, tx groups, commit listeners, operation middleware, and runtime registration output.
+Reusable schema rules belong in editor extensions. Extensions can register named
+normalizer entries alongside element specs, state groups, tx groups, commit
+listeners, operation middleware, and setup output.
 
 Use the same rule inside those entries: make repairs with transaction methods, fix one invalid structure at a time, and avoid direct mutable editor fields.

@@ -1,10 +1,85 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
   createSlateBrowserInlineCutTypingGauntlet,
   openExample,
   recordSlateBrowserRuntimeErrors,
 } from 'slate-browser/playwright'
+
+const getBrowserWordBackwardDeleteCandidates = async (page: Page) =>
+  page.evaluate(() =>
+    navigator.platform.includes('Mac')
+      ? ['Alt+Backspace', 'Control+Backspace']
+      : ['Control+Backspace', 'Alt+Backspace']
+  )
+
+const getPlainContenteditableWordDeleteResult = async ({
+  caretOffset,
+  key,
+  page,
+  text,
+}: {
+  caretOffset: number
+  key: string
+  page: Page
+  text: string
+}) => {
+  await page.evaluate(
+    ({ caretOffset, text }) => {
+      document
+        .querySelector('[data-slate-plain-word-delete-host="true"]')
+        ?.remove()
+
+      const host = document.createElement('div')
+      host.contentEditable = 'true'
+      host.dataset.slatePlainWordDeleteHost = 'true'
+      host.style.cssText =
+        'position: fixed; left: 0; top: 0; width: 1200px; min-height: 1px; opacity: 0; white-space: pre-wrap;'
+      host.textContent = text
+      document.body.append(host)
+
+      const textNode = host.firstChild
+
+      if (!textNode) {
+        throw new Error('plain word-delete host has no text node')
+      }
+
+      const range = document.createRange()
+      range.setStart(textNode, caretOffset)
+      range.collapse(true)
+
+      const selection = document.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      host.focus()
+    },
+    { caretOffset, text }
+  )
+
+  await page.keyboard.press(key)
+
+  return page.evaluate(() => {
+    const host = document.querySelector(
+      '[data-slate-plain-word-delete-host="true"]'
+    ) as HTMLElement | null
+
+    if (!host) {
+      throw new Error('plain word-delete host was removed before readback')
+    }
+
+    const result = host.innerText.replaceAll('\u00A0', ' ')
+    host.remove()
+
+    return result
+  })
+}
+
+const normalizeInlineSelectionText = (text: string) =>
+  text
+    .replaceAll('\u00A0', ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,!.])/g, '$1')
+    .trim()
 
 test.describe('Inlines example', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,9 +110,10 @@ test.describe('Inlines example', () => {
   test('inserts a toolbar link at a collapsed selection', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -63,9 +139,10 @@ test.describe('Inlines example', () => {
   test('keeps selected text selected after toolbar link wrapping', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -100,12 +177,57 @@ test.describe('Inlines example', () => {
       .toBe(selectedText)
   })
 
+  test('wraps backward selected text as one link', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const url = 'https://example.com/backward-link'
+    const beforeSelectedText = 'In addition to block nodes, you can create '
+    const selectedText = 'inline nodes'
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('prompt')
+      await dialog.accept(url)
+    })
+    await editor.selection.selectDOM({
+      anchor: {
+        path: [0, 0],
+        offset: beforeSelectedText.length + selectedText.length,
+      },
+      focus: { path: [0, 0], offset: beforeSelectedText.length },
+    })
+    await page.getByRole('button', { exact: true, name: 'Link' }).click()
+
+    const link = editor.root.locator(
+      'a[href="https://example.com/backward-link"]'
+    )
+
+    await expect(link).toHaveCount(1)
+    await expect(link).toHaveText(selectedText)
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
+      )
+      .toBe(selectedText)
+    await editor.assert.noDoubleSelectionHighlight()
+  })
+
   test('collapses after auto-linking selected text with a typed URL', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -139,9 +261,10 @@ test.describe('Inlines example', () => {
   test('types a fullwidth punctuation character after a toolbar link once', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -201,9 +324,10 @@ test.describe('Inlines example', () => {
   test('wraps pasted URL text as a link command', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -231,9 +355,10 @@ test.describe('Inlines example', () => {
   test('places Enter after a typed inline link outside the link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -264,12 +389,12 @@ test.describe('Inlines example', () => {
   })
 
   test('types inside an editable inline at its end', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -281,7 +406,7 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 1, 0], offset: 'hyperlink'.length },
       focus: { path: [0, 1, 0], offset: 'hyperlink'.length },
     })
-    await page.keyboard.insertText(' inside')
+    await page.keyboard.type(' inside')
 
     await expect(editor.root.locator('a').first()).toContainText(
       'hyperlink inside'
@@ -295,12 +420,12 @@ test.describe('Inlines example', () => {
   })
 
   test('keeps an editable inline live after deleting its last character', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -330,7 +455,7 @@ test.describe('Inlines example', () => {
       await expect(link).toHaveCount(0)
       await expect(editor.root.locator('br')).toHaveCount(0)
 
-      await page.keyboard.insertText('x')
+      await page.keyboard.type('x')
 
       runtimeErrors.assertNone()
       await expect(followingLink).not.toContainText('x')
@@ -347,9 +472,10 @@ test.describe('Inlines example', () => {
   test('keeps the start of following text distinct from the end of an inline', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -367,7 +493,7 @@ test.describe('Inlines example', () => {
       isCollapsed: true,
     })
 
-    await page.keyboard.insertText(' outside')
+    await page.keyboard.type(' outside')
 
     await expect(editor.root.locator('a').first()).toContainText('hyperlink')
     await expect(editor.root.locator('a').first()).not.toContainText('outside')
@@ -381,9 +507,10 @@ test.describe('Inlines example', () => {
   test('keeps typed text before an inline link outside the link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -404,7 +531,7 @@ test.describe('Inlines example', () => {
       isCollapsed: true,
     })
 
-    await page.keyboard.insertText(insertedText)
+    await page.keyboard.type(insertedText)
 
     const link = editor.root.locator('a').first()
 
@@ -432,9 +559,10 @@ test.describe('Inlines example', () => {
   test('types before an inline link at the start of a paragraph', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -450,7 +578,7 @@ test.describe('Inlines example', () => {
     })
     await editor.deleteFragment()
     await editor.selection.collapse({ path: [0, 0], offset: 0 })
-    await page.keyboard.insertText('lead ')
+    await page.keyboard.type('lead ')
 
     const link = editor.root.locator(
       'a[href="https://en.wikipedia.org/wiki/Hypertext"]'
@@ -467,9 +595,10 @@ test.describe('Inlines example', () => {
   test('pastes content outside inline link boundaries without expanding the link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -506,9 +635,10 @@ test.describe('Inlines example', () => {
   test('keeps replacement text inside selected link text', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -531,12 +661,81 @@ test.describe('Inlines example', () => {
       .toContain('Here is a Hyperlink, and here is')
   })
 
+  test('keeps typing outside a surviving inline link after deleting edge text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
+
+    let editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeLinkText =
+      'In addition to block nodes, you can create inline nodes. Here is a '
+    let link = editor.root.locator('a').first()
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 1 },
+    })
+    await editor.root.press('Backspace')
+    await page.keyboard.type('XY')
+
+    await expect(link).toHaveText('yperlink')
+    await expect(link).not.toContainText('XY')
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: beforeLinkText.length + 2 },
+        focus: { path: [0, 0], offset: beforeLinkText.length + 2 },
+      })
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a XYyperlink, and here is')
+
+    await page.goto('/examples/inlines')
+    editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    link = editor.root.locator('a').first()
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1, 0], offset: 'hyperlin'.length },
+      focus: { path: [0, 1, 0], offset: 'hyperlink'.length },
+    })
+    await editor.root.press('Delete')
+    await page.keyboard.type('XY')
+
+    await expect(link).toHaveText('hyperlin')
+    await expect(link).not.toContainText('XY')
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 2], offset: 2 },
+        focus: { path: [0, 2], offset: 2 },
+      })
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a hyperlinXY, and here is')
+  })
+
   test('pastes plain text inside an inline link without splitting it', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -566,9 +765,10 @@ test.describe('Inlines example', () => {
   test('keeps typing after a link-boundary Backspace outside the link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -593,9 +793,10 @@ test.describe('Inlines example', () => {
   test('keeps text typed after a link when arrowing back into the link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -617,15 +818,16 @@ test.describe('Inlines example', () => {
         (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
       )
       .toContain('Here is a hyperlinktail, and here is')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
   })
 
   test('replaces selected text adjacent to inline link boundaries with rich content', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     let editor = await openExample(page, 'inlines', {
       ready: {
@@ -681,9 +883,10 @@ test.describe('Inlines example', () => {
   test('replaces selected inline link text with rich content outside the surviving link', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -744,7 +947,7 @@ test.describe('Inlines example', () => {
     })
     await editor.root.press('ControlOrMeta+C')
 
-    expect(await editor.clipboard.readText()).toBe('per')
+    await expect.poll(() => editor.clipboard.readText()).toBe('per')
 
     await editor.selection.collapse({ path: [0, 2], offset: 0 })
     await editor.root.press('ControlOrMeta+V')
@@ -763,9 +966,10 @@ test.describe('Inlines example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -790,9 +994,7 @@ test.describe('Inlines example', () => {
 
     await expect
       .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
+        normalizeInlineSelectionText(await editor.get.selectedText())
       )
       .toBe(firstBlockText)
   })
@@ -801,9 +1003,10 @@ test.describe('Inlines example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -819,9 +1022,7 @@ test.describe('Inlines example', () => {
 
     await expect
       .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
+        normalizeInlineSelectionText(await editor.get.selectedText())
       )
       .toBe(firstBlockText)
   })
@@ -829,9 +1030,10 @@ test.describe('Inlines example', () => {
   test('clicking a trailing inline link keeps selection valid', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -855,7 +1057,7 @@ test.describe('Inlines example', () => {
       await trailingLink.click()
 
       runtimeErrors.assertNone()
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
       await expect
         .poll(() => page.evaluate(() => window.getSelection()?.rangeCount ?? 0))
         .toBeGreaterThan(0)
@@ -867,9 +1069,10 @@ test.describe('Inlines example', () => {
   test('clicking after a trailing inline link places the caret after it', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -918,9 +1121,10 @@ test.describe('Inlines example', () => {
   test('typing after a trailing inline link inserts visible text after it', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -973,9 +1177,10 @@ test.describe('Inlines example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -985,20 +1190,16 @@ test.describe('Inlines example', () => {
     const trailingLink = editor.root
       .locator('a')
       .filter({ hasText: 'Finally, here is our favorite dog video.' })
-    const secondBlockText = (await editor.get.blockTexts())[1]?.replaceAll(
-      '\u00A0',
-      ''
-    )
+    const secondBlockText =
+      (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '') ?? ''
 
     await expect(trailingLink).toHaveCount(1)
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
-    await expect
-      .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
-      )
-      .toBe(secondBlockText)
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
     await editor.root.press('Backspace')
 
     await expect
@@ -1011,9 +1212,10 @@ test.describe('Inlines example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1030,11 +1232,14 @@ test.describe('Inlines example', () => {
 
     await expect(trailingLink).toHaveCount(1)
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
     await expect
       .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
+        normalizeInlineSelectionText(await editor.get.selectedText())
       )
       .toBe(secondBlockText)
 
@@ -1050,7 +1255,7 @@ test.describe('Inlines example', () => {
   test('mouse drag undo restores typed plain text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1058,7 +1263,7 @@ test.describe('Inlines example', () => {
       },
     })
     const text =
-      'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. '
+      'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your clipboard and paste it while a range of text is selected. '
     const selectionStart = 'There are two ways to add '.length
     const selectionEnd = selectionStart + 'links'.length
 
@@ -1096,7 +1301,7 @@ test.describe('Inlines example', () => {
   test('mouse drag undo restores typed inline link text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1105,7 +1310,15 @@ test.describe('Inlines example', () => {
     })
     const text = 'hyperlink'
 
+    if (testInfo.project.name === 'firefox') {
+      await editor.dom.collapseAtTextPath({
+        offset: text.length,
+        path: [0, 1, 0],
+      })
+    }
+
     await editor.selection.dragTextRange({
+      direction: testInfo.project.name === 'firefox' ? 'backward' : 'forward',
       endOffset: text.length,
       startOffset: 0,
       text,
@@ -1125,20 +1338,31 @@ test.describe('Inlines example', () => {
     )
 
     await expect(editor.root.locator('a').first()).toHaveText(text)
+    const expectedSelection =
+      testInfo.project.name === 'firefox'
+        ? {
+            anchor: { path: [0, 1, 0], offset: text.length },
+            focus: { path: [0, 1, 0], offset: 0 },
+          }
+        : {
+            anchor: { path: [0, 1, 0], offset: 0 },
+            focus: { path: [0, 1, 0], offset: text.length },
+          }
+
     await editor.assert.selection({
-      anchor: { path: [0, 1, 0], offset: 0 },
-      focus: { path: [0, 1, 0], offset: text.length },
+      anchor: expectedSelection.anchor,
+      focus: expectedSelection.focus,
     })
     await expect.poll(() => editor.get.selectedText()).toBe(text)
   })
 
   test('places the caret outside a padded inline before typing', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1168,12 +1392,12 @@ test.describe('Inlines example', () => {
   })
 
   test('removes an empty editable inline with Backspace without deleting preceding text', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1216,7 +1440,7 @@ test.describe('Inlines example', () => {
         (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
       )
       .not.toContain(', and here is a more unusual inline: a! Here')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
     await editor.assert.domSelectionTarget({
       isCollapsed: true,
     })
@@ -1248,22 +1472,121 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 6], offset: 0 },
       focus: { path: [0, 6], offset: 0 },
     })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'horizontal',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'horizontal',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'horizontal',
+              ownership: 'model-owned',
+              reason: 'model-horizontal-inline-void',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'horizontal',
-            ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void',
-          }),
-        }),
-      ])
+        ])
+      )
+  })
+
+  test('steps caret by offset across inline link boundaries', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline navigation proof'
     )
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeLinkText =
+      'In addition to block nodes, you can create inline nodes. Here is a '
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: beforeLinkText.length,
+    })
+    await editor.focus()
+
+    await editor.root.press('ArrowRight')
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    })
+    await editor.assert.domSelectionTarget({
+      anchorOffset: 0,
+      anchorPath: [0, 1, 0],
+      isCollapsed: true,
+    })
+
+    await editor.root.press('ArrowRight')
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 1 },
+      focus: { path: [0, 1, 0], offset: 1 },
+    })
+
+    await editor.root.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    })
+
+    await editor.root.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: beforeLinkText.length },
+      focus: { path: [0, 0], offset: beforeLinkText.length },
+    })
+
+    await editor.root.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: beforeLinkText.length - 1 },
+      focus: { path: [0, 0], offset: beforeLinkText.length - 1 },
+    })
+  })
+
+  test('pastes before a read-only inline without dropping following content', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeBadgeText = '! Here is a read-only inline: '
+    const pastedText = 'PASTE '
+
+    await editor.selection.collapse({
+      path: [0, 4],
+      offset: beforeBadgeText.length,
+    })
+    await editor.clipboard.pasteText(pastedText)
+
+    await expect(editor.root.locator('.slate-inlines-badge')).toHaveText(
+      'Approved'
+    )
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain(`${beforeBadgeText}${pastedText}Approved.`)
+    await editor.assert.selection({
+      anchor: {
+        path: [0, 4],
+        offset: beforeBadgeText.length + pastedText.length,
+      },
+      focus: {
+        path: [0, 4],
+        offset: beforeBadgeText.length + pastedText.length,
+      },
+    })
   })
 
   test('arrow keys still skip a read-only inline after insert-delete before it', async ({
@@ -1326,7 +1649,7 @@ test.describe('Inlines example', () => {
       }
 
       runtimeErrors.assertNone()
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -1335,6 +1658,11 @@ test.describe('Inlines example', () => {
   test('keeps caret editable after cutting inline link text', async ({
     page,
   }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
+
     const editor = await openExample(page, 'inlines', {
       ready: {
         editor: 'visible',
@@ -1352,30 +1680,28 @@ test.describe('Inlines example', () => {
       testInfo.project.name !== 'mobile' &&
       testInfo.project.name !== 'webkit'
     ) {
-      expect(await editor.clipboard.readText()).toBe('hyperlink')
+      await expect.poll(() => editor.clipboard.readText()).toBe('hyperlink')
     }
     await expect(
       editor.root.locator('a').filter({ hasText: 'hyperlink' })
     ).toHaveCount(0)
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
 
     await editor.type('LINK')
 
     await editor.assert.text(
       /Here is a LINK, and here is a more unusual inline/
     )
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
   })
 
   test('Backspace at an inline link end deletes one character', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1390,15 +1716,79 @@ test.describe('Inlines example', () => {
     await editor.root.press('Backspace')
 
     await expect(editor.root.locator('a').first()).toHaveText('hyperlin')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
+  })
+
+  test('word Backspace around an inline link matches plain editable text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop native word-delete proof'
+    )
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeText = ((await editor.get.blockTexts())[0] ?? '').replaceAll(
+      '\u00A0',
+      ' '
+    )
+    const linkText = 'hyperlink'
+    const caretOffset = beforeText.indexOf(linkText) + linkText.length
+    let expectedText: string | null = null
+    let wordBackspace: string | null = null
+
+    for (const candidateKey of await getBrowserWordBackwardDeleteCandidates(
+      page
+    )) {
+      const candidateText = await getPlainContenteditableWordDeleteResult({
+        caretOffset,
+        key: candidateKey,
+        page,
+        text: beforeText,
+      })
+
+      if (beforeText.length - candidateText.length > 1) {
+        expectedText = candidateText
+        wordBackspace = candidateKey
+        break
+      }
+    }
+
+    if (!expectedText || !wordBackspace) {
+      test.skip(
+        true,
+        'No Playwright key produced native word Backspace in the plain editable reference'
+      )
+      throw new Error('Unreachable after test.skip')
+    }
+
+    await editor.selection.collapse({
+      path: [0, 1, 0],
+      offset: linkText.length,
+    })
+    await editor.focus()
+    await page.keyboard.press(wordBackspace)
+
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', ' ')
+      )
+      .toBe(expectedText)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
+    await editor.assert.noDoubleSelectionHighlight()
   })
 
   test('Backspace deletes selected inline link boundary text only', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {
@@ -1410,9 +1800,14 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 1, 0], offset: 'hyper'.length },
       focus: { path: [0, 2], offset: 0 },
     })
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 'hyper'.length },
+      focus: { path: [0, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
     await expect
       .poll(async () =>
-        (await editor.get.selectedText()).replaceAll('\u00A0', '')
+        (await editor.get.selectedText()).replaceAll('\u00A0', '').trimEnd()
       )
       .toBe('link')
 
@@ -1428,14 +1823,16 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 1, 0], offset: 'hyper'.length },
       focus: { path: [0, 1, 0], offset: 'hyper'.length },
     })
+    await editor.assert.noDoubleSelectionHighlight()
   })
 
   test('runs generated inline cut typing gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline editing proof'
+    )
 
     const editor = await openExample(page, 'inlines', {
       ready: {

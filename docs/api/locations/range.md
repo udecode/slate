@@ -9,8 +9,8 @@ interface Range {
 }
 ```
 
-Both points must resolve inside the same root. The `main` root is implicit; named
-roots are stored on each point with `root`.
+Both points must resolve inside the same root. The primary document is
+implicit; extra roots are stored on each point with `root`.
 
 - [Static methods](range.md#static-methods)
   - [Retrieval methods](range.md#retrieval-methods)
@@ -77,7 +77,7 @@ Check if a `range` is expanded. This is the opposite of `RangeApi.isCollapsed` a
 
 Check if a `range` is forward. This is the opposite of `RangeApi.isBackward` and is provided for legibility.
 
-#### `RangeApi.isRange(value: any) => value is Range`
+#### `RangeApi.isRange(value: unknown) => value is Range`
 
 Check if a `value` implements the `Range` interface.
 

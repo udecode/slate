@@ -2,6 +2,14 @@
 
 - [Introduction](Introduction.md)
 
+## Releases
+
+- [Slate v2 Release Draft](releases/slate-v2.md)
+
+## Migration
+
+- [Migrating to Slate v2](migration/slate-v2.md)
+
 ## Walkthroughs
 
 - [Installing Slate](walkthroughs/01-installing-slate.md)
@@ -22,7 +30,7 @@
 - [Operations](concepts/05-operations.md)
 - [Commands](concepts/06-commands.md)
 - [Editor](concepts/07-editor.md)
-- [Plugins](concepts/08-plugins.md)
+- [Extensions](concepts/08-extensions.md)
 - [Rendering](concepts/09-rendering.md)
 - [Serializing](concepts/10-serializing.md)
 - [Normalizing](concepts/11-normalizing.md)
@@ -41,6 +49,7 @@
   - [NodeEntry](api/nodes/node-entry.md)
   - [Text](api/nodes/text.md)
 - [Location Types](api/locations/README.md)
+  - [Bookmark](api/locations/bookmark.md)
   - [Location](api/locations/location.md)
   - [Path](api/locations/path.md)
   - [PathRef](api/locations/path-ref.md)
@@ -55,8 +64,11 @@
 
 ## Libraries
 
+- [Slate](libraries/slate.md)
+- [Slate DOM](libraries/slate-dom.md)
+- [Slate Browser](libraries/slate-browser.md)
 - [Slate React](libraries/slate-react/README.md)
-  - [React Editor Setup](libraries/slate-react/with-react.md)
+  - [React Editor Setup](libraries/slate-react/react-editor-setup.md)
   - [React Editor](libraries/slate-react/react-editor.md)
   - [Hooks](libraries/slate-react/hooks.md)
   - [Slate Component](libraries/slate-react/slate.md)
@@ -66,7 +78,7 @@
   - [Event Handling](libraries/slate-react/event-handling.md)
 - [Slate Layout](libraries/slate-layout/README.md)
 - [Slate History](libraries/slate-history/README.md)
-  - [History Extension Setup](libraries/slate-history/with-history.md)
+  - [History Extension Setup](libraries/slate-history/history-extension-setup.md)
   - [History Editor API](libraries/slate-history/history-editor.md)
   - [History](libraries/slate-history/history.md)
 - [Slate Hyperscript](libraries/slate-hyperscript.md)

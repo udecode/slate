@@ -1,9 +1,9 @@
 import {
   createEditor,
   defineEditorExtension,
+  type EditorCommit,
   type Operation,
   type Node as SlateNode,
-  type SnapshotChange,
   type ValueOf,
 } from 'slate'
 import { history } from 'slate-history'
@@ -179,7 +179,7 @@ const selectorOptions: EditorSelectorOptions<typeof historyReactEditor> = {
   shouldUpdate: (operations, change) => {
     const typedOperations: readonly Operation<CustomValue>[] | undefined =
       operations
-    const typedChange: SnapshotChange<CustomValue> | undefined = change
+    const typedChange: EditorCommit<CustomValue> | undefined = change
 
     void typedOperations
     void typedChange
@@ -191,8 +191,8 @@ const selectorOptions: EditorSelectorOptions<typeof historyReactEditor> = {
 const SelectorProbe = () => {
   const selected = useEditorSelector(
     (selectedEditor: typeof historyReactEditor, operations) => {
-      const valueFromSelector: CustomValue = selectedEditor.read(
-        (state) => state.value.get().roots.main
+      const valueFromSelector: Readonly<CustomValue> = selectedEditor.read(
+        (state) => state.value.root()
       )
       const typedOperations: readonly Operation<CustomValue>[] | undefined =
         operations
@@ -217,8 +217,8 @@ const HookProbe = () => {
   const hookEditor = useSlateEditor({
     initialValue,
   })
-  const valueFromHook: CustomValue = hookEditor.read(
-    (state) => state.value.get().roots.main
+  const valueFromHook: Readonly<CustomValue> = hookEditor.read((state) =>
+    state.value.root()
   )
 
   hookEditor.read((state) => {

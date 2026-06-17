@@ -1,5 +1,6 @@
 import { NodeApi, type Range, RangeApi } from 'slate'
-import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
+import type { DOMText } from 'slate-dom'
+import { IS_NODE_MAP_DIRTY } from 'slate-dom/internal'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData } from './dom-input-event'
 import { Editor } from './runtime-editor-api'
@@ -29,9 +30,9 @@ export const canUseNativeSingleCharacterInput = ({
   if (
     !selection ||
     !RangeApi.isCollapsed(selection) ||
-    // Only use native character insertion for printable ASCII for now.
-    // Long-press events (hold a + press 4 = ä) to choose a special character otherwise
-    // causes duplicate inserts.
+    // Native character insertion is limited to printable ASCII. Long-press
+    // character pickers such as hold-a-then-4 for `ä` can otherwise duplicate
+    // inserts.
     !eventData ||
     eventData.length !== 1 ||
     !NATIVE_CHAR_RE.test(eventData) ||

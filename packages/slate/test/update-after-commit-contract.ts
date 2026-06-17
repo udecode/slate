@@ -205,10 +205,8 @@ describe('editor.update afterCommit', () => {
   it('passes view-scoped editor and snapshot to view afterCommit handlers', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

@@ -30,10 +30,88 @@ describe('state/tx public API contract', () => {
       value: state.value.get(),
     }))
 
-    assert.deepEqual(state.value, { roots: { main: [paragraph('one')] } })
+    assert.deepEqual(state.value, { children: [paragraph('one')] })
+    assert.deepEqual(
+      editor.read((state) => state.value.root()),
+      [paragraph('one')]
+    )
+    assert.throws(
+      () => editor.read((state) => state.value.root('main')),
+      /primary editor root by key/
+    )
     assert.deepEqual(state.selection, selection)
     assert.deepEqual(state.operations, [])
     assert.equal(state.lastCommit, null)
+  })
+
+  it('rejects public main root locations', () => {
+    const editor = createEditor({ initialValue: [paragraph('body')] })
+    const mainPoint = { path: [0, 0], offset: 4, root: 'main' }
+    const mainRange = { anchor: mainPoint, focus: mainPoint }
+    const mainMixedRange = {
+      anchor: mainPoint,
+      focus: { path: [0, 0], offset: 0, root: 'header' },
+    }
+    const mixedRange = {
+      anchor: { path: [0, 0], offset: 0, root: 'header' },
+      focus: { path: [0, 0], offset: 4, root: 'footer' },
+    }
+
+    assert.throws(
+      () =>
+        createEditor({
+          initialSelection: mainRange,
+          initialValue: [paragraph('body')],
+        }),
+      /Omit root to target the primary document/
+    )
+    assert.throws(
+      () =>
+        createEditor({
+          initialSelection: mainMixedRange,
+          initialValue: {
+            children: [paragraph('body')],
+            roots: { header: [paragraph('header')] },
+          },
+        }),
+      /Omit root to target the primary document/
+    )
+    assert.throws(
+      () =>
+        createEditor({
+          initialSelection: mixedRange,
+          initialValue: {
+            children: [paragraph('body')],
+            roots: {
+              footer: [paragraph('footer')],
+              header: [paragraph('header')],
+            },
+          },
+        }),
+      /multiple editor roots/
+    )
+    assert.throws(
+      () =>
+        editor.update((tx) => {
+          tx.text.insert('!', { at: mainPoint })
+        }),
+      /Omit root to target the primary document/
+    )
+    assert.throws(
+      () =>
+        editor.update((tx) => {
+          tx.selection.set(mainRange)
+        }),
+      /Omit root to target the primary document/
+    )
+    assert.throws(
+      () => editor.read((state) => state.text.string(mainRange)),
+      /Omit root to target the primary document/
+    )
+    assert.throws(
+      () => editor.read((state) => state.fragment.get({ at: mainRange })),
+      /Omit root to target the primary document/
+    )
   })
 
   it('round-trips raw document values through JSON without runtime metadata', () => {
@@ -70,14 +148,14 @@ describe('state/tx public API contract', () => {
     const exported = editor.read((state) => state.value.get())
     const reserialized = JSON.stringify(exported)
     const rehydrated = createEditor({
-      initialValue: JSON.parse(reserialized) as Descendant[],
+      initialValue: JSON.parse(reserialized),
     })
 
     assert.deepEqual(parsed, value)
-    assert.deepEqual(exported, { roots: { main: value } })
+    assert.deepEqual(exported, { children: value })
     assert.deepEqual(
       rehydrated.read((state) => state.value.get()),
-      { roots: { main: value } }
+      { children: value }
     )
     assert.equal(reserialized.includes('pathToId'), false)
     assert.equal(reserialized.includes('idToPath'), false)
@@ -113,7 +191,7 @@ describe('state/tx public API contract', () => {
       value: state.value.get(),
     }))
 
-    assert.deepEqual(state.value, { roots: { main: [paragraph('two')] } })
+    assert.deepEqual(state.value, { children: [paragraph('two')] })
     assert.deepEqual(state.selection, null)
     assert.equal(state.operations.length, 0)
     assert.equal(state.lastCommit?.childrenChanged, true)
@@ -156,7 +234,7 @@ describe('state/tx public API contract', () => {
       focus: { path: [0, 0], offset: 3 },
     })
     assert.deepEqual(state.value, {
-      roots: { main: [paragraph('one'), paragraph('two')] },
+      children: [paragraph('one'), paragraph('two')],
     })
   })
 
@@ -269,7 +347,7 @@ describe('state/tx public API contract', () => {
       value: state.value.get(),
     }))
 
-    assert.deepEqual(state.value, { roots: { main: [paragraph('fresh')] } })
+    assert.deepEqual(state.value, { children: [paragraph('fresh')] })
     assert.equal(state.oldSecondTextPath, null)
     assert.equal(typeof state.nextTextRuntimeId, 'string')
   })
@@ -291,8 +369,63 @@ describe('state/tx public API contract', () => {
 
     assert.deepEqual(state.path, [1, 0])
     assert.deepEqual(state.value, {
-      roots: { main: [paragraph('one'), paragraph('two!')] },
+      children: [paragraph('one'), paragraph('two!')],
     })
+  })
+
+  it('resolves runtime ids through structural draft changes without serializing them', () => {
+    const editor = createSeededEditor()
+    const firstBlockRuntimeId = editor.read((state) => state.runtime.idAt([0]))
+    const secondTextRuntimeId = editor.read((state) =>
+      state.runtime.idAt([1, 0])
+    )
+    let fragmentRuntimeId: string | null = null
+
+    assert.equal(typeof firstBlockRuntimeId, 'string')
+    assert.equal(typeof secondTextRuntimeId, 'string')
+
+    editor.update((tx) => {
+      tx.nodes.insert(paragraph('zero'), { at: [0] })
+
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [1])
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [2, 0])
+
+      tx.nodes.move({ at: [2], to: [0] })
+
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+
+      tx.selection.set({
+        anchor: { path: [2, 0], offset: 1 },
+        focus: { path: [2, 0], offset: 1 },
+      })
+      tx.nodes.split()
+
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+
+      tx.fragment.insert([paragraph('fragment')], { at: [1] })
+      fragmentRuntimeId = tx.runtime.idAt([1])
+
+      assert.equal(typeof fragmentRuntimeId, 'string')
+      assert.deepEqual(tx.runtime.pathOf(secondTextRuntimeId!), [0, 0])
+      assert.deepEqual(tx.runtime.pathOf(firstBlockRuntimeId!), [2])
+    })
+
+    const exportedValue = editor.read((state) => state.value.get())
+    const serialized = JSON.stringify(exportedValue)
+
+    assert.deepEqual(exportedValue, {
+      children: [
+        paragraph('two'),
+        paragraph('fragmentzero'),
+        paragraph('o'),
+        paragraph('ne'),
+      ],
+    })
+    assert.equal(serialized.includes(firstBlockRuntimeId!), false)
+    assert.equal(serialized.includes(secondTextRuntimeId!), false)
+    assert.equal(serialized.includes(fragmentRuntimeId!), false)
   })
 
   it('exposes complete query groups through state instead of direct editor aliases', () => {

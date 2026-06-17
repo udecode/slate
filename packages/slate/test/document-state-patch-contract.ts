@@ -67,7 +67,7 @@ describe('document state patch contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [documentTitle.key]: 'Q3 Plan' },
       }
     )

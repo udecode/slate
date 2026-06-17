@@ -9,7 +9,7 @@ test.describe('Check-lists example', () => {
   test('checks the bullet when clicked', async ({ page }) => {
     const slateNodeElement = 'div[data-slate-node="element"]'
 
-    expect(await page.locator(slateNodeElement).nth(3).textContent()).toBe(
+    await expect(page.locator(slateNodeElement).nth(3)).toHaveText(
       'Criss-cross!'
     )
 
@@ -25,7 +25,7 @@ test.describe('Check-lists example', () => {
       .nth(0)
       .locator('input')
       .uncheck()
-    expect(await page.locator(slateNodeElement).nth(3).textContent()).toBe(
+    await expect(page.locator(slateNodeElement).nth(3)).toHaveText(
       'Criss-cross!'
     )
     await expect(

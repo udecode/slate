@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { type EditorUpdateOptions } from 'slate'
 import { Editor } from 'slate/internal'
 
@@ -19,6 +20,26 @@ const remoteSelectionOptions = {
   },
   tag: ['collaboration', 'skip-scroll-into-view', 'skip-selection-focus'],
 } satisfies EditorUpdateOptions
+
+test('editable repair request exposes focused profiler buckets', () => {
+  const source = readFileSync('src/editable/mutation-controller.ts', 'utf8')
+
+  expect(source).toMatch(
+    /profileEditableMutationDuration\(\s*'repair\.selection-source-transition'/
+  )
+  expect(source).toMatch(
+    /profileEditableMutationDuration\(\s*'repair\.model-owned-text-guard'/
+  )
+  expect(source).toMatch(
+    /profileEditableMutationDuration\(\s*'repair\.focus-editor'/
+  )
+  expect(source).toMatch(
+    /profileEditableMutationDuration\(\s*'repair\.force-render'/
+  )
+  expect(source).toMatch(
+    /profileEditableMutationDuration\(\s*'repair\.dom-repair-queue'/
+  )
+})
 
 const createRemoteSelectionEditor = () => {
   const editor = createReactEditor()
@@ -96,4 +117,56 @@ test('remote collaboration selection metadata suppresses repair focus without sk
 
   expect(focusCalls).toBe(0)
   expect(syncCalls).toBe(1)
+})
+
+test('sync-selection repair can mark programmatic selection without DOM sync', () => {
+  const editor = createRemoteSelectionEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'dom-current',
+    },
+  })
+  let syncCalls = 0
+
+  applyEditableRepairRequest({
+    domRepairQueue: {
+      beginFrame() {},
+      cancelBefore() {},
+      repair() {},
+      repairCaretAfterModelOperation() {},
+      repairCaretAfterModelTextInsert() {},
+      repairDOMInput() {},
+    },
+    editor,
+    forceRender() {},
+    inputController,
+    request: {
+      kind: 'sync-selection',
+      selectionSourceTransition: {
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      },
+      syncDOMSelection: false,
+    },
+    syncDOMSelectionToEditor() {
+      syncCalls += 1
+    },
+  })
+
+  expect(syncCalls).toBe(0)
+  expect(inputController.state.isUpdatingSelection).toBe(true)
+  expect(inputController.state.selectionChangeOrigin).toBe(
+    'programmatic-export'
+  )
+  expect(inputController.state.selectionSource).toBe('model-owned')
+  expect(inputController.state.modelOwnedTextInputGuard).toBeGreaterThan(0)
 })

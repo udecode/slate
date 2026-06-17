@@ -32,9 +32,9 @@ export const input = (
 export const output = (
   <editor>
     <block>
-      onew
-      <cursor />t
+      one
+      <cursor />
+      wt
     </block>
   </editor>
 )
-export const skip = true

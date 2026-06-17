@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs'
+
 import type { Point } from 'slate'
 import { describe, expect, it } from 'vitest'
 
+import { Editor } from '../src/editable/runtime-editor-api'
+import { createReactEditor } from '../src/plugin/with-react'
 import {
   createSlateProjectionGraph,
   getSlateProjectionOwnerKey,
@@ -8,6 +12,7 @@ import {
 } from '../src/projection-graph'
 import {
   collapseSlateViewSelection,
+  createMainRootSlateViewSelection,
   createSlateViewSelection,
   extendSlateViewSelection,
   isSlateViewSelectionCollapsed,
@@ -16,7 +21,10 @@ import {
   subscribeSlateViewSelection,
   writeSlateViewSelection,
 } from '../src/view-selection'
-import { hasVisibleSlateViewSelectionDecoration } from '../src/view-selection-decoration'
+import {
+  createSlateViewSelectionDecorationSource,
+  hasVisibleSlateViewSelectionDecoration,
+} from '../src/view-selection-decoration'
 
 const SHARED_ROOT = 'synced-block:shared:body'
 const SEPARATE_ROOT = 'synced-block:separate:body'
@@ -62,6 +70,28 @@ const graph = createSlateProjectionGraph([
 ])
 
 describe('slate view selection', () => {
+  it('refreshes scoped view-selection decorations when mounted runtime scope changes', () => {
+    const source = readFileSync(
+      'src/components/editable-text-blocks.tsx',
+      'utf8'
+    )
+    const scopeEffectStart = source.indexOf(
+      'React.useEffect(() => {\n    decorateSource?.refresh({'
+    )
+    const scopeEffectEnd = source.indexOf(
+      '  const rootStyle =',
+      scopeEffectStart
+    )
+    const scopeEffect = source.slice(scopeEffectStart, scopeEffectEnd)
+
+    expect(scopeEffectStart).toBeGreaterThanOrEqual(0)
+    expect(source).not.toContain('shouldBoundAutoDecorateRuntimeScopeRef')
+    expect(scopeEffect).toContain('autoDecorateRuntimeScopeKey')
+    expect(scopeEffect).toContain('decorateSource?.refresh')
+    expect(scopeEffect).toContain('viewSelectionDecorationSource?.refresh')
+    expect(scopeEffect).toContain('viewSelectionDecorationSource,')
+  })
+
   it('stores a projected selection over visible graph segments without widening Slate points', () => {
     const selection = createSlateViewSelection(graph, {
       anchor: { point: point(undefined, [0, 0], 1) },
@@ -96,6 +126,32 @@ describe('slate view selection', () => {
     })
 
     expect(isSlateViewSelectionCollapsed(selection)).toBe(true)
+  })
+
+  it('creates model-backed selections in the active non-main root', () => {
+    const selection = createMainRootSlateViewSelection(
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 4 },
+      },
+      SHARED_ROOT
+    )
+
+    expect(selection?.anchor.point).toEqual({
+      offset: 0,
+      path: [0, 0],
+      root: SHARED_ROOT,
+    })
+    expect(selection?.focus.point).toEqual({
+      offset: 4,
+      path: [1, 0],
+      root: SHARED_ROOT,
+    })
+    expect(
+      selection?.segments.parts.map((part) => ({
+        root: part.root,
+      }))
+    ).toEqual([{ root: SHARED_ROOT }])
   })
 
   it('collapses by anchor, focus, and visible start/end with repeated-root owner identity intact', () => {
@@ -239,5 +295,141 @@ describe('slate view selection', () => {
         root: SHARED_ROOT,
       })
     ).toBe(false)
+  })
+
+  it('does not recompute view-selection decorations for model-only selection commits', () => {
+    const editor = createReactEditor({
+      initialValue: [{ type: 'paragraph', children: [{ text: 'hello' }] }],
+    })
+    const selection = createSlateViewSelection(
+      createSlateProjectionGraph([{ path: [0], root: 'main' }]),
+      {
+        anchor: { point: point(undefined, [0, 0], 0) },
+        focus: { point: point(undefined, [0, 0], 4) },
+      }
+    )
+
+    writeSlateViewSelection(editor, selection)
+
+    const source = createSlateViewSelectionDecorationSource(editor)
+    const sourceReadsBefore = source.getMetrics().sourceReadCount
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 2 },
+      })
+    })
+
+    expect(source.getMetrics().sourceReadCount).toBe(sourceReadsBefore)
+
+    source.refresh({ reason: 'external' })
+
+    expect(source.getMetrics().sourceReadCount).toBe(sourceReadsBefore + 1)
+
+    source.destroy()
+  })
+
+  it('keeps existing top-level runtime buckets stable as view selection extends', () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'paragraph', children: [{ text: 'zero' }] },
+        { type: 'paragraph', children: [{ text: 'one' }] },
+        { type: 'paragraph', children: [{ text: 'two' }] },
+        { type: 'paragraph', children: [{ text: 'three' }] },
+        { type: 'paragraph', children: [{ text: 'four' }] },
+      ],
+    })
+    const source = createSlateViewSelectionDecorationSource(editor)
+
+    writeSlateViewSelection(
+      editor,
+      createMainRootSlateViewSelection({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [3, 0], offset: 2 },
+      })!
+    )
+    source.refresh({ reason: 'external' })
+
+    writeSlateViewSelection(
+      editor,
+      createMainRootSlateViewSelection({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [4, 0], offset: 2 },
+      })!
+    )
+    const result = source.refresh({ reason: 'external' })
+
+    expect(result.changedRuntimeIds.length).toBeGreaterThan(0)
+    expect(result.changedRuntimeIds.length).toBeLessThanOrEqual(2)
+
+    source.destroy()
+  })
+
+  it('clips view-selection decorations to scoped top-level runtime ids and endpoints', () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'paragraph', children: [{ text: 'zero' }] },
+        { type: 'paragraph', children: [{ text: 'one' }] },
+        { type: 'paragraph', children: [{ text: 'two' }] },
+        { type: 'paragraph', children: [{ text: 'three' }] },
+        { type: 'paragraph', children: [{ text: 'four' }] },
+      ],
+    })
+
+    writeSlateViewSelection(
+      editor,
+      createMainRootSlateViewSelection({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [4, 0], offset: 2 },
+      })!
+    )
+
+    const snapshot = Editor.getSnapshot(editor)
+    const anchorTextRuntimeId = snapshot.index.pathToId['0.0']
+    const focusTextRuntimeId = snapshot.index.pathToId['4.0']
+    const mountedBlockRuntimeId = snapshot.index.pathToId['2']
+    const mountedTextRuntimeId = snapshot.index.pathToId['2.0']
+    const unmountedTextRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (
+      !anchorTextRuntimeId ||
+      !focusTextRuntimeId ||
+      !mountedBlockRuntimeId ||
+      !mountedTextRuntimeId ||
+      !unmountedTextRuntimeId
+    ) {
+      throw new Error('Expected runtime ids for scoped view-selection proof')
+    }
+
+    const source = createSlateViewSelectionDecorationSource(editor, {
+      runtimeScope: () => [mountedBlockRuntimeId],
+    })
+
+    expect(Object.keys(source.getSnapshot()).sort()).toEqual(
+      [anchorTextRuntimeId, focusTextRuntimeId, mountedTextRuntimeId].sort()
+    )
+    expect(source.getRuntimeSnapshot(unmountedTextRuntimeId)).toEqual([])
+    expect(source.getRuntimeSnapshot(anchorTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 4,
+        start: 1,
+      }),
+    ])
+    expect(source.getRuntimeSnapshot(mountedTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 3,
+        start: 0,
+      }),
+    ])
+    expect(source.getRuntimeSnapshot(focusTextRuntimeId)).toEqual([
+      expect.objectContaining({
+        end: 2,
+        start: 0,
+      }),
+    ])
+    expect(source.getMetrics().projectedRangeCount).toBe(3)
+
+    source.destroy()
   })
 })

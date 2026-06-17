@@ -1,5 +1,5 @@
 import { render, renderHook } from '@testing-library/react'
-import { EDITOR_TO_FORCE_RENDER } from 'slate-dom'
+import { EDITOR_TO_FORCE_RENDER } from 'slate-dom/internal'
 
 import {
   createEditableInputController,

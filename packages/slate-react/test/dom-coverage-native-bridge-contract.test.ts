@@ -2,17 +2,18 @@ import type { ClipboardEvent, DragEvent } from 'react'
 import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 
 import { createReactEditor } from '../src'
 import {
   applyEditableCopy,
   applyEditableCut,
+  applyEditableDragOver,
   applyEditableDragStart,
   applyEditableDrop,
   applyEditablePaste,
@@ -24,6 +25,9 @@ import {
 
 class FakeDataTransfer {
   private readonly data = new Map<string, string>()
+
+  dropEffect = 'none'
+  effectAllowed = 'none'
 
   get types() {
     return Array.from(this.data.keys())
@@ -289,8 +293,33 @@ describe('DOM coverage native bridge', () => {
       })
 
       expect(state.isDraggingInternally).toBe(true)
+      expect(dataTransfer.effectAllowed).toBe('move')
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('internal dragover advertises a move drop effect', () => {
+    const editor = createHiddenSelectionEditor()
+    const root = mountEditorRoot(editor)
+    const target = mountVisibleDragTarget(root)
+    const dataTransfer = new FakeDataTransfer()
+    const event = createDragEvent(target, dataTransfer)
+
+    try {
+      applyEditableDragOver({
+        editor,
+        event,
+        state: {
+          draggedBlock: false,
+          draggedRange: null,
+          isDraggingInternally: true,
+        },
+      })
+
+      expect(dataTransfer.dropEffect).toBe('move')
     } finally {
       cleanupEditorRoot(editor, root)
     }
@@ -623,7 +652,49 @@ describe('DOM coverage native bridge', () => {
     }
   })
 
-  test('copy over a pending DOM-present root group materializes the coverage boundary and writes model data', () => {
+  test('paste uses clipboard data mutated by an unhandled app paste callback', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+
+    clipboard.setData('text/plain', 'Old text')
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event,
+        onPaste: (pasteEvent) => {
+          pasteEvent.clipboardData.setData('text/plain', 'New text')
+          return false
+        },
+        readOnly: false,
+        partialDOMBackedSelection: false,
+      })
+
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(result.command).toMatchObject({ kind: 'insert-data' })
+      expect(Editor.string(editor, [])).toBe('New text')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('copy over a pending staged root group materializes the coverage boundary and writes model data', () => {
     const editor = createStagedSelectionEditor()
     const root = mountEditorRoot(editor)
     const clipboard = new FakeDataTransfer()
@@ -658,7 +729,7 @@ describe('DOM coverage native bridge', () => {
     }
   })
 
-  test('paste over a pending DOM-present root group materializes before mutating the model', () => {
+  test('paste over a pending staged root group materializes before mutating the model', () => {
     const editor = createStagedSelectionEditor()
     const root = mountEditorRoot(editor)
     const clipboard = new FakeDataTransfer()

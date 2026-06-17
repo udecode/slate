@@ -1,5 +1,3 @@
-// @ts-expect-error -- direction does not publish TypeScript declarations.
-import getDirection from 'direction'
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import {
   NodeApi,
@@ -25,12 +23,16 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { readSlateViewSelection } from '../view-selection'
+import {
+  isSlateViewSelectionCollapsed,
+  readSlateViewSelection,
+} from '../view-selection'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   applyContentRootNavigation,
   applyContentRootViewSelection,
 } from './content-root-navigation'
+import { shouldModelOwnPlainVerticalLargeDocumentExtension } from './dom-coverage-vertical-selection'
 import {
   isDestructiveEditableCommand,
   isEditableEditingEpochCommand,
@@ -70,6 +72,77 @@ const keyDownHandled = (
 ): EditableKeyDownResult => ({ handled: true, repair })
 const keyDownUnhandled = (): EditableKeyDownResult => ({ handled: false })
 
+type TextDirection = 'ltr' | 'neutral' | 'rtl'
+
+const RTL_SCRIPT_NAMES = [
+  'Adlam',
+  'Arabic',
+  'Avestan',
+  'Chorasmian',
+  'Elymaic',
+  'Hanifi_Rohingya',
+  'Hatran',
+  'Hebrew',
+  'Imperial_Aramaic',
+  'Inscriptional_Pahlavi',
+  'Inscriptional_Parthian',
+  'Lydian',
+  'Mandaic',
+  'Manichaean',
+  'Mende_Kikakui',
+  'Meroitic_Cursive',
+  'Meroitic_Hieroglyphs',
+  'Nabataean',
+  'Nko',
+  'Old_Hungarian',
+  'Old_North_Arabian',
+  'Old_Sogdian',
+  'Old_South_Arabian',
+  'Old_Uyghur',
+  'Palmyrene',
+  'Phoenician',
+  'Psalter_Pahlavi',
+  'Samaritan',
+  'Sogdian',
+  'Syriac',
+  'Thaana',
+  'Yezidi',
+]
+
+const createUnicodePropertyMatcher = (property: string) => {
+  try {
+    return new RegExp(`\\p{${property}}`, 'u')
+  } catch {
+    return null
+  }
+}
+
+const RTL_SCRIPT_MATCHERS = RTL_SCRIPT_NAMES.map((script) =>
+  createUnicodePropertyMatcher(`Script=${script}`)
+).filter((matcher): matcher is RegExp => matcher !== null)
+
+const LETTER_MATCHER = createUnicodePropertyMatcher('L')
+
+const isRTLScriptCharacter = (character: string) =>
+  RTL_SCRIPT_MATCHERS.some((matcher) => matcher.test(character))
+
+const isStrongLetterCharacter = (character: string) =>
+  LETTER_MATCHER?.test(character) ?? false
+
+export const getTextDirection = (value: string): TextDirection => {
+  for (const character of value) {
+    if (isStrongLetterCharacter(character) && isRTLScriptCharacter(character)) {
+      return 'rtl'
+    }
+
+    if (isStrongLetterCharacter(character)) {
+      return 'ltr'
+    }
+  }
+
+  return 'neutral'
+}
+
 const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   focus: true,
   kind: 'repair-caret',
@@ -80,13 +153,158 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   },
 }
 
+const getOwnerlessViewSelectionRange = (
+  editor: ReactRuntimeEditor
+): Range | null => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (
+    !viewSelection ||
+    viewSelection.anchor.owner ||
+    viewSelection.focus.owner
+  ) {
+    return null
+  }
+
+  return {
+    anchor: viewSelection.anchor.point,
+    focus: viewSelection.focus.point,
+  }
+}
+
 const isPlainTextKeyboardInput = (event: KeyboardEvent) =>
   event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
+
+const selectionSpansNativeTextInputBoundary = ({
+  editor,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  selection: Range | null
+}) => {
+  if (!selection || !RangeApi.isExpanded(selection)) {
+    return false
+  }
+
+  return editor.read((state) =>
+    state.nodes.some({
+      at: selection,
+      match: (node) =>
+        NodeApi.isElement(node) &&
+        (Editor.isInline(editor, node) ||
+          Editor.isVoid(editor, node) ||
+          Editor.isElementReadOnly(editor, node)),
+      voids: true,
+    })
+  )
+}
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
 const getSelectionRootKey = (selection: Range | null): RootKey =>
   (selection?.anchor.root ?? selection?.focus.root ?? MAIN_ROOT_KEY) as RootKey
+
+const getTargetElement = (target: EventTarget | null) =>
+  isDOMElement(target)
+    ? target
+    : isDOMText(target)
+      ? target.parentElement
+      : null
+
+const getNestedEditableRootKey = (
+  editor: ReactRuntimeEditor,
+  target: EventTarget | null
+): RootKey | null => {
+  const targetElement = getTargetElement(target)
+  const targetEditor = targetElement?.closest('[data-slate-editor="true"]')
+
+  if (!(targetEditor instanceof HTMLElement)) {
+    return null
+  }
+
+  let editorElement: HTMLElement
+
+  try {
+    editorElement = ReactEditor.assertDOMNode(editor, editor)
+  } catch {
+    return null
+  }
+
+  if (targetEditor === editorElement || !editorElement.contains(targetEditor)) {
+    return null
+  }
+
+  return (
+    (targetEditor.getAttribute('data-slate-root') as RootKey | null) ?? null
+  )
+}
+
+const qualifySelectionRoot = (
+  selection: Range | null,
+  root: RootKey | null
+): Range | null => {
+  if (!selection || !root || root === MAIN_ROOT_KEY) {
+    return selection
+  }
+
+  return {
+    anchor: { ...selection.anchor, root: selection.anchor.root ?? root },
+    focus: { ...selection.focus, root: selection.focus.root ?? root },
+  }
+}
+
+const readNestedEditableDOMSelection = (
+  nestedEditor: ReactRuntimeEditor
+): Range | null => {
+  let root: Document | ShadowRoot
+
+  try {
+    root = ReactEditor.findDocumentOrShadowRoot(nestedEditor)
+  } catch {
+    return null
+  }
+
+  const domSelection = getSelection(root)
+
+  if (!domSelection || domSelection.rangeCount === 0) {
+    return null
+  }
+
+  if (
+    !ReactEditor.hasSelectableTarget(nestedEditor, domSelection.anchorNode) ||
+    !ReactEditor.hasSelectableTarget(nestedEditor, domSelection.focusNode)
+  ) {
+    return null
+  }
+
+  return ReactEditor.resolveSlateRange(nestedEditor, domSelection, {
+    exactMatch: false,
+  })
+}
+
+const getNestedEditableSelectionContext = ({
+  editor,
+  getMountedViewEditor,
+  target,
+}: {
+  editor: ReactRuntimeEditor
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  target: EventTarget | null
+}) => {
+  const root = getNestedEditableRootKey(editor, target)
+  const nestedEditor = root ? (getMountedViewEditor?.(root) ?? null) : null
+  const rawSelection = nestedEditor
+    ? (readNestedEditableDOMSelection(nestedEditor) ??
+      readRuntimeSelection(nestedEditor))
+    : null
+
+  return {
+    editor: nestedEditor,
+    rawSelection,
+    root,
+    selection: qualifySelectionRoot(rawSelection, root),
+  }
+}
 
 const isReadOnlyNativeEditingKey = (nativeEvent: KeyboardEvent) => {
   if (Hotkeys.isUndo(nativeEvent) || Hotkeys.isRedo(nativeEvent)) {
@@ -164,6 +382,13 @@ const getModelOwnedHistoryRepair = ({
       : { kind: 'none' }
   }
 
+  const viewSelection = readSlateViewSelection(editor)
+  if (viewSelection && !isSlateViewSelectionCollapsed(viewSelection)) {
+    return forceRender
+      ? { forceRender, kind: 'force-render' }
+      : { kind: 'none' }
+  }
+
   return {
     focus: true,
     forceRender,
@@ -180,6 +405,7 @@ const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
   typeof domStrategyRuntime === 'object' &&
   domStrategyRuntime !== null &&
   ((domStrategyRuntime as { type?: unknown }).type === 'partial-dom' ||
+    (domStrategyRuntime as { type?: unknown }).type === 'staged' ||
     (domStrategyRuntime as { type?: unknown }).type === 'virtualized')
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
@@ -339,13 +565,61 @@ export const applyEditableKeyDown = ({
         return false
       }
     })()
+    const nestedSelectionContext = nestedEditableTarget
+      ? getNestedEditableSelectionContext({
+          editor,
+          getMountedViewEditor,
+          target: event.target,
+        })
+      : null
+    const selection =
+      nestedSelectionContext?.selection ?? readRuntimeSelection(editor)
     const projectedCommand =
       nestedEditableTarget && readSlateViewSelection(editor)
         ? getEditableCommandFromKeyDown({
             event,
-            selection: readRuntimeSelection(editor),
+            selection,
           })
         : null
+
+    const selectionRoot = getSelectionRootKey(selection)
+    const viewRoot = editor.read((state) => state.view.root())
+    const shouldHandleProjectedSelection =
+      nestedEditableTarget || selectionRoot !== viewRoot
+
+    if (shouldHandleProjectedSelection) {
+      const focusEditor = nestedSelectionContext?.editor ?? editor
+      const focusSelection = nestedSelectionContext?.rawSelection ?? selection
+      const focusNode =
+        focusSelection && Editor.hasPath(focusEditor, focusSelection.focus.path)
+          ? NodeApi.parent(focusEditor, focusSelection.focus.path)
+          : null
+      const isRTL = focusNode
+        ? getTextDirection(NodeApi.string(focusNode)) === 'rtl'
+        : false
+      const contentRootViewSelectionResult = applyContentRootViewSelection({
+        editor,
+        event,
+        getActiveContentRootOwner,
+        getContentRootOwnerViewEditor,
+        getMountedViewEditor,
+        isRTL,
+        selection,
+      })
+
+      if (contentRootViewSelectionResult.handled) {
+        return keyDownHandled({
+          focus: true,
+          forceRender: true,
+          kind: 'sync-selection',
+          selectionSourceTransition: {
+            preferModelSelection: true,
+            reason: 'model-command',
+            selectionSource: 'model-owned',
+          },
+        })
+      }
+    }
 
     if (!readOnly && isEditableEditingEpochCommand(projectedCommand)) {
       event.preventDefault()
@@ -522,9 +796,25 @@ export const applyEditableKeyDown = ({
       return keyDownHandled()
     }
 
+    if (
+      selectionSpansNativeTextInputBoundary({ editor, selection }) &&
+      isPlainTextKeyboardInput(nativeEvent)
+    ) {
+      event.preventDefault()
+      applyEditableCommand({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: nativeEvent.key,
+        },
+        editor,
+      })
+      return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
+    }
+
     const children = editor.read((state) => state.nodes.children())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
-    const isRTL = getDirection(NodeApi.string(element)) === 'rtl'
+    const isRTL = getTextDirection(NodeApi.string(element)) === 'rtl'
 
     // COMPAT: Since we prevent the default behavior on
     // `beforeinput` events, the browser doesn't think there's ever
@@ -608,6 +898,30 @@ export const applyEditableKeyDown = ({
       })
     }
 
+    const largeDocumentVerticalSelection =
+      getOwnerlessViewSelectionRange(editor) ?? selection
+
+    if (
+      shouldModelOwnPlainVerticalLargeDocumentExtension({
+        domStrategyRuntime,
+        editor,
+        event: nativeEvent,
+        selection: largeDocumentVerticalSelection,
+      })
+    ) {
+      const caretMovementResult = applyEditableCaretMovement({
+        domStrategyRuntime,
+        editor,
+        event,
+        isRTL,
+        selection: largeDocumentVerticalSelection,
+      })
+
+      if (caretMovementResult.handled) {
+        return keyDownHandled(caretMovementResult.repair)
+      }
+    }
+
     const contentRootViewSelectionResult = applyContentRootViewSelection({
       editor,
       event,
@@ -620,6 +934,7 @@ export const applyEditableKeyDown = ({
 
     if (contentRootViewSelectionResult.handled) {
       return keyDownHandled({
+        focus: true,
         kind: 'sync-selection',
         selectionSourceTransition: {
           preferModelSelection: true,
@@ -645,6 +960,7 @@ export const applyEditableKeyDown = ({
     }
 
     const caretMovementResult = applyEditableCaretMovement({
+      domStrategyRuntime,
       editor,
       event,
       isRTL,

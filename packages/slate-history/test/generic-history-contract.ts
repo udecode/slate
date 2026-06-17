@@ -1,4 +1,5 @@
 import { createEditor, type Operation, type ValueOf } from 'slate'
+import * as SlateHistory from 'slate-history'
 import { history } from 'slate-history'
 
 type CustomText = {
@@ -50,17 +51,23 @@ editor.getApi(HistoryExtension).withNewBatch(() => {
   })
 })
 
-// @ts-expect-error history stacks are read through state.history
-editor.api.history.undos()
+const assertHistoryTypeErrors = () => {
+  // @ts-expect-error history stacks are read through state.history
+  editor.api.history.undos()
 
-// @ts-expect-error undo is a replayable tx action, not an ambient api action
-editor.api.history.undo()
+  // @ts-expect-error undo is a replayable tx action, not an ambient api action
+  editor.api.history.undo()
 
-// @ts-expect-error history is extension state, not an editor root field
-editor.history
+  // @ts-expect-error history is extension state, not an editor root field
+  editor.history
 
-// @ts-expect-error undo is exposed on tx.history, not the editor root
-editor.undo()
+  // @ts-expect-error undo is exposed on tx.history, not the editor root
+  editor.undo()
 
+  // @ts-expect-error public withHistory wrapper is cut
+  SlateHistory.withHistory
+}
+
+void assertHistoryTypeErrors
 void historyValue
 void operation

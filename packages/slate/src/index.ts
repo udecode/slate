@@ -11,10 +11,10 @@ export type {
   CreateEditorOptions,
   DirtyRegion,
   Editor,
-  EditorApplyOperationsOptions,
   EditorCanonicalUpdateTag,
   EditorCollaborationUpdateMetadata,
   EditorCommit,
+  EditorCommitClass,
   EditorCommitCommand,
   EditorCommitContext,
   EditorCommitHandler,
@@ -99,13 +99,10 @@ export type {
   EditorView,
   EditorViewOptions,
   InitialValue,
-  OperationClass,
   ProjectedRangeSegment,
   RootKey,
   RuntimeId,
   Selection,
-  SnapshotChange,
-  SnapshotChangeClass,
   SnapshotDirtyScope,
   SnapshotIndex,
   SnapshotInput,
@@ -135,10 +132,8 @@ export type * from './interfaces/transforms/general'
 export type * from './interfaces/transforms/node'
 export type * from './interfaces/transforms/selection'
 export type * from './interfaces/transforms/text'
-export * from './text-units'
 export * from './types'
 export {
   type DebugValueScrubber,
   setDebugValueScrubber,
 } from './utils/format-debug-value'
-export * from './utils/is-object'

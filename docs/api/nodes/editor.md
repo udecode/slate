@@ -6,10 +6,16 @@ its path is `[]`.
 The public editor object is intentionally small:
 
 ```typescript
-interface Editor {
+interface Editor<TExtensions extends readonly unknown[] = []> {
+  api: Readonly<InstalledApiGroups<TExtensions>>
+  getApi(extension: EditorExtension): unknown
   read<T>(fn: (state: EditorState) => T): T
-  update(fn: (tx: EditorTransaction) => void, options?: EditorUpdateOptions): void
-  subscribe(listener: EditorListener): () => void
+  subscribe(listener: SnapshotListener): () => void
+  subscribeCommit(listener: (commit: EditorCommit) => void): () => void
+  update(
+    fn: (tx: EditorTransaction, context: EditorUpdateContext) => void,
+    options?: EditorUpdateOptions
+  ): void
   extend(extension: EditorExtension | EditorExtension[]): () => void
 }
 ```
@@ -20,6 +26,7 @@ interface Editor {
 - [Document roots](editor.md#document-roots)
 - [Document state](editor.md#document-state)
 - [Schema behavior](editor.md#schema-behavior)
+- [Runtime APIs](editor.md#runtime-apis)
 - [Subscribing to commits](editor.md#subscribing-to-commits)
 - [Extending the editor](editor.md#extending-the-editor)
 - [Pure node and location helpers](editor.md#pure-node-and-location-helpers)
@@ -113,30 +120,44 @@ editor.update(
 `tag` is the cheap lifecycle label. `metadata` is the typed policy channel for
 history, collaboration, and model/DOM selection behavior.
 
+The update callback also receives a context object for local post-commit hooks:
+
+```javascript
+editor.update((tx, { afterCommit }) => {
+  tx.text.insert('Saved')
+
+  afterCommit((change) => {
+    analytics.track('editor-change', change.source)
+  })
+})
+```
+
 ## Document roots
 
-The default document root is `main`. A plain block array initializes `main`.
-Pass `initialValue.roots` when one editor owns multiple roots.
+A plain block array initializes the primary document. Pass
+`initialValue.children` plus `initialValue.roots` when one editor owns extra
+roots.
 
 ```javascript
 const editor = createEditor({
   initialValue: {
+    children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
     roots: {
       header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
-      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
       footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
     },
   },
 })
 ```
 
-Read roots from `state.value.get().roots`.
+Read the primary document with `state.value.root()`. Read an extra root by key.
 
 ```javascript
-const footer = editor.read((state) => state.value.get().roots.footer)
+const body = editor.read((state) => state.value.root())
+const footer = editor.read((state) => state.value.root('footer'))
 ```
 
-Create, replace, or delete non-main roots with `tx.roots`.
+Create, replace, or delete extra roots with `tx.roots`.
 
 ```javascript
 editor.update((tx) => {
@@ -146,7 +167,7 @@ editor.update((tx) => {
 })
 ```
 
-Use normal node and text transforms for the `main` root. See
+Use normal node and text transforms for the primary document. See
 [Roots](../../concepts/13-roots.md) for React rendering, root chrome, and
 content roots.
 
@@ -156,13 +177,14 @@ content roots.
 
 ```ts
 type EditorDocumentValue = {
-  roots: Record<string, Descendant[]>
+  children: Descendant[]
+  roots?: Record<string, Descendant[]>
   state?: Record<string, unknown>
 }
 ```
 
-Use it for database persistence because it includes named roots and persistent
-state fields.
+Use it for database persistence because it includes the primary document, extra
+roots, and persistent state fields.
 
 ```javascript
 const documentValue = editor.read((state) => state.value.get())
@@ -261,19 +283,55 @@ element fields. Reading a default does not write that property into the
 document. The Slate value remains plain JSON until your transaction writes a
 field.
 
+## Runtime APIs
+
+Extensions expose mounted host and runtime services through `editor.api`.
+
+```javascript
+editor.api.dom.focus()
+editor.api.clipboard.insertTextData(dataTransfer)
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('Imported')
+  })
+})
+```
+
+Use `api` for services that are not transaction-scoped document mutations:
+DOM/React bridges, clipboard ingress, history batching, mounted overlay handles,
+measurements, or framework adapters. Do not put product editing commands there.
+If a feature changes Slate model state, expose it as a `tx` group and call it
+inside `editor.update(...)`.
+
+Use `editor.getApi(extension)` when the call site owns the extension token and
+needs the typed API for that extension.
+
 ## Subscribing to commits
 
 #### `editor.subscribe(listener) => () => void`
 
-Subscribe to committed editor changes. The listener receives the current
-snapshot and commit metadata.
+Subscribe to editor snapshots. The listener receives the current snapshot and an
+optional change summary.
 
 ```javascript
-const unsubscribe = editor.subscribe((_snapshot, commit) => {
-  if (commit.childrenChanged || commit.dirtyStateKeys.length > 0) {
+const unsubscribe = editor.subscribe((_snapshot, change) => {
+  if (change?.childrenChanged || change?.dirtyStateKeys.length) {
     const documentValue = editor.read((state) => state.value.get())
 
     save(documentValue)
+  }
+})
+```
+
+#### `editor.subscribeCommit(listener) => () => void`
+
+Subscribe only to committed changes. The listener receives the change summary
+for each commit.
+
+```javascript
+const unsubscribe = editor.subscribeCommit((change) => {
+  if (change.selectionChanged) {
+    syncSelection(change.selection)
   }
 })
 ```

@@ -1,154 +1,172 @@
 # Locations
 
-Locations are how you refer to specific places in the document when inserting, deleting, or doing anything else with a Slate editor. There are a few different kinds of location interfaces, each for different use cases.
+Locations tell Slate where to read or write inside an editor root. The core
+location types are `Path`, `Point`, and `Range`.
 
-## `Path`
+Rootless locations resolve against the current editor or view root. The base
+editor uses the primary document; root-bound views use their own root.
+Locations in extra roots carry the root key on their points.
 
-Paths are the lowest-level way to refer to a location. Each path is a simple array of numbers that refers to a node in the document tree by its indexes in each of its ancestor nodes down the tree:
+## Path
 
-```typescript
+A path is an array of indexes from a root to a node.
+
+```ts
 type Path = number[]
 ```
 
-For example, in this document:
+In this root value, the paragraph has path `[0]` and the text node has path
+`[0, 0]`.
 
-```javascript
-const editor = {
-  children: [
-    {
-      type: 'paragraph',
-      children: [
-        {
-          text: 'A line of text!',
-        },
-      ],
-    },
-  ],
-}
+```ts
+const children = [
+  {
+    type: 'paragraph',
+    children: [{ text: 'A line of text!' }],
+  },
+]
 ```
 
-The leaf text node would have a path of: `[0, 0]`.
+Use `[]` for the root itself. For example, this selects the current root.
 
-The Editor itself has a path of `[]`. For example, to select the whole contents
-of the editor:
-
-```javascript
+```ts
 editor.update((tx) => {
   tx.selection.set([])
 })
 ```
 
-## `Point`
+Use `PathApi` for path math.
 
-Points are slightly more specific than paths, and contain an `offset` into a specific text node. Their interface is:
+```ts
+import { PathApi } from 'slate'
 
-```typescript
+const parent = PathApi.parent([0, 0])
+const common = PathApi.common([0, 0], [0, 2])
+```
+
+## Point
+
+A point targets an offset inside a text node.
+
+```ts
 interface Point {
   path: Path
   offset: number
+  root?: string
 }
 ```
 
-For example, with that same document, if you wanted to refer to the very first place you could put your cursor it would be:
+The start of the first text node is:
 
-```javascript
+```ts
 const start = {
   path: [0, 0],
   offset: 0,
 }
 ```
 
-Or, if you wanted to refer to the end of the sentence:
+A point in a named root carries that root key.
 
-```javascript
-const end = {
+```ts
+const headerStart = {
   path: [0, 0],
-  offset: 15,
+  offset: 0,
+  root: 'header',
 }
 ```
 
-It can be helpful to think of points as being "cursors" \(or "carets"\) of a selection.
+Points always resolve to text nodes. Elements do not have cursor offsets.
 
-> 🤖 Points _always_ refer to text nodes! Since they are the only ones with strings that can have cursors.
+## Range
 
-## `Range`
+A range spans between two points.
 
-Ranges are a way to refer not just to a single point in the document, but to a wider span of content between two points. \(An example of a range is when you make a selection.\) Their interface is:
-
-```typescript
+```ts
 interface Range {
   anchor: Point
   focus: Point
 }
 ```
 
-> 🤖 The terms "anchor" and "focus" are borrowed from the DOM, see [Anchor](https://developer.mozilla.org/en-US/docs/Web/API/Selection/anchorNode) and [Focus](https://developer.mozilla.org/en-US/docs/Web/API/Selection/focusNode).
+The anchor is where the user started the selection. The focus is where the user
+ended it. A backward range can have an anchor that appears after the focus in
+document order.
 
-An anchor and focus are established by a user interaction. The anchor point isn't always _before_ the focus point in the document. Just like in the DOM, the ordering of an anchor and selection point depend on whether the range is backwards or forwards.
+Use `RangeApi` when you need ordered edges or direction checks.
 
-Here's how Mozilla Developer Network explains it:
+```ts
+import { RangeApi } from 'slate'
 
-> A user may make a selection from left to right \(in document order\) or right to left \(reverse of document order\). The anchor is where the user began the selection and the focus is where the user ends the selection. If you make a selection with a desktop mouse, the anchor is placed where you pressed the mouse button and the focus is placed where you released the mouse button. Anchor and focus should not be confused with the start and end positions of a selection, since anchor can be placed before the focus or vice versa, depending on the direction you made your selection. — [`Selection`, MDN](https://developer.mozilla.org/en-US/docs/Web/API/Selection)
+const [start, end] = RangeApi.edges(range)
+const collapsed = RangeApi.isCollapsed(range)
+const backward = RangeApi.isBackward(range)
+```
 
-One important distinction is that the anchor and focus points of ranges **always reference the leaf-level text nodes** in a document and never reference elements. This behavior is different than the DOM, but it simplifies working with ranges as there are fewer edge cases for you to handle.
+Both points in a range must resolve inside the same root. For named roots, put
+the same `root` on both points.
 
-> 🤖 For more info, check out the [Range API reference](../api/locations/range.md).
-
-## Selection
-
-Ranges are used in many places in Slate's API when you need to refer to a span of content between two points. One of the most common, though, is the user's current "selection".
-
-The selection is a special range that is a property of the top-level `Editor`. For example, say someone has the whole sentence currently selected:
-
-```javascript
-const editor = {
-  selection: {
-    anchor: { path: [0, 0], offset: 0 },
-    focus: { path: [0, 0], offset: 15 },
-  },
-  children: [
-    {
-      type: 'paragraph',
-      children: [
-        {
-          text: 'A line of text!',
-        },
-      ],
-    },
-  ],
+```ts
+const headerRange = {
+  anchor: { path: [0, 0], offset: 0, root: 'header' },
+  focus: { path: [0, 0], offset: 6, root: 'header' },
 }
 ```
 
-> 🤖 The selection concept is also borrowed from the DOM, see [`Selection`, MDN](https://developer.mozilla.org/en-US/docs/Web/API/Selection), although in a greatly-simplified form because Slate doesn't allow for multiple ranges inside a single selection, which makes things a lot easier to work with.
+## Selection
 
-There isn't a special `Selection` interface. It's just an object that happens to respect the more general-purpose `Range` interface instead.
+The editor selection is a `Range | null`. Read it from the editor state and
+write it inside `editor.update(...)`.
 
-For example, to find the lowest block that contains all of the current selection:
+```ts
+const selection = editor.read((state) => state.selection.get())
+```
 
-```javascript
-function getCommonBlock(editor) {
-  return editor.read((state) => {
-    const selection = state.selection.get()
-    if (!selection) return null
-
-    const range = state.ranges.unhang(selection, { voids: true })
-    const [common, path] = SlateNode.common(
-      editor,
-      range.anchor.path,
-      range.focus.path
-    )
-
-    if (
-      path.length === 0 ||
-      (SlateElement.isElement(common) && state.schema.isBlock(common))
-    ) {
-      return [common, path]
-    }
-
-    return state.nodes.above({
-      at: path,
-      match: n => SlateElement.isElement(n) && state.schema.isBlock(n),
-    })
+```ts
+editor.update((tx) => {
+  tx.selection.set({
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 15 },
   })
-}
+})
+```
+
+Set the selection to `null` to clear it.
+
+```ts
+editor.update((tx) => {
+  tx.selection.set(null)
+})
+```
+
+Use read helpers for common editor-derived points and ranges.
+
+```ts
+const start = editor.read((state) => state.points.start([0]))
+const end = editor.read((state) => state.points.end([0]))
+const unhung = editor.read((state) => {
+  const selection = state.selection.get()
+
+  return selection ? state.ranges.unhang(selection, { voids: true }) : null
+})
+```
+
+Use [Path API](../api/locations/path.md), [Point API](../api/locations/point.md),
+and [Range API](../api/locations/range.md) for the full helper list.
+
+## Bookmarks
+
+Use bookmarks for local annotation-like anchors that rebase as operations
+apply. A bookmark hides its backing range ref from the public ref set and
+exposes `resolve()` plus `unref()`.
+
+```ts
+const bookmark = editor.read((state) =>
+  state.ranges.bookmark({
+    anchor: { path: [0, 0], offset: 2 },
+    focus: { path: [0, 0], offset: 8 },
+  })
+)
+
+const range = bookmark.resolve()
+bookmark.unref()
 ```

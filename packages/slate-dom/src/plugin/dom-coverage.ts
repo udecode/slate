@@ -23,6 +23,7 @@ export const DOM_COVERAGE_BOUNDARY_ATTRIBUTE =
 export const DOM_COVERAGE_BOUNDARY_EDGE_ATTRIBUTE =
   'data-slate-dom-coverage-edge'
 
+/** Mounted state for a model range represented by a DOM coverage boundary. */
 export type DOMCoverageBoundaryState =
   | 'mounted'
   | 'intentionally-hidden'
@@ -30,6 +31,7 @@ export type DOMCoverageBoundaryState =
   | 'virtualized'
   | 'atom-boundary'
 
+/** Why a model range is missing from, summarized in, or detached from the DOM. */
 export type DOMCoverageReason =
   | 'app-collapse'
   | 'app-hidden'
@@ -38,31 +40,38 @@ export type DOMCoverageReason =
   | 'partial-dom-aggressive'
   | 'runtime-atom'
 
+/** Selection behavior when navigation reaches covered content. */
 export type DOMCoverageSelectionPolicy = 'materialize' | 'skip' | 'model'
 
+/** Clipboard behavior when a copied range crosses covered content. */
 export type DOMCoverageCopyPolicy =
   | 'model'
   | 'summary'
   | 'exclude'
   | 'materialize'
 
+/** Search ownership for covered content. */
 export type DOMCoverageFindPolicy = 'native' | 'custom'
 
+/** Inclusive path range covered by a boundary. */
 export interface DOMCoveragePathRange {
   anchor: SlatePath
   focus: SlatePath
 }
 
+/** Runtime-id range that can be rebased into current paths. */
 export interface DOMCoverageRuntimeRange {
   anchor: RuntimeId
   focus: RuntimeId
 }
 
+/** DOM anchor used for native point/range conversion at a boundary edge. */
 export type DOMCoverageBoundaryAnchor =
   | { type: 'owner' }
   | { runtimeId: RuntimeId; type: 'summary-slot' }
   | { runtimeId?: RuntimeId; type: 'placeholder' }
 
+/** Registered coverage boundary for one owner element and its hidden ranges. */
 export interface DOMCoverageBoundary {
   boundaryId: string
   ownerRuntimeId: RuntimeId | null
@@ -78,12 +87,15 @@ export interface DOMCoverageBoundary {
   version: number
 }
 
+/** Slate-to-DOM point conversion result that can stop at a boundary. */
 export type DOMCoverageDOMPointResult =
   | { domPoint: DOMPoint; type: 'dom-point' }
   | { boundary: DOMCoverageBoundary; point: Point; type: 'boundary' }
 
+/** Boundary edge used when a DOM point maps back to Slate. */
 export type DOMCoverageBoundaryEdge = 'anchor' | 'focus' | 'owner'
 
+/** Slate-to-DOM range conversion result that can stop at covered ranges. */
 export type DOMCoverageDOMRangeResult =
   | { domRange: DOMRange; type: 'dom-range' }
   | {
@@ -92,6 +104,7 @@ export type DOMCoverageDOMRangeResult =
       type: 'boundary-range'
     }
 
+/** DOM-to-Slate point conversion result for native boundary DOM. */
 export type DOMCoverageSlatePointResult =
   | { point: Point; type: 'slate-point' }
   | {
@@ -101,6 +114,7 @@ export type DOMCoverageSlatePointResult =
       type: 'boundary-point'
     }
 
+/** Why covered content should be mounted or revealed. */
 export type DOMCoverageMaterializeReason =
   | 'selection'
   | 'copy'
@@ -109,8 +123,10 @@ export type DOMCoverageMaterializeReason =
   | 'programmatic'
   | 'background'
 
+/** Which part of a covered range triggered materialization. */
 export type DOMCoverageMaterializeRangeRole = 'anchor' | 'focus' | 'interior'
 
+/** Result from asking the app to materialize a boundary. */
 export type DOMCoverageMaterializeResult =
   | {
       boundaryId: string
@@ -128,11 +144,13 @@ export type DOMCoverageMaterializeResult =
       status: 'unhandled'
     }
 
+/** Context passed to a materialization handler. */
 export type DOMCoverageMaterializeOptions = {
   range?: SlateRange
   rangeRole?: DOMCoverageMaterializeRangeRole
 }
 
+/** App hook that can reveal or mount covered content on demand. */
 export type DOMCoverageMaterializeHandler = (
   boundary: DOMCoverageBoundary,
   reason: DOMCoverageMaterializeReason,
@@ -544,22 +562,33 @@ const compareBoundaries = (
   return boundary.boundaryId.localeCompare(another.boundaryId)
 }
 
+/**
+ * Tracks model ranges that are intentionally missing or summarized in the DOM.
+ *
+ * Staged, virtualized, app-hidden, and atom-like content register boundaries so
+ * selection, copy, find, and Slate-to-DOM conversion can follow explicit
+ * policies instead of assuming every node is mounted.
+ */
 export const DOMCoverage = {
   boundaryEdgeAttribute: DOM_COVERAGE_BOUNDARY_EDGE_ATTRIBUTE,
   boundaryElementAttribute: DOM_COVERAGE_BOUNDARY_ATTRIBUTE,
 
+  /** Remove all boundary and materialization state for an editor. */
   clear(editor: SlateEditor) {
     EDITOR_TO_DOM_COVERAGE_REGISTRY.delete(editor)
   },
 
+  /** Remove all materialization handlers for an editor. */
   clearMaterializeHandler(editor: SlateEditor) {
     getRegistry(editor).materializeHandlers.clear()
   },
 
+  /** Return all currently valid boundaries after rebasing them to the editor. */
   getBoundaries(editor: SlateEditor): readonly DOMCoverageBoundary[] {
     return getResolvedBoundaries(editor)
   },
 
+  /** Return boundaries whose covered ranges intersect a Slate range. */
   getBoundariesForRange(
     editor: SlateEditor,
     range: SlateRange
@@ -577,6 +606,7 @@ export const DOMCoverage = {
       .sort(compareBoundaries)
   },
 
+  /** Resolve a boundary by id, rebasing or removing it if the owner moved. */
   getBoundary(editor: SlateEditor, boundaryId: string) {
     const registry = syncRegistryToEditor(editor)
     const boundary = registry.boundaries.get(boundaryId)
@@ -600,6 +630,7 @@ export const DOMCoverage = {
     return resolved
   },
 
+  /** Return the nearest boundary that owns a Slate point. */
   getBoundaryForPoint(editor: SlateEditor, point: Point) {
     const registry = syncRegistryToEditor(editor)
     const [boundary] = getIndexedBoundaries(registry, [getRootKey(point.path)])
@@ -609,6 +640,7 @@ export const DOMCoverage = {
     return boundary ?? null
   },
 
+  /** Find the next selectable point outside a boundary with the same policy. */
   getPointOutsideBoundary(
     editor: SlateEditor,
     boundary: DOMCoverageBoundary,
@@ -650,6 +682,7 @@ export const DOMCoverage = {
     return targetPoint
   },
 
+  /** Ask app code to mount or reveal a boundary for selection, copy, or focus. */
   materializeBoundary(
     editor: SlateEditor,
     boundaryId: string,
@@ -682,6 +715,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Register or replace one boundary and return an unregister function. */
   registerBoundary(editor: SlateEditor, boundary: DOMCoverageBoundary) {
     const registry = syncRegistryToEditor(editor)
 
@@ -693,6 +727,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Replace all materialization handlers with one handler. */
   setMaterializeHandler(
     editor: SlateEditor,
     handler: DOMCoverageMaterializeHandler
@@ -703,6 +738,7 @@ export const DOMCoverage = {
     registry.materializeHandlers.set(0, handler)
   },
 
+  /** Register one materialization handler and return an unregister function. */
   registerMaterializeHandler(
     editor: SlateEditor,
     handler: DOMCoverageMaterializeHandler
@@ -717,6 +753,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Resolve a Slate point to mounted DOM or to the covering boundary. */
   resolveDOMPointOrBoundary(
     editor: DOMEditorType<any>,
     point: Point
@@ -737,6 +774,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Resolve a Slate range to mounted DOM or to covered boundary ranges. */
   resolveDOMRangeOrBoundary(
     editor: DOMEditorType<any>,
     range: SlateRange
@@ -757,6 +795,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Resolve native boundary DOM back to the Slate point it represents. */
   resolveSlatePointFromBoundary(
     editor: SlateEditor,
     domPoint: DOMPoint
@@ -784,6 +823,7 @@ export const DOMCoverage = {
     }
   },
 
+  /** Remove one registered boundary and its lookup index entries. */
   unregisterBoundary(editor: SlateEditor, boundaryId: string) {
     const registry = getRegistry(editor)
 

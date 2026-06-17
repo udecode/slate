@@ -272,12 +272,12 @@ export interface NodeInterface {
   /**
    * Check if a value implements the `Node` interface.
    */
-  isNode: (value: any, options?: NodeIsNodeOptions) => value is Node
+  isNode: (value: unknown, options?: NodeIsNodeOptions) => value is Node
 
   /**
    * Check if a value is a list of `Node` objects.
    */
-  isNodeList: (value: any, options?: NodeIsNodeOptions) => value is Node[]
+  isNodeList: (value: unknown, options?: NodeIsNodeOptions) => value is Node[]
 
   /**
    * Check if a node is an `Text` object.
@@ -825,7 +825,10 @@ export const NodeApi: NodeInterface = {
     return Array.isArray((node as Element).children) && !Editor.isEditor(node)
   },
 
-  isNode(value: any, { deep = false }: NodeIsNodeOptions = {}): value is Node {
+  isNode(
+    value: unknown,
+    { deep = false }: NodeIsNodeOptions = {}
+  ): value is Node {
     return (
       TextApi.isText(value) ||
       ElementApi.isElement(value, { deep }) ||
@@ -834,7 +837,7 @@ export const NodeApi: NodeInterface = {
   },
 
   isNodeList(
-    value: any,
+    value: unknown,
     { deep = false }: NodeIsNodeOptions = {}
   ): value is Node[] {
     return (

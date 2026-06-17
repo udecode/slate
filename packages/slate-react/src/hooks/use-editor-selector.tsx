@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react'
 import type {
   Editor,
+  EditorCommit,
   EditorStateView,
   Operation,
   RuntimeId,
-  SnapshotChange,
   ValueOf,
 } from 'slate'
 import { recordSlateReactRender } from '../render-profiler'
@@ -14,11 +14,11 @@ import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
 type Callback = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => void
 
 type DeferredCallbackPayload = {
-  change?: SnapshotChange
+  change?: EditorCommit
   operations?: readonly Operation[]
 }
 
@@ -30,6 +30,7 @@ export type EditorSelectorContextValue = {
   flushDeferred: () => void
 }
 
+/** Commit-subscription options for selectors that read from the editor. */
 export interface EditorSelectorOptions<
   TEditor extends Editor<any> = Editor<any>,
 > {
@@ -41,10 +42,11 @@ export interface EditorSelectorOptions<
   runtimeIds?: readonly RuntimeId[] | null
   shouldUpdate?: (
     operations?: readonly Operation<ValueOf<TEditor>>[],
-    change?: SnapshotChange<ValueOf<TEditor>>
+    change?: EditorCommit<ValueOf<TEditor>>
   ) => boolean
 }
 
+/** Options for selectors that read from the immutable editor state view. */
 export interface EditorStateSelectorOptions<
   T,
   TEditor extends Editor<any> = Editor<any>,
@@ -53,7 +55,7 @@ export interface EditorStateSelectorOptions<
   deps?: readonly unknown[]
   equalityFn?: (a: T | null, b: T) => boolean
   shouldUpdate?: (
-    change?: SnapshotChange<ValueOf<TEditor>>,
+    change?: EditorCommit<ValueOf<TEditor>>,
     operations?: readonly Operation<ValueOf<TEditor>>[]
   ) => boolean
 }
@@ -85,7 +87,7 @@ const queueDeferredCallback = (
   queue: Map<Callback, DeferredCallbackPayload>,
   callback: Callback,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const existing = queue.get(callback)
 
@@ -109,6 +111,13 @@ export function useRequiredEditorSelectorContext() {
   return context
 }
 
+/**
+ * Subscribe to editor commits and derive a render value from the editor.
+ *
+ * The selector receives the operations for the triggering commit. Scope updates
+ * with roots/runtime ids or `shouldUpdate`, and use `useEditorState` when the
+ * selector only needs the immutable state view.
+ */
 export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   selector: (
     editor: TEditor,
@@ -155,11 +164,11 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     [update]
   )
   const shouldUpdateWithEditor = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdate
         ? shouldUpdate(
             operations as readonly Operation<ValueOf<TEditor>>[] | undefined,
-            change as SnapshotChange<ValueOf<TEditor>> | undefined
+            change as EditorCommit<ValueOf<TEditor>> | undefined
           )
         : true,
     [shouldUpdate]
@@ -194,6 +203,12 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   return selectedState
 }
 
+/**
+ * Reads from the immutable editor state view and re-renders only when the
+ * selected value changes.
+ *
+ * Pass `deps` when the selector closes over changing values.
+ */
 export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
   selector: (state: EditorStateView<ValueOf<TEditor>>) => T,
   {
@@ -211,10 +226,10 @@ export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
     selectorDeps
   )
   const shouldUpdateWithChange = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdate
         ? shouldUpdate(
-            change as SnapshotChange<ValueOf<TEditor>> | undefined,
+            change as EditorCommit<ValueOf<TEditor>> | undefined,
             operations as readonly Operation<ValueOf<TEditor>>[] | undefined
           )
         : true,
@@ -258,7 +273,7 @@ export function useEditorSelectorContext() {
   }, [flushDeferred])
 
   const onChange = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) => {
+    (operations?: readonly Operation[], change?: EditorCommit) => {
       eventListeners.current.forEach((listener) => {
         listener(operations, change)
       })
@@ -378,7 +393,7 @@ export function useEditorSelectorContext() {
         subscribedRuntimeIds?.length === 1 ? subscribedRuntimeIds[0] : runtimeId
       const shouldNotify = (
         operations?: readonly Operation[],
-        change?: SnapshotChange
+        change?: EditorCommit
       ) => {
         recordSlateReactRender({
           id: getSelectorProfileId(profileId, profileRuntimeId, 'check'),
@@ -390,14 +405,14 @@ export function useEditorSelectorContext() {
       }
       let isSubscribed = true
       const queuedCallback = deferred
-        ? (operations?: readonly Operation[], change?: SnapshotChange) => {
+        ? (operations?: readonly Operation[], change?: EditorCommit) => {
             if (isSubscribed) {
               callbackProp(operations, change)
             }
           }
         : callbackProp
       const callback = deferred
-        ? (operations?: readonly Operation[], change?: SnapshotChange) => {
+        ? (operations?: readonly Operation[], change?: EditorCommit) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
                 id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),
@@ -412,7 +427,7 @@ export function useEditorSelectorContext() {
               )
             }
           }
-        : (operations?: readonly Operation[], change?: SnapshotChange) => {
+        : (operations?: readonly Operation[], change?: EditorCommit) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
                 id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),

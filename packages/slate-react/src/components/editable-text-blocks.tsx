@@ -14,18 +14,16 @@ import type {
 } from 'slate'
 import { NodeApi } from 'slate'
 import {
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  IS_NODE_MAP_DIRTY,
-  NODE_TO_INDEX,
-  NODE_TO_PARENT,
-} from 'slate-dom'
-import {
   DOMCoverage,
   type DOMCoverageBoundary,
   type DOMCoverageCopyPolicy,
   type DOMCoverageFindPolicy,
   type DOMCoverageReason,
   type DOMCoverageSelectionPolicy,
+  EDITOR_TO_PLACEHOLDER_ELEMENT,
+  IS_NODE_MAP_DIRTY,
+  NODE_TO_INDEX,
+  NODE_TO_PARENT,
 } from 'slate-dom/internal'
 import {
   ElementContext,
@@ -49,6 +47,7 @@ import {
   getVirtualizerScrollElement,
   useVirtualizedRootPlan,
   type VirtualizedPageLayoutItem,
+  type VirtualizedTopLevelItem,
   type VirtualizedTopLevelLayoutItem,
 } from '../dom-strategy/use-virtualized-root-plan'
 import { DOMStrategyVirtualizedRangeBoundary } from '../dom-strategy/virtualized-range-boundary'
@@ -79,6 +78,7 @@ import type {
   SlateSourceDirtinessContext,
 } from '../projection-store'
 import { recordSlateReactRender } from '../render-profiler'
+import { useSlateViewSelectionDecorationSource } from '../view-selection-decoration'
 import {
   type DOMCoverageBoundaryMaterializePayload,
   DOMCoverageBoundaryRange,
@@ -95,10 +95,10 @@ import {
 import { EditableElement } from './editable-element'
 import {
   EditableText,
-  type EditableTextLeafProps,
-  type EditableTextRenderPlaceholderProps,
-  type EditableTextRenderTextProps,
   type EditableTextSegment,
+  type RenderLeafProps,
+  type RenderPlaceholderProps,
+  type RenderTextProps,
 } from './editable-text'
 import { Slate } from './slate'
 import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
@@ -129,18 +129,10 @@ const EMPTY_DIRECT_TEXT_CHILD_NODES = Object.freeze(
 const EMPTY_DECORATIONS = Object.freeze(
   []
 ) as readonly EditableDecoration<unknown>[]
-const ROOT_GROUP_SIZE = 32
+const ROOT_GROUP_SIZE = 16
 const ROOT_GROUP_THRESHOLD = 1000
-const ROOT_GROUP_BACKGROUND_MOUNT_INITIAL_DELAY_MS = 500
-const ROOT_GROUP_BACKGROUND_MOUNT_DELAY_MS = 16
-const ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE = 16
 const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 32
-const ROOT_GROUP_STYLE = {
-  contain: 'layout style paint',
-  containIntrinsicSize: '1024px',
-  contentVisibility: 'auto',
-} satisfies CSSProperties
-
+const INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE = 8
 const getSnapshotPathKey = (path: Path) => path.join('.')
 
 const resolveProjectionRuntimeScope = (
@@ -368,7 +360,7 @@ const EditableRenderedElement = <
   renderElement,
 }: {
   path: Path
-  props: EditableRenderElementProps<TElement>
+  props: RenderElementProps<TElement>
   renderElement: RenderElementRenderer<TElement>
 }) => {
   const editor = useEditor<ReactRuntimeEditor>()
@@ -498,13 +490,13 @@ type EditableContentRootSlotRenderers<
   TElement extends SlateElementNode = any,
 > = {
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
 }
 
@@ -543,13 +535,13 @@ const createEditableElementSlots = <
     element: TElement
     renderElement?: RenderElementRenderer<TElement>
     renderChildren: (from?: number, to?: number) => ReactNode
-    renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-    renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+    renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+    renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
     renderSegment?: (
       segment: EditableTextSegment<T>,
       children: ReactNode
     ) => ReactNode
-    renderText?: (props: EditableTextRenderTextProps) => ReactNode
+    renderText?: (props: RenderTextProps) => ReactNode
     renderVoid?: RenderVoidRenderer<TElement>
     ownerPath: Path
     runtimeId: RuntimeId
@@ -816,7 +808,7 @@ function EditableContentRootView({
       suppressContentEditableWarning
     >
       <SlateContentRootOwnerContext.Provider value={contentRootOwner}>
-        <EditableTextBlocksInner
+        <EditableInner
           aria-label={ariaLabel}
           className={className}
           disableDefaultStyles={disableDefaultStyles}
@@ -860,35 +852,34 @@ const EditableRenderedVoid = <
   )
 }
 
-export type EditableRenderElementProps<
-  TElement extends SlateElementNode = any,
-> = TElement extends SlateElementNode
-  ? {
-      attributes: {
-        'data-slate-inline'?: true
-        'data-slate-node': 'element'
-        'data-slate-path': string
-        'data-slate-runtime-id': RuntimeId
-        'data-slate-void'?: true
-        ref: React.RefCallback<HTMLElement>
+export type RenderElementProps<TElement extends SlateElementNode = any> =
+  TElement extends SlateElementNode
+    ? {
+        attributes: {
+          'data-slate-inline'?: true
+          'data-slate-node': 'element'
+          'data-slate-path': string
+          'data-slate-runtime-id': RuntimeId
+          'data-slate-void'?: true
+          ref: React.RefCallback<HTMLElement>
+        }
+        children: ReactNode
+        element: TElement
+        isInline: boolean
+        slots: EditableElementSlots
       }
-      children: ReactNode
-      element: TElement
-      isInline: boolean
-      slots: EditableElementSlots
-    }
-  : never
+    : never
 
 export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
-  props: EditableRenderElementProps<TElement>
+  props: RenderElementProps<TElement>
 ) => ReactNode
 
-export type EditableRenderVoidProps<TElement extends SlateElementNode = any> = {
+export type RenderVoidProps<TElement extends SlateElementNode = any> = {
   element: TElement
 }
 
 export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (
-  props: EditableRenderVoidProps<TElement>
+  props: RenderVoidProps<TElement>
 ) => ReactNode
 
 export type EditableDecoration<T = unknown> = Omit<
@@ -903,7 +894,7 @@ export type EditableDecorate<T = unknown> = (
   editor: Editor
 ) => readonly EditableDecoration<T>[]
 
-export type EditableLayout = {
+export type EditableDOMStrategyLayout = {
   getVirtualizedPageItems?: () => readonly VirtualizedPageLayoutItem[] | null
   getVisibleVirtualizedPageItems?: () =>
     | readonly VirtualizedPageLayoutItem[]
@@ -913,7 +904,7 @@ export type EditableLayout = {
     | null
 }
 
-export type EditableTextBlocksProps<
+export type EditableProps<
   T = unknown,
   TElement extends SlateElementNode = any,
 > = {
@@ -933,12 +924,12 @@ export type EditableTextBlocksProps<
   decorateRuntimeScope?: SlateProjectionRuntimeScope
   disableDefaultStyles?: boolean
   id?: string
-  layout?: EditableLayout | null
   /**
    * DOM strategy for large documents. `virtualized` is experimental and
    * must use the object form: `{ type: 'virtualized', ... }`.
    */
   domStrategy?: DOMStrategyOptions | null
+  domStrategyLayout?: EditableDOMStrategyLayout | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
@@ -947,13 +938,13 @@ export type EditableTextBlocksProps<
   placeholder?: ReactNode
   readOnly?: boolean
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   root?: RootKey
   scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
@@ -988,13 +979,13 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeId: RuntimeId
 }) => {
@@ -1214,7 +1205,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         ownerPath: path,
         runtimeId,
       }),
-    } as unknown as EditableRenderElementProps<TElement>
+    } as unknown as RenderElementProps<TElement>
 
     return (
       <NodeRuntimeIdContext.Provider key={runtimeId} value={runtimeId}>
@@ -1284,22 +1275,48 @@ const getRootGroupPlanKey = (
   documentEpoch: number
 ) => `${documentEpoch}:${runtimeIds.join('\u001f')}`
 
-const getActiveRootGroupId = (
+const getActiveRootGroupIds = (
   groups: readonly EditableRootGroupRecord[] | null,
   selectedTopLevelIndex: number | null
 ) => {
   if (!groups || groups.length === 0) {
-    return null
+    return new Set<string>()
   }
 
   const targetIndex = selectedTopLevelIndex ?? 0
-  const targetGroup =
-    groups.find(
+  const targetGroupIndex = Math.max(
+    0,
+    groups.findIndex(
       (group) =>
         group.startIndex <= targetIndex && group.endIndex >= targetIndex
-    ) ?? groups[0]
+    )
+  )
+  const groupIds = new Set<string>()
+  const targetGroup = groups[targetGroupIndex]
 
-  return targetGroup.groupId
+  if (!targetGroup) {
+    return groupIds
+  }
+
+  groupIds.add(targetGroup.groupId)
+
+  if (targetIndex <= targetGroup.startIndex + 1) {
+    const previousGroup = groups[targetGroupIndex - 1]
+
+    if (previousGroup) {
+      groupIds.add(previousGroup.groupId)
+    }
+  }
+
+  if (targetIndex >= targetGroup.endIndex - 1) {
+    const nextGroup = groups[targetGroupIndex + 1]
+
+    if (nextGroup) {
+      groupIds.add(nextGroup.groupId)
+    }
+  }
+
+  return groupIds
 }
 
 const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
@@ -1338,11 +1355,11 @@ const getRootGroupIdsForBoundary = (
 }
 
 const useMountedRootGroupIds = ({
-  activeGroupId,
+  activeGroupIds,
   groups,
   planKey,
 }: {
-  activeGroupId: string | null
+  activeGroupIds: ReadonlySet<string>
   groups: readonly EditableRootGroupRecord[] | null
   planKey: string | null
 }) => {
@@ -1356,11 +1373,6 @@ const useMountedRootGroupIds = ({
 
   const mountedGroupIds =
     mountedState.planKey === planKey ? mountedState.groupIds : new Set<string>()
-  const activeGroupIds = React.useMemo(
-    () =>
-      activeGroupId == null ? new Set<string>() : new Set([activeGroupId]),
-    [activeGroupId]
-  )
   const mountGroupIds = React.useCallback(
     (groupIds: readonly string[]) => {
       if (!planKey || groupIds.length === 0) {
@@ -1415,85 +1427,6 @@ const useMountedRootGroupIds = ({
     })
   }, [activeGroupIds, groups, planKey])
 
-  React.useEffect(() => {
-    if (!groups || !planKey) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    let intervalId: ReturnType<typeof setInterval> | null = null
-
-    const mountNextGroup = () => {
-      if (cancelled) {
-        return
-      }
-
-      React.startTransition(() => {
-        setMountedState((previous) => {
-          const nextGroupIds =
-            previous.planKey === planKey
-              ? new Set(previous.groupIds)
-              : new Set<string>()
-
-          for (const groupId of activeGroupIds) {
-            nextGroupIds.add(groupId)
-          }
-
-          const nextGroups = groups
-            .filter((group) => !nextGroupIds.has(group.groupId))
-            .slice(0, ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE)
-
-          if (nextGroups.length === 0) {
-            if (intervalId != null) {
-              clearInterval(intervalId)
-              intervalId = null
-            }
-
-            return previous.planKey === planKey &&
-              sameStringSet(previous.groupIds, nextGroupIds)
-              ? previous
-              : { groupIds: nextGroupIds, planKey }
-          }
-
-          for (const nextGroup of nextGroups) {
-            nextGroupIds.add(nextGroup.groupId)
-          }
-
-          if (nextGroupIds.size >= groups.length && intervalId != null) {
-            clearInterval(intervalId)
-            intervalId = null
-          }
-
-          return { groupIds: nextGroupIds, planKey }
-        })
-      })
-    }
-
-    timeoutId = setTimeout(() => {
-      mountNextGroup()
-
-      if (!cancelled) {
-        intervalId = setInterval(
-          mountNextGroup,
-          ROOT_GROUP_BACKGROUND_MOUNT_DELAY_MS
-        )
-      }
-    }, ROOT_GROUP_BACKGROUND_MOUNT_INITIAL_DELAY_MS)
-
-    return () => {
-      cancelled = true
-
-      if (timeoutId != null) {
-        clearTimeout(timeoutId)
-      }
-
-      if (intervalId != null) {
-        clearInterval(intervalId)
-      }
-    }
-  }, [activeGroupIds, groups, planKey])
-
   return { activeGroupIds, mountedGroupIds, mountGroupIds }
 }
 
@@ -1516,13 +1449,13 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeIds: readonly RuntimeId[]
   startIndex: number
@@ -1533,14 +1466,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   })
 
   return (
-    <div
-      data-slate-root-group="true"
-      data-slate-root-group-end={endIndex}
-      data-slate-root-group-id={groupId}
-      data-slate-root-group-start={startIndex}
-      data-slate-root-group-state="fresh-mounted"
-      style={ROOT_GROUP_STYLE}
-    >
+    <>
       {runtimeIds.map((runtimeId) => (
         <EditableDescendantNode
           key={runtimeId}
@@ -1555,7 +1481,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
           runtimeId={runtimeId}
         />
       ))}
-    </div>
+    </>
   )
 }
 
@@ -1691,7 +1617,44 @@ const createRootGroupRenderItems = (
   return items
 }
 
-const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
+type VirtualizedTopLevelItemGroup = {
+  groupId: string
+  items: VirtualizedTopLevelItem[]
+  start: number
+}
+
+const createVirtualizedTopLevelItemGroups = (
+  items: readonly VirtualizedTopLevelItem[]
+): VirtualizedTopLevelItemGroup[] => {
+  const groups: VirtualizedTopLevelItemGroup[] = []
+
+  for (const item of items) {
+    const currentGroup = groups.at(-1)
+    const previousItem = currentGroup?.items.at(-1)
+    const previousEnd =
+      previousItem == null ? null : previousItem.start + previousItem.size
+
+    if (
+      !currentGroup ||
+      previousItem?.index !== item.index - 1 ||
+      previousEnd !== item.start
+    ) {
+      groups.push({
+        groupId: `virtual-row-group:${item.index}:${String(item.key)}`,
+        items: [item],
+        start: item.start,
+      })
+      continue
+    }
+
+    currentGroup.items.push(item)
+    currentGroup.groupId = `virtual-row-group:${currentGroup.items[0]!.index}:${item.index}`
+  }
+
+  return groups
+}
+
+const EditableInner = <T, TElement extends SlateElementNode>({
   autoFocus,
   className,
   decorate,
@@ -1700,8 +1663,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   disableDefaultStyles = false,
   enableVirtualizedRendering = false,
   id,
-  layout,
   domStrategy,
+  domStrategyLayout,
   onBeforeInput,
   onDOMBeforeInput,
   onKeyDown,
@@ -1719,7 +1682,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   spellCheck,
   style,
   ...attributes
-}: EditableTextBlocksProps<T, TElement> & {
+}: EditableProps<T, TElement> & {
   enableVirtualizedRendering?: boolean
 }) => {
   const domStrategyOptions = domStrategy
@@ -1738,12 +1701,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     null
   )
   const activeDecorateRuntimeScope = React.useCallback(
-    (context: SlateSourceDirtinessContext) =>
-      mergeMountedRuntimeScope(
+    (context: SlateSourceDirtinessContext) => {
+      return mergeMountedRuntimeScope(
         context.snapshot,
         resolveProjectionRuntimeScope(decorateRuntimeScope, context),
         autoDecorateRuntimeScopeRef.current
-      ),
+      )
+    },
     [decorateRuntimeScope]
   )
   const hasDecorate = Boolean(decorate)
@@ -1841,26 +1805,34 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     editor,
     hasDecorate,
   ])
-  const projectionStore = React.useMemo(() => {
-    if (!decorateSource) {
-      return upstreamProjectionStore
+  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
+    editor as unknown as ReactRuntimeEditor<any>,
+    true,
+    {
+      runtimeScope: activeDecorateRuntimeScope,
     }
-
-    return composeProjectionSources(
-      upstreamProjectionStore
-        ? [
-            upstreamProjectionStore as SlateOverlayProjectionStore<T>,
-            decorateSource,
-          ]
-        : [decorateSource]
-    )
-  }, [decorateSource, upstreamProjectionStore])
+  )
+  const projectionStore = React.useMemo(() => {
+    return composeProjectionSources<any>([
+      ...(upstreamProjectionStore
+        ? [upstreamProjectionStore as SlateOverlayProjectionStore<any>]
+        : []),
+      ...(decorateSource
+        ? [decorateSource as SlateOverlayProjectionStore<any>]
+        : []),
+      ...(viewSelectionDecorationSource
+        ? [viewSelectionDecorationSource as SlateOverlayProjectionStore<any>]
+        : []),
+    ])
+  }, [decorateSource, upstreamProjectionStore, viewSelectionDecorationSource])
   const [promotedSegmentIndex, setPromotedSegmentIndex] = React.useState<
     number | null
   >(null)
   const [promotedSegmentOverscan, setPromotedSegmentOverscan] = React.useState<
     number | null
   >(null)
+  const [promotedSegmentWindowStartIndex, setPromotedSegmentWindowStartIndex] =
+    React.useState<number | null>(null)
   const [placeholderHeight, setPlaceholderHeight] = React.useState<
     number | null
   >(null)
@@ -1902,6 +1874,10 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
             overscan: Math.max(0, internalPartialDOMStrategyOverscan),
             segmentSize: Math.max(1, internalPartialDOMStrategySegmentSize),
             previewChars: Math.max(16, internalPartialDOMStrategyPreviewChars),
+            promotionWindowSize: Math.min(
+              Math.max(1, INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE),
+              Math.max(1, internalPartialDOMStrategySegmentSize)
+            ),
             threshold:
               domStrategyType === 'auto'
                 ? ROOT_GROUP_THRESHOLD
@@ -1944,12 +1920,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
     promotedSegmentOverscan,
+    promotedWindowStartIndex: promotedSegmentWindowStartIndex,
   })
   const selectedVirtualizedTopLevelIndex = useTopLevelSelectionIndex(
     virtualizedDOMStrategyConfig != null
   )
-  const selectedVirtualizedPaths = useSelectionPaths(
-    virtualizedDOMStrategyConfig != null
+  const selectedDOMStrategyPaths = useSelectionPaths(
+    virtualizedDOMStrategyConfig != null || domStrategyType === 'staged'
   )
   const virtualizedScrollElement = React.useMemo(
     () => getVirtualizerScrollElement(domStrategyRootElement),
@@ -1957,10 +1934,12 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   )
   const virtualizedScrollRootReady =
     virtualizedDOMStrategyConfig != null && virtualizedScrollElement != null
-  const virtualizedPageItems = layout?.getVirtualizedPageItems?.() ?? null
+  const virtualizedPageItems =
+    domStrategyLayout?.getVirtualizedPageItems?.() ?? null
   const visibleVirtualizedPageItems =
-    layout?.getVisibleVirtualizedPageItems?.() ?? null
-  const virtualizedLayoutItems = layout?.getVirtualizedTopLevelItems?.() ?? null
+    domStrategyLayout?.getVisibleVirtualizedPageItems?.() ?? null
+  const virtualizedLayoutItems =
+    domStrategyLayout?.getVirtualizedTopLevelItems?.() ?? null
   const virtualizedPlan = useVirtualizedRootPlan({
     config: enableVirtualizedRendering ? virtualizedDOMStrategyConfig : null,
     enabled: enableVirtualizedRendering && virtualizedScrollRootReady,
@@ -1968,7 +1947,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
     rootElement: domStrategyRootElement,
     scrollElement: virtualizedScrollElement,
-    selectionPaths: selectedVirtualizedPaths,
+    selectionPaths: selectedDOMStrategyPaths,
     selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
     topLevelLayoutItems: virtualizedLayoutItems,
     topLevelRuntimeIds,
@@ -2010,13 +1989,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     [rootDocumentEpoch, rootGroups, topLevelRuntimeIds]
   )
   const selectedRootGroupIndex = useTopLevelSelectionIndex(rootGroups != null)
-  const activeRootGroupId = React.useMemo(
-    () => getActiveRootGroupId(rootGroups, selectedRootGroupIndex),
-    [rootGroups, selectedRootGroupIndex]
+  const selectedRootGroupFocusIndex = React.useMemo(() => {
+    const focusIndex = selectedDOMStrategyPaths?.[1]?.[0]
+
+    return typeof focusIndex === 'number' ? focusIndex : selectedRootGroupIndex
+  }, [selectedDOMStrategyPaths, selectedRootGroupIndex])
+  const activeRootGroupIds = React.useMemo(
+    () => getActiveRootGroupIds(rootGroups, selectedRootGroupFocusIndex),
+    [rootGroups, selectedRootGroupFocusIndex]
   )
   const { activeGroupIds, mountedGroupIds, mountGroupIds } =
     useMountedRootGroupIds({
-      activeGroupId: activeRootGroupId,
+      activeGroupIds: activeRootGroupIds,
       groups: rootGroups,
       planKey: rootGroupPlanKey,
     })
@@ -2099,7 +2083,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const lastVirtualizedScrollPathKeyRef = React.useRef<string | null>(null)
 
   useIsomorphicLayoutEffect(() => {
-    const anchorPath = selectedVirtualizedPaths?.[0]
+    const anchorPath = selectedDOMStrategyPaths?.[0]
 
     if (!virtualizedPlan || !anchorPath) {
       lastVirtualizedScrollPathKeyRef.current = null
@@ -2132,7 +2116,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     if (virtualizedPlan.scrollToPath(anchorPath, 'center')) {
       lastVirtualizedScrollPathKeyRef.current = anchorPathKey
     }
-  }, [selectedVirtualizedPaths, virtualizedPlan])
+  }, [selectedDOMStrategyPaths, virtualizedPlan])
   const renderedRootGroups = React.useMemo(() => {
     if (!rootGroups) {
       return null
@@ -2200,15 +2184,22 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     [renderedRootGroups]
   )
   const handlePromoteSegment = React.useCallback(
-    (segmentIndex: number, options: { select?: boolean } = {}) => {
+    (
+      segmentIndex: number,
+      options: { select?: boolean; startIndex?: number } = {}
+    ) => {
       cancelPromotedSegmentOverscanRestoreRef.current?.()
       cancelPromotedSegmentOverscanRestoreRef.current = null
 
-      if (options.select && internalSegmentDOMStrategySize != null) {
-        const startIndex = segmentIndex * internalSegmentDOMStrategySize
+      const startIndex =
+        options.startIndex ??
+        (internalSegmentDOMStrategySize == null
+          ? null
+          : segmentIndex * internalSegmentDOMStrategySize)
 
+      if (options.select && internalSegmentDOMStrategySize != null) {
         try {
-          const start = Editor.point(editor, [startIndex], { edge: 'start' })
+          const start = Editor.point(editor, [startIndex!], { edge: 'start' })
           editor.update((tx) => {
             tx.selection.set({ anchor: start, focus: start })
           })
@@ -2223,6 +2214,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       }
 
       setPromotedSegmentIndex(segmentIndex)
+      setPromotedSegmentWindowStartIndex(startIndex)
 
       if (internalSegmentDOMStrategyOverscan > 0) {
         setPromotedSegmentOverscan(0)
@@ -2316,7 +2308,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         editor as unknown as ReactRuntimeEditor
       ),
     })
-  }, [autoDecorateRuntimeScopeKey, decorateSource, editor])
+    viewSelectionDecorationSource?.refresh({
+      reason: 'external',
+      requiresDOMSelectionExport: ReactEditor.isFocused(
+        editor as unknown as ReactRuntimeEditor
+      ),
+    })
+  }, [
+    autoDecorateRuntimeScopeKey,
+    decorateSource,
+    editor,
+    viewSelectionDecorationSource,
+  ])
   const rootStyle =
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }
@@ -2417,6 +2420,9 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     selectedVirtualizedTopLevelIndex,
     topLevelRuntimeIds.length,
   ])
+  const virtualizedItemGroups = virtualizedPlan
+    ? createVirtualizedTopLevelItemGroups(virtualizedPlan.virtualItems)
+    : null
 
   return (
     <ProjectionContext.Provider value={projectionStore}>
@@ -2456,7 +2462,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     : null
             }
             id={id}
-            ignoreBlankEditableRootClicks={layout != null}
+            ignoreBlankEditableRootClicks={domStrategyLayout != null}
             onBeforeInput={onBeforeInput}
             onDOMBeforeInput={onDOMBeforeInput}
             onDOMStrategyMetrics={onDOMStrategyMetrics}
@@ -2491,59 +2497,136 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     startIndex={range.startIndex}
                   />
                 ))}
-                {virtualizedPlan.virtualItems.map((item) => (
+                {virtualizedItemGroups!.map((group) => (
                   <div
-                    data-index={item.index}
-                    data-slate-dom-strategy-virtual-row="true"
-                    key={String(item.key)}
-                    ref={virtualizedPlan.measureElement}
+                    data-slate-dom-strategy-virtual-row-group="true"
+                    key={group.groupId}
                     style={{
                       left: 0,
-                      minHeight: item.size,
                       pointerEvents: 'none',
                       position: 'absolute',
                       top: 0,
-                      transform: `translateY(${item.start}px)`,
+                      transform: `translateY(${group.start}px)`,
                       width: '100%',
                     }}
                   >
-                    <SlateDOMStrategyVirtualOffsetContext.Provider
-                      value={item.start}
-                    >
-                      <div style={{ pointerEvents: 'auto' }}>
-                        <EditableDescendantNode
-                          placeholder={placeholderValue}
-                          placeholderRef={placeholderRef}
-                          renderElement={renderElement}
-                          renderLeaf={renderLeaf}
-                          renderPlaceholder={renderPlaceholder}
-                          renderSegment={renderSegment}
-                          renderText={renderText}
-                          renderVoid={renderVoid}
-                          runtimeId={item.runtimeId}
-                        />
-                      </div>
-                    </SlateDOMStrategyVirtualOffsetContext.Provider>
+                    {group.items.map((item) => {
+                      const hasInlineBounds =
+                        typeof item.left === 'number' &&
+                        typeof item.width === 'number'
+
+                      return (
+                        <div
+                          data-index={item.index}
+                          data-slate-dom-strategy-virtual-row="true"
+                          key={String(item.key)}
+                          ref={virtualizedPlan.measureElement}
+                          style={{
+                            minHeight: item.size,
+                            pointerEvents: 'none',
+                            position: 'relative',
+                            width: '100%',
+                          }}
+                        >
+                          <SlateDOMStrategyVirtualOffsetContext.Provider
+                            value={item.start}
+                          >
+                            <div
+                              style={{
+                                marginLeft: hasInlineBounds
+                                  ? item.left
+                                  : undefined,
+                                minHeight: item.size,
+                                pointerEvents: 'auto',
+                                position: hasInlineBounds
+                                  ? 'static'
+                                  : 'relative',
+                                width: hasInlineBounds ? item.width : '100%',
+                              }}
+                            >
+                              <EditableDescendantNode
+                                placeholder={placeholderValue}
+                                placeholderRef={placeholderRef}
+                                renderElement={renderElement}
+                                renderLeaf={renderLeaf}
+                                renderPlaceholder={renderPlaceholder}
+                                renderSegment={renderSegment}
+                                renderText={renderText}
+                                renderVoid={renderVoid}
+                                runtimeId={item.runtimeId}
+                              />
+                            </div>
+                          </SlateDOMStrategyVirtualOffsetContext.Provider>
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
             ) : segmentPlan ? (
               segmentPlan.segments.map((segment) =>
                 segment.isActive ? (
-                  segment.mountedRuntimeIds.map((runtimeId) => (
-                    <EditableDescendantNode
-                      key={runtimeId}
-                      placeholder={placeholderValue}
-                      placeholderRef={placeholderRef}
-                      renderElement={renderElement}
-                      renderLeaf={renderLeaf}
-                      renderPlaceholder={renderPlaceholder}
-                      renderSegment={renderSegment}
-                      renderText={renderText}
-                      renderVoid={renderVoid}
-                      runtimeId={runtimeId}
-                    />
-                  ))
+                  <React.Fragment key={`partial-dom-${segment.segmentIndex}`}>
+                    {segment.mountedStartIndex != null &&
+                    segment.mountedStartIndex > segment.startIndex ? (
+                      <DOMStrategySegmentPlaceholder
+                        boundaryId={`partial-dom-aggressive:${segment.segmentIndex}:before`}
+                        coverageReason={
+                          domStrategyType === 'virtualized'
+                            ? 'viewport-virtualization'
+                            : 'partial-dom-aggressive'
+                        }
+                        dataSegment={`${segment.segmentIndex}:before`}
+                        endIndex={segment.mountedStartIndex - 1}
+                        onPromote={handlePromoteSegment}
+                        previewChars={
+                          internalSegmentDOMStrategyConfig!.previewChars
+                        }
+                        runtimeIds={segment.runtimeIds.slice(
+                          0,
+                          segment.mountedStartIndex - segment.startIndex
+                        )}
+                        segmentIndex={segment.segmentIndex}
+                        startIndex={segment.startIndex}
+                      />
+                    ) : null}
+                    {segment.mountedRuntimeIds.map((runtimeId) => (
+                      <EditableDescendantNode
+                        key={runtimeId}
+                        placeholder={placeholderValue}
+                        placeholderRef={placeholderRef}
+                        renderElement={renderElement}
+                        renderLeaf={renderLeaf}
+                        renderPlaceholder={renderPlaceholder}
+                        renderSegment={renderSegment}
+                        renderText={renderText}
+                        renderVoid={renderVoid}
+                        runtimeId={runtimeId}
+                      />
+                    ))}
+                    {segment.mountedEndIndex != null &&
+                    segment.mountedEndIndex < segment.endIndex ? (
+                      <DOMStrategySegmentPlaceholder
+                        boundaryId={`partial-dom-aggressive:${segment.segmentIndex}:after`}
+                        coverageReason={
+                          domStrategyType === 'virtualized'
+                            ? 'viewport-virtualization'
+                            : 'partial-dom-aggressive'
+                        }
+                        dataSegment={`${segment.segmentIndex}:after`}
+                        endIndex={segment.endIndex}
+                        onPromote={handlePromoteSegment}
+                        previewChars={
+                          internalSegmentDOMStrategyConfig!.previewChars
+                        }
+                        runtimeIds={segment.runtimeIds.slice(
+                          segment.mountedEndIndex - segment.startIndex + 1
+                        )}
+                        segmentIndex={segment.segmentIndex}
+                        startIndex={segment.mountedEndIndex + 1}
+                      />
+                    ) : null}
+                  </React.Fragment>
                 ) : (
                   <DOMStrategySegmentPlaceholder
                     coverageReason={
@@ -2615,25 +2698,31 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   )
 }
 
-const EditableTextBlocksVirtualized = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
-) => <EditableTextBlocksInner {...props} enableVirtualizedRendering />
+const EditableVirtualized = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
+) => <EditableInner {...props} enableVirtualizedRendering />
 
-const EditableTextBlocksNonVirtualized = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
-) => <EditableTextBlocksInner {...props} />
+const EditableNonVirtualized = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
+) => <EditableInner {...props} />
 
-export const EditableTextBlocks = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
+/**
+ * Render the editable content area for one Slate root.
+ *
+ * `Editable` owns DOM strategy, renderers, events, selection sync, and optional
+ * root scoping. Pass `root` to mount the editor surface for a specific root.
+ */
+export const Editable = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
 ) => {
   const { root, ...editableProps } = props
   const inheritedReadOnly = useEditorReadOnly()
   const rootReadOnly = props.readOnly || inheritedReadOnly
   const editable =
     getDOMStrategyType(props.domStrategy) === 'virtualized' ? (
-      <EditableTextBlocksVirtualized {...editableProps} />
+      <EditableVirtualized {...editableProps} />
     ) : (
-      <EditableTextBlocksNonVirtualized {...editableProps} />
+      <EditableNonVirtualized {...editableProps} />
     )
 
   return root === undefined ? (

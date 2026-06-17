@@ -865,6 +865,13 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
         rationale:
           'Runtime repair engine owns the root repair request application bridge.',
       },
+      'packages/slate-react/src/editable/runtime-selection-engine.ts': {
+        count: 1,
+        next: 'central-owner',
+        owner: 'Runtime selection engine',
+        rationale:
+          'Runtime selection engine owns selectionchange-triggered pending native text repair.',
+      },
     }
   )
 })
@@ -896,13 +903,6 @@ test('direct force render calls have explicit runtime owners', () => {
       owner: 'Keyboard input worker',
       rationale:
         'Keyboard worker still directly forces render for select-all partial-dom-backed selection before repair/view runtime owns that request.',
-    },
-    'packages/slate-react/src/editable/mutation-controller.ts': {
-      count: 1,
-      next: 'central-owner',
-      owner: 'Mutation repair executor',
-      rationale:
-        'Mutation repair executor invokes the root wakeup passed by the runtime repair engine.',
     },
   })
 })

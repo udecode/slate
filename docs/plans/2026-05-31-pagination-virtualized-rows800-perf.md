@@ -73,7 +73,7 @@ Completion Gates:
 | Package manifests, lockfile, or install graph changed | N/A | Run `pnpm install` if manifests/lockfile/install graph changed | No manifest, lockfile, or install graph changes. |
 | Agent rules or skills changed | N/A | No agent rule/skill changes planned | N/A |
 | Workspace authority proof | yes | Run verification in `.tmp/slate-v2` and record cwd | All Slate v2 commands ran from `/Users/zbeyens/git/plate-2/.tmp/slate-v2`; Evidence Kit registry check ran from parent control-plane only. |
-| Browser surface changed | yes | Run focused pagination Playwright/browser matrix proof | `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/pagination.test.ts --project=chromium --grep "virtualized pagination route|virtualized dropdown|1000-page virtualized|fast-scroll replay|rows=800 virtualized"` passed 5/5. |
+| Browser surface changed | yes | Run focused pagination Playwright/browser matrix proof | `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium --grep "virtualized pagination route|virtualized dropdown|1000-page virtualized|fast-scroll replay|rows=800 virtualized"` passed 5/5. |
 | CI-controlled template output changed | N/A | No template output touched | N/A |
 | Package behavior or public API changed | yes | Add changeset or record N/A after owner is known | Added `.changeset/pretext-cold-block-estimates.md` for `slate-layout`. |
 | High-risk mini gate | yes | Record failure mode, proof plan, and boundary decision | Failure mode: cold stress pages make virtualized slower than staged, and naive fixes can break native selection or split-block layout. Boundary: package-level `slate-layout` engine options and estimator correctness, plus example policy for cold stress estimates. Proof: package tests, browser cluster, raw matrix, autoreview clean. |
@@ -131,7 +131,7 @@ Verification evidence:
 - `bun --filter slate-layout typecheck`: passed.
 - `bun typecheck:site`: passed.
 - `bun lint:fix`: passed with no final fixes.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun playwright test playwright/integration/examples/pagination.test.ts --project=chromium --grep "virtualized pagination route|virtualized dropdown|1000-page virtualized|fast-scroll replay|rows=800 virtualized"`: 5 passed.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium --grep "virtualized pagination route|virtualized dropdown|1000-page virtualized|fast-scroll replay|rows=800 virtualized"`: 5 passed.
 - Final matrix: staged rows=800 wall 511 ms / app-ready-after-DCL 348.4 ms / typing p95 9.9 ms / scroll p95 34.2 ms; virtualized rows=800 wall 701 ms / app-ready-after-DCL 505.4 ms / typing p95 13.9 ms / scroll p95 94.5 ms / 323 initial DOM elements / 518 final DOM elements / 1206 pages.
 - `/Users/zbeyens/git/plate-2/.agents/skills/autoreview/scripts/autoreview --mode local` from `.tmp/slate-v2`: final run clean, no accepted/actionable findings.
 

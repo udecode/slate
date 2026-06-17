@@ -1,8 +1,16 @@
-import type { Operation, Range, SnapshotChange } from 'slate'
+import type { EditorCommit, Operation, Range } from 'slate'
 import {
   createEditableInputController,
   createEditableInputControllerState,
+  setEditableModelSelectionPreference,
 } from '../src/editable/input-controller'
+import {
+  cancelRuntimeSelectionChangeFlush,
+  shouldFlushSelectionChangeAfterKeyDownPolicy,
+  shouldPreserveDOMRepairQueueDuringSelectionChange,
+  shouldRepairPendingNativeTextInputDuringSelectionChange,
+  shouldSkipModelOwnedRepairSelectionChange,
+} from '../src/editable/runtime-selection-engine'
 import {
   isTextInputSelectionHandledByCaretRepair,
   shouldExportModelSelectionToDOM,
@@ -12,10 +20,10 @@ import {
 
 describe('selection runtime', () => {
   const createChange = (
-    change: Pick<SnapshotChange, 'childrenChanged' | 'selectionChanged'> &
+    change: Pick<EditorCommit, 'childrenChanged' | 'selectionChanged'> &
       Partial<
         Pick<
-          SnapshotChange,
+          EditorCommit,
           | 'command'
           | 'fullDocumentChanged'
           | 'rootRuntimeIdsChanged'
@@ -23,7 +31,7 @@ describe('selection runtime', () => {
           | 'topLevelOrderChanged'
         >
       >
-  ) => change as SnapshotChange
+  ) => change as EditorCommit
 
   const createInputController = () =>
     createEditableInputController({
@@ -179,6 +187,151 @@ describe('selection runtime', () => {
     ).toBe(true)
   })
 
+  test('cancelled selectionchange flush clears pending DOM import', () => {
+    const inputController = createInputController()
+    let onCancelCalls = 0
+    let onFlushCalls = 0
+    let scheduledCancelCalls = 0
+    let scheduledFlushCalls = 0
+    const onDOMSelectionChange = Object.assign(() => {}, {
+      cancel: () => {
+        onCancelCalls += 1
+      },
+      flush: () => {
+        onFlushCalls += 1
+      },
+    })
+    const scheduleOnDOMSelectionChange = Object.assign(() => {}, {
+      cancel: () => {
+        scheduledCancelCalls += 1
+      },
+      flush: () => {
+        scheduledFlushCalls += 1
+      },
+    })
+
+    inputController.state.pendingDOMSelectionImport = true
+
+    cancelRuntimeSelectionChangeFlush({
+      inputController,
+      onDOMSelectionChange,
+      scheduleOnDOMSelectionChange,
+    })
+
+    expect(inputController.state.pendingDOMSelectionImport).toBe(false)
+    expect(onCancelCalls).toBe(1)
+    expect(scheduledCancelCalls).toBe(1)
+    expect(onFlushCalls).toBe(0)
+    expect(scheduledFlushCalls).toBe(0)
+  })
+
+  test('keydown preserves model selection without flushing stale DOM selection', () => {
+    const inputController = createInputController()
+    const preserveModelDecision = {
+      selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    } as Parameters<
+      typeof shouldFlushSelectionChangeAfterKeyDownPolicy
+    >[0]['decision']
+
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: preserveModelDecision,
+        inputController,
+      })
+    ).toBe(true)
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: preserveModelDecision,
+        inputController,
+      })
+    ).toBe(false)
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: {
+          selectionPolicy: { kind: 'import-dom', reason: 'native-selection' },
+        } as Parameters<
+          typeof shouldFlushSelectionChangeAfterKeyDownPolicy
+        >[0]['decision'],
+        inputController,
+      })
+    ).toBe(true)
+  })
+
+  test('model-owned repair selectionchange skips stale DOM import work only after model-owned repair', () => {
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: true,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: '0,0',
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: true,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: true,
+        selectionChangeOrigin: 'native-user',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+  })
+
   test('wires selector listener to DOM export policy', () => {
     const inputController = createInputController()
     let listener: (() => void) | null = null
@@ -217,7 +370,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let scheduled: (() => void) | null = null
     let syncCalls = 0
@@ -256,7 +409,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let scheduled: (() => void) | null = null
     let cleanupCalls = 0
@@ -306,7 +459,7 @@ describe('selection runtime', () => {
     inputController.state.activeIntent = 'text-insert'
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -340,11 +493,72 @@ describe('selection runtime', () => {
     expect(syncCalls).toBe(0)
   })
 
+  test('preserves pending native text insert repair through selectionchange', () => {
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: '2500,0',
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: null,
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(false)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: '2500,0',
+        selectionChangeOrigin: 'programmatic-export',
+      })
+    ).toBe(false)
+  })
+
+  test('repairs pending native text insert during model-owned selectionchange', () => {
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'text-insert',
+        pendingNativeTextInputRepairPathKey: '2500,0',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'text-insert',
+        pendingNativeTextInputRepairPathKey: null,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'history',
+        pendingNativeTextInputRepairPathKey: '2500,0',
+      })
+    ).toBe(false)
+  })
+
   test('does not notify DOM export listener for synced text-only selection commits', () => {
     const inputController = createInputController()
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -390,7 +604,7 @@ describe('selection runtime', () => {
     inputController.state.selectionSource = 'dom-current'
     inputController.state.selectionChangeOrigin = 'native-user'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 
@@ -453,7 +667,7 @@ describe('selection runtime', () => {
     const inputController = createInputController()
     inputController.state.selectionSource = 'model-owned'
     let listener:
-      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | ((operations?: readonly Operation[], change?: EditorCommit) => void)
       | null = null
     let syncCalls = 0
 

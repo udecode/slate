@@ -435,7 +435,7 @@ const measureInteraction = async (page, lane) => {
       ...(trace?.longTasks ?? []).map((entry) => entry.duration)
     ),
     selectMs: selectPaint - combinedStart,
-    selectThenTypeToPaintMs: paintTime - combinedStart,
+    interactionSequenceToPaintMs: paintTime - combinedStart,
     typeToPaintMs: paintTime - typeStart,
     typeToUpdateMs: updateTime - typeStart,
   }
@@ -464,7 +464,10 @@ const summarizeLane = (samples) => ({
   longTaskCount: summarizeMetric(samples, 'longTaskCount'),
   longTaskMaxMs: summarizeMetric(samples, 'longTaskMaxMs'),
   selectMs: summarizeMetric(samples, 'selectMs'),
-  selectThenTypeToPaintMs: summarizeMetric(samples, 'selectThenTypeToPaintMs'),
+  interactionSequenceToPaintMs: summarizeMetric(
+    samples,
+    'interactionSequenceToPaintMs'
+  ),
   typeToPaintMs: summarizeMetric(samples, 'typeToPaintMs'),
   typeToUpdateMs: summarizeMetric(samples, 'typeToUpdateMs'),
 })
@@ -575,7 +578,7 @@ const run = async () => {
 
       for (const [laneKey, lane] of Object.entries(surface.lanes)) {
         console.log(
-          `${laneKey}: selectThenTypeToPaintMs p95=${lane.selectThenTypeToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
+          `${laneKey}: interactionSequenceToPaintMs p95=${lane.interactionSequenceToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
         )
       }
     }

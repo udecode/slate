@@ -15,9 +15,12 @@ type EditableProps = {
   autoFocus?: boolean
   className?: string
   decorate?: (entry: NodeEntry) => EditableDecoration[]
+  decorateDirtiness?: SlateSourceDirtiness
+  decorateRuntimeScope?: SlateProjectionRuntimeScope
   disableDefaultStyles?: boolean
   id?: string
   domStrategy?: DOMStrategyOptions | null
+  domStrategyLayout?: EditableDOMStrategyLayout | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: (
     event: InputEvent,
@@ -48,10 +51,36 @@ type EditableProps = {
 
 `Editable` also accepts safe `div` attributes such as `aria-*`, `data-*`, and event handlers that are not owned by Slate.
 
+`DOMStrategyOptions` is either `'auto'`, `'staged'`, `'full'`, an object with
+`{ type: 'auto' | 'staged' | 'full', textSync? }`, or the experimental object
+form `{ type: 'virtualized', estimatedBlockSize?, overscan?, threshold?,
+textSync? }`.
+
+`scrollSelectionIntoView` defaults to `defaultScrollSelectionIntoView`. Import
+the helper when custom scroll behavior should wrap Slate's default caret and
+selection scrolling instead of replacing it completely.
+
 ## Render Props
 
 Use raw render props for content rendering. Keep renderer functions stable by
 defining them at module scope or creating them once with the editor.
+
+```ts
+type RenderElementProps = {
+  attributes: {
+    'data-slate-inline'?: true
+    'data-slate-node': 'element'
+    'data-slate-path': string
+    'data-slate-runtime-id': RuntimeId
+    'data-slate-void'?: true
+    ref: React.RefCallback<HTMLElement>
+  }
+  children: React.ReactNode
+  element: Element
+  isInline: boolean
+  slots: EditableElementSlots
+}
+```
 
 ## `renderElement`
 
@@ -194,6 +223,10 @@ match or lightweight syntax highlight.
 provider-owned `decorationSources` when the ranges are shared with other UI,
 come from external state, update frequently, or need source-scoped refreshes.
 
+Use `decorateDirtiness` and `decorateRuntimeScope` when a decoration callback
+depends on external projection state and can name which runtime targets should
+refresh.
+
 ## `renderSegment`
 
 `renderSegment` renders text after projection sources split it into projected slices. Use it for search results, comments, diagnostics, and other render-time overlays.
@@ -269,8 +302,9 @@ const markdown = defineEditorExtension({
 })
 ```
 
-Use `onDOMBeforeInput` only when you need the raw native `InputEvent`.
-Returning `true` or calling `event.preventDefault()` marks the event handled.
+`onBeforeInput` is the React form-event hook on the editable root. Use
+`onDOMBeforeInput` only when you need the raw native `InputEvent`. Returning
+`true` or calling `event.preventDefault()` marks the event handled.
 
 ## Projection Sources
 
@@ -306,9 +340,12 @@ Product input rules belong in higher-level command layers or editor extensions. 
 ## DOM Strategy
 
 `Editable` keeps large documents DOM-bounded by default. Use
-`domStrategy="staged"` when a product needs eventual native DOM coverage for the
-whole document, or `domStrategy="full"` to render the full document surface for
-debugging.
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate keeps coarse
+groups covered by model-backed boundaries and mounts a small active window
+inside the opened group; the surrounding range stays selectable and copyable
+through boundary policy until it materializes. Use `domStrategy="staged"` when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface for debugging.
 
 Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested
@@ -327,9 +364,13 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 Track dashboards by interaction name, cohort, document size, requested strategy,
 effective strategy, degradation mode, native surface completion, boundary count,
 visible DOM count, editable descendant count, custom renderer flag, browser,
-mobile/desktop, IME state, and release version. Virtualized and partial-DOM
+mobile/desktop, IME state, and app version. Virtualized and partial-DOM
 metrics are bounded-surface rows. `staged-warmup` metrics are staged
-materialization rows. Do not mix either bucket with complete DOM-present rows.
+materialization rows. Do not mix either bucket with complete full-DOM rows.
+
+Pass `domStrategyLayout` only when the app owns a layout engine that can name
+virtualized top-level or page items. Normal editor surfaces should leave it
+unset.
 
 ## DOM Coverage Boundaries
 

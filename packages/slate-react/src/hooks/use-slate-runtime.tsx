@@ -11,13 +11,13 @@ import ReactDOM from 'react-dom'
 import {
   type BaseSelection,
   createEditorView,
+  type EditorCommit,
   type EditorStateView,
   type EditorView,
   type EditorViewOptions,
   type Operation,
   type Path,
   type RootKey,
-  type SnapshotChange,
   type Value,
   type ValueOf,
 } from 'slate'
@@ -30,6 +30,7 @@ import { SlateEditableRootContext } from '../context'
 import {
   Editor,
   getEditorRuntime,
+  getOperationCount,
   inheritEditorExtensionRegistry,
   inheritEditorTransformRegistry,
   setEditorRuntime,
@@ -59,8 +60,13 @@ import { syncTextOperationsToDOM } from './use-slate-node-ref'
 const MAIN_ROOT_KEY: RootKey = 'main'
 
 const refEquality = <T,>(a: T | null, b: T) => a === b
-const rootKeyEquality = (a: RootKey | null, b: RootKey) => a === b
-const selectionChanged = (change?: SnapshotChange) =>
+const rootKeyEquality = (
+  a: RootKey | null | undefined,
+  b: RootKey | undefined
+) => a === b
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
+const selectionChanged = (change?: EditorCommit) =>
   Boolean(change?.selectionChanged)
 
 const selectActiveRoot = (state: EditorStateView): RootKey => {
@@ -69,11 +75,15 @@ const selectActiveRoot = (state: EditorStateView): RootKey => {
   return getSelectionRoot(selection) ?? MAIN_ROOT_KEY
 }
 
+const selectPublicActiveRoot = (state: EditorStateView): RootKey | undefined =>
+  toPublicRootOption(selectActiveRoot(state))
+
 type ExtensionLike = {
   api?: Record<string, unknown>
   name: string
 }
 
+/** Ownership record that connects a child content root to its parent element. */
 export type SlateContentRootOwner = {
   childRoot: RootKey
   ownerPath: Path
@@ -122,6 +132,7 @@ export const createSlateViewEffectQueue = () => {
   }
 }
 
+/** Runtime object shared by Slate React roots and runtime-aware hooks. */
 export type SlateRuntimeValue<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -138,6 +149,7 @@ export type SlateRuntimeValue<
   editor: ReactEditorType<V, TExtensions>
 }
 
+/** Options used when creating a component-owned Slate runtime. */
 export type UseSlateRuntimeOptions<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -170,6 +182,7 @@ type SlateRuntimeContextValue<
   setActiveViewEditor: (editor: ReactRuntimeEditor<V>, root: RootKey) => void
 }
 
+/** Props for the `<SlateRuntime>` provider. */
 export type SlateRuntimeProps<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -178,6 +191,7 @@ export type SlateRuntimeProps<
   runtime: SlateRuntimeValue<V, TExtensions>
 }
 
+/** Selector options for `useSlateRuntimeState` and `useSlateRootState`. */
 export type SlateRuntimeStateSelectorOptions<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
@@ -290,7 +304,7 @@ const getTextOperations = (operations: readonly Operation[]) =>
 const isRootAffected = (
   root: RootKey,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   if (!change) {
     return true
@@ -332,6 +346,12 @@ const isRootAffected = (
   )
 }
 
+/**
+ * Create or read the current Slate runtime.
+ *
+ * With no options inside `<SlateRuntime>`, the hook returns the provided
+ * runtime. Pass options to create a component-owned runtime once.
+ */
 export function useSlateRuntime<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
@@ -358,21 +378,25 @@ export function useRequiredSlateRuntimeContext() {
   const context = useContext(SlateRuntimeContext)
 
   if (!context) {
-    throw new Error('Slate root views must be rendered inside <SlateRuntime>.')
+    throw new Error('Slate roots must be rendered inside <SlateRuntime>.')
   }
 
   return context
 }
 
+/**
+ * Provide a Slate runtime to editable roots and runtime-aware hooks.
+ *
+ * The provider owns selector delivery, root editor registration, focus state,
+ * view effects, and active-root/editor resolution for descendant surfaces.
+ */
 export function SlateRuntime<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >({ children, runtime }: SlateRuntimeProps<V, TExtensions>) {
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
-  const lastOperationCountRef = useRef(
-    runtime.read((state) => state.value.operations().length)
-  )
+  const lastOperationCountRef = useRef(getOperationCount(runtime.editor))
   const lastCommitVersionRef = useRef(
     Editor.getLastCommit(runtime.editor)?.version ?? 0
   )
@@ -697,6 +721,14 @@ export function SlateRuntime<
   )
 }
 
+/**
+ * Subscribe to a selected value from the root runtime editor state.
+ *
+ * Use this for toolbar, sidebar, and shell UI that reads the whole editor
+ * runtime. Use `useSlateRootState` for root-scoped UI in multi-root editors.
+ * Pass `deps` when the selector closes over props, and `shouldUpdate` when a
+ * commit can be skipped before the selector runs.
+ */
 export function useSlateRuntimeState<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
@@ -725,7 +757,7 @@ export function useSlateRuntimeState<
       shouldUpdate: shouldUpdate
         ? (operations, change) =>
             shouldUpdate(
-              change as SnapshotChange<ValueOf<TRuntime['editor']>>,
+              change as EditorCommit<ValueOf<TRuntime['editor']>>,
               operations as
                 | readonly Operation<ValueOf<TRuntime['editor']>>[]
                 | undefined
@@ -741,11 +773,19 @@ export function useSlateRuntimeState<
   return selectedState
 }
 
-export function useSlateViewState<
+/**
+ * Subscribe to a selected value from one root.
+ *
+ * Root-scoped selectors skip commits that cannot affect the requested root.
+ * Use this for chrome tied to a known root, such as headers, sidebars, and
+ * nested content roots. Use `useSlateRuntimeState` only when the selected value
+ * genuinely spans roots.
+ */
+export function useSlateRootState<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
 >(
-  root: RootKey,
+  root: RootKey | undefined,
   selector: (state: EditorStateView<ValueOf<TRuntime['editor']>>) => T,
   {
     deferred,
@@ -754,7 +794,14 @@ export function useSlateViewState<
     shouldUpdate,
   }: SlateRuntimeStateSelectorOptions<T, TRuntime> = {}
 ): T {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to read the primary document root state. `main` is an internal root key.'
+    )
+  }
+
   const { getView, selectorContext } = useRequiredSlateRuntimeContext()
+  const internalRoot = root ?? MAIN_ROOT_KEY
   const selectorDeps = deps ?? [selector]
   const stateSelector = useCallback(
     () => getView({ root }).read((state) => selector(state)),
@@ -764,21 +811,21 @@ export function useSlateViewState<
   )
   const [selectedState, update] = useGenericSelector(stateSelector, equalityFn)
   const shouldUpdateView = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) => {
-      if (!isRootAffected(root, operations, change)) {
+    (operations?: readonly Operation[], change?: EditorCommit) => {
+      if (!isRootAffected(internalRoot, operations, change)) {
         return false
       }
 
       return shouldUpdate
         ? shouldUpdate(
-            change as SnapshotChange<ValueOf<TRuntime['editor']>> | undefined,
+            change as EditorCommit<ValueOf<TRuntime['editor']>> | undefined,
             operations as
               | readonly Operation<ValueOf<TRuntime['editor']>>[]
               | undefined
           )
         : true
     },
-    [root, shouldUpdate]
+    [internalRoot, shouldUpdate]
   )
 
   useIsomorphicLayoutEffect(() => {
@@ -795,18 +842,28 @@ export function useSlateViewState<
   return selectedState
 }
 
-export const useSlateRootState = useSlateViewState
+const useSlateInternalActiveRoot = (): RootKey =>
+  useSlateRuntimeState(selectActiveRoot, {
+    deps: [],
+    equalityFn: rootKeyEquality,
+    shouldUpdate: selectionChanged,
+  })
 
-export function useSlateActiveRoot(): RootKey {
-  return useSlateRuntimeState(selectActiveRoot, {
+/** Read the root key that currently owns the editor selection. */
+export function useSlateActiveRoot(): RootKey | undefined {
+  return useSlateRuntimeState(selectPublicActiveRoot, {
     deps: [],
     equalityFn: rootKeyEquality,
     shouldUpdate: selectionChanged,
   })
 }
 
-export type UseSlateRootEditorOptions = Pick<EditorViewOptions, 'readOnly'>
+/** Options for creating a root-specific command editor. */
+export type UseSlateRootEditorOptions = {
+  readOnly?: boolean
+}
 
+/** Command-capable editor view bound to one Slate root. */
 export type SlateRootEditor<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -814,13 +871,26 @@ export type SlateRootEditor<
   ReactRuntimeEditor<V> &
   Omit<EditorView<V, TExtensions>, 'api' | 'getApi' | 'read' | 'update'>
 
+/**
+ * Create a command-capable editor for one root.
+ *
+ * The returned object is stable for the requested root and read-only option.
+ * Use it for root-specific toolbar/sidebar commands. Pass `readOnly: true`
+ * when UI only needs read APIs.
+ */
 export function useSlateRootEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(
-  root: RootKey = MAIN_ROOT_KEY,
+  root?: RootKey,
   options: UseSlateRootEditorOptions = {}
 ): SlateRootEditor<V, TExtensions> {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to create an editor for the primary document. `main` is an internal root key.'
+    )
+  }
+
   const { getView, runtime } = useRequiredSlateRuntimeContext()
 
   return useMemo(() => {
@@ -837,28 +907,44 @@ export function useSlateRootEditor<
   }, [getView, options.readOnly, root, runtime.editor])
 }
 
+/**
+ * Create a command-capable editor for the active root.
+ *
+ * Prefer `useSlateRootEditor(root)` when the caller already knows the root.
+ */
 export function useSlateActiveEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(): SlateRootEditor<V, TExtensions> {
-  return useSlateRootEditor<V, TExtensions>(useSlateActiveRoot())
+  return useSlateRootEditor<V, TExtensions>(
+    toPublicRootOption(useSlateInternalActiveRoot())
+  )
 }
 
-export type UseSlateViewEffectOptions = {
+/** Options for effects that run with a mounted root editor. */
+export type UseSlateRootEffectOptions = {
   deps?: DependencyList
   root?: RootKey
 }
 
+/** Focus behavior before or after root command callbacks. */
 export type SlateCommandFocusPolicy = 'none' | 'preserve' | 'restore-root'
 
+/** Options for `useSlateCommandCallback`. */
 export type UseSlateCommandCallbackOptions = {
   focus?: SlateCommandFocusPolicy
   root?: RootKey
 }
 
 const useSlateResolvedRoot = (root: RootKey | undefined): RootKey => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+
   const editableRoot = useContext(SlateEditableRootContext)
-  const activeRoot = useSlateActiveRoot()
+  const activeRoot = useSlateInternalActiveRoot()
 
   return root ?? editableRoot ?? activeRoot
 }
@@ -875,18 +961,27 @@ const useLatestCallbackCell = <T extends (...args: any[]) => any>(
   return cell
 }
 
-export function useSlateViewEffect<
+/**
+ * Run an effect with the mounted editor for a root after Slate root effects
+ * flush.
+ *
+ * Use this for commands or measurements that need mounted DOM/root bindings.
+ * Pass `root` to target one root. Omit `deps` to rerun after every React render,
+ * or pass `deps` for React-style rerun control.
+ */
+export function useSlateRootEffect<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(
   effect: (editor: SlateRootEditor<V, TExtensions>) => void | (() => void),
-  options: UseSlateViewEffectOptions = {}
+  options: UseSlateRootEffectOptions = {}
 ) {
   const { deps, root } = options
   const resolvedRoot = useSlateResolvedRoot(root)
+  const publicRoot = toPublicRootOption(resolvedRoot)
   const { getMountedViewEditor, registerViewEffect } =
     useRequiredSlateRuntimeContext()
-  const fallbackEditor = useSlateRootEditor<V, TExtensions>(resolvedRoot)
+  const fallbackEditor = useSlateRootEditor<V, TExtensions>(publicRoot)
   const effectCell = useLatestCallbackCell(effect)
   const [cleanupCell] = useState<{
     current: void | (() => void)
@@ -932,6 +1027,13 @@ export function useSlateViewEffect<
   )
 }
 
+/**
+ * Create a stable callback that resolves the mounted root editor at call time.
+ *
+ * Use this for toolbar and shell commands that should run against the currently
+ * mounted root editor. Pass `root` for a known root, `focus: 'restore-root'` to
+ * return focus before running, or `focus: 'none'` to leave focus untouched.
+ */
 export function useSlateCommandCallback<
   TArgs extends unknown[],
   TResult,
@@ -946,8 +1048,9 @@ export function useSlateCommandCallback<
 ): (...args: TArgs) => TResult {
   const { focus = 'preserve', root } = options
   const resolvedRoot = useSlateResolvedRoot(root)
+  const publicRoot = toPublicRootOption(resolvedRoot)
   const context = useRequiredSlateRuntimeContext()
-  const fallbackEditor = useSlateRootEditor<V, TExtensions>(resolvedRoot)
+  const fallbackEditor = useSlateRootEditor<V, TExtensions>(publicRoot)
   const callbackCell = useLatestCallbackCell(callback)
 
   return useCallback(

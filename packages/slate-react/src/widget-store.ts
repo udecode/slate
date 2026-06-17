@@ -1,9 +1,9 @@
 import {
+  type EditorCommit,
   PointApi,
   type Range,
   type RuntimeId,
   type Editor as SlateEditor,
-  type SnapshotChange,
 } from 'slate'
 import type {
   SlateAnnotationStore,
@@ -25,6 +25,7 @@ export type SlateWidgetAnchor =
       type: 'selection'
     }
 
+/** UI descriptor anchored to an annotation, node runtime id, or selection. */
 export type SlateWidget<
   T extends Record<string, unknown> = Record<string, never>,
 > = {
@@ -33,6 +34,7 @@ export type SlateWidget<
   id: string
 }
 
+/** Latest resolved widget state for rendering floating or side-panel UI. */
 export type SlateResolvedWidget<
   T extends Record<string, unknown> = Record<string, never>,
   TAnnotation extends Record<string, unknown> = Record<string, never>,
@@ -42,6 +44,7 @@ export type SlateResolvedWidget<
   visible: boolean
 }
 
+/** Ordered widget ids plus resolved widgets by id. */
 export type SlateWidgetSnapshot<
   T extends Record<string, unknown> = Record<string, never>,
   TAnnotation extends Record<string, unknown> = Record<string, never>,
@@ -50,6 +53,7 @@ export type SlateWidgetSnapshot<
   byId: ReadonlyMap<string, SlateResolvedWidget<T, TAnnotation>>
 }>
 
+/** Store that resolves app-owned widgets and notifies per-widget subscribers. */
 export type SlateWidgetStore<
   T extends Record<string, unknown> = Record<string, never>,
   TAnnotation extends Record<string, unknown> = Record<string, never>,
@@ -63,6 +67,7 @@ export type SlateWidgetStore<
   subscribeWidget: (id: string, listener: () => void) => () => void
 }
 
+/** Diagnostic counters for widget projection and subscriber fan-out. */
 export type SlateWidgetStoreMetrics = Readonly<{
   changedWidgetCount: number
   fullFallbackCount: number
@@ -146,7 +151,7 @@ const countMappedListeners = (
 
 const shouldRecomputeForEditorChange = <T extends Record<string, unknown>>(
   widgets: readonly SlateWidget<T>[],
-  change: SnapshotChange | undefined,
+  change: EditorCommit | undefined,
   editor: SlateEditor
 ) => {
   if (!change) {
@@ -284,6 +289,7 @@ const getChangedWidgetIds = <
   return changedIds
 }
 
+/** Create a widget store backed by a live widget projector. */
 export const createSlateWidgetStore = <
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
@@ -340,7 +346,7 @@ export const createSlateWidgetStore = <
     commitSnapshot(nextSnapshot)
   }
 
-  const unsubscribeEditor = editor.subscribe((snapshotValue, change) => {
+  const unsubscribeEditor = editor.subscribeCommit((change) => {
     if (destroyed) {
       return
     }

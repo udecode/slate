@@ -127,19 +127,23 @@ Check if an element matches a set of `props`. Note: This checks custom propertie
 
 ### Check methods
 
-#### `ElementApi.isAncestor(value: any) => value is Ancestor`
+#### `ElementApi.isAncestor(value: unknown) => value is Ancestor`
 
 Check if a value implements the 'Ancestor' interface.
 
-#### `ElementApi.isElement(value: any) => value is Element`
+#### `ElementApi.isElement(value: unknown) => value is Element`
 
 Check if a `value` implements the `Element` interface.
 
-#### `ElementApi.isElementList(value: any) => value is Element[]`
+#### `ElementApi.isElementList(value: unknown) => value is Element[]`
 
 Check if a `value` is an array of `Element` objects.
 
-#### `ElementApi.isElementType<T Extends Element>(value: any, elementVal: string, ElementKey: string = 'type'): value is T`
+#### `ElementApi.isElementProps(props: unknown) => props is Partial<Element>`
+
+Check if a value is an object that can be used as partial `Element` props.
+
+#### `ElementApi.isElementType<T Extends Element>(value: unknown, elementVal: string, ElementKey: string = 'type'): value is T`
 
 Check if a value implements the `Element` interface and has elementKey with selected value.
 Default it check to `type` key value

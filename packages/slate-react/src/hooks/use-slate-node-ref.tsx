@@ -1,13 +1,13 @@
 import { useCallback, useContext, useRef } from 'react'
 import type { Operation, Path, RuntimeId, Node as SlateNode } from 'slate'
+import type { DOMEditor } from 'slate-dom/internal'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
   NODE_TO_RUNTIME_ID,
-} from 'slate-dom'
-import type { DOMEditor } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 import { EditorContext } from '../context'
 import {
   Editor,
@@ -600,6 +600,12 @@ const bindSlateNodeElement = ({
   }
 }
 
+/**
+ * Return a callback ref that binds a DOM node to a Slate node runtime.
+ *
+ * Use this from custom renderers or DOM-coverage shells that must keep
+ * DOM-to-Slate translation accurate for a known runtime, node, or path.
+ */
 export const useSlateNodeRef = (
   runtimeId: RuntimeId | null,
   options: {

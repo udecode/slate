@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 
 const scriptPath = fileURLToPath(import.meta.url)
 const repoRoot = path.resolve(path.dirname(scriptPath), '..')
+const playwrightBin = path.join(repoRoot, 'node_modules', '.bin', 'playwright')
 const runsRoot = path.join(repoRoot, '.tmp', 'integration-runs')
 const lockPath = path.join(runsRoot, 'lock.json')
 const latestPath = path.join(runsRoot, 'latest.json')
@@ -125,11 +126,28 @@ export const splitPlaywrightArgs = (args) => {
   }
 }
 
-const buildPlaywrightCommand = (extraPlaywrightArgs) => {
+export const buildPlaywrightCommand = (
+  extraPlaywrightArgs,
+  additionalPlaywrightArgs = []
+) => {
   const { passthrough, targets } = splitPlaywrightArgs(extraPlaywrightArgs)
 
-  return ['playwright', 'test', ...targets, '--reporter=json', ...passthrough]
+  return [
+    playwrightBin,
+    'test',
+    ...targets,
+    '--reporter=json',
+    ...additionalPlaywrightArgs,
+    ...passthrough,
+  ]
 }
+
+export const buildSlateBrowserBuildCommand = () => [
+  'bun',
+  '--filter',
+  'slate-browser',
+  'build',
+]
 
 const collectSourceStampFiles = async (root, relativePath) => {
   const absolutePath = path.join(root, relativePath)
@@ -672,16 +690,32 @@ const runIntegration = async (runId, extraPlaywrightArgs) => {
     })
     server = await startServer(runId, port)
 
+    await updateStatus(runId, { phase: 'building-slate-browser' })
+    const slateBrowserBuildCommand = buildSlateBrowserBuildCommand()
+    const slateBrowserBuild = await runCommand(
+      runId,
+      slateBrowserBuildCommand[0],
+      slateBrowserBuildCommand.slice(1)
+    )
+    if (slateBrowserBuild.exitCode !== 0) {
+      await writeFailureSummary(
+        runId,
+        slateBrowserBuild.exitCode,
+        slateBrowserBuild.stderr || slateBrowserBuild.stdout
+      )
+      await completeRun(runId, {
+        exitCode: slateBrowserBuild.exitCode,
+        phase: 'failed',
+        status: 'failed',
+      })
+      return slateBrowserBuild.exitCode
+    }
+
     await updateStatus(runId, { phase: 'running-playwright' })
-    const { passthrough, targets } = splitPlaywrightArgs(extraPlaywrightArgs)
-    const playwrightArgs = [
-      'test',
-      ...targets,
-      '--reporter=json',
+    const command = buildPlaywrightCommand(extraPlaywrightArgs, [
       `--output=${path.join(runPath(runId), 'test-results')}`,
-      ...passthrough,
-    ]
-    const test = await runCommand(runId, 'playwright', playwrightArgs, {
+    ])
+    const test = await runCommand(runId, command[0], command.slice(1), {
       env: {
         PLAYWRIGHT_BASE_URL: `http://localhost:${port}`,
         PLAYWRIGHT_RETRIES: process.env.PLAYWRIGHT_RETRIES ?? '0',

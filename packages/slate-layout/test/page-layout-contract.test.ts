@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act, renderHook } from '@testing-library/react'
 import { createEditor, defineStateField } from 'slate'
 
+import * as SlateLayout from '../src'
 import {
   createEstimatedPageLayoutEngine,
   createSlateLayout,
@@ -13,8 +15,8 @@ import {
   getSlatePageLayoutProjection,
   paginateSlatePageLayoutBlocks,
   pretextPageLayoutEngine,
-  type SlateLayoutSnapshot,
   type SlatePageBreakSnapshot,
+  type SlatePageLayoutSnapshot,
   type SlatePageSettings,
 } from '../src'
 import {
@@ -22,6 +24,7 @@ import {
   getPagedEditableMountedPageIndexes,
   getPagedEditableVisiblePageMountItems,
 } from '../src/page-mount-plan'
+import * as SlateLayoutReact from '../src/react'
 import { useSlateLayout } from '../src/react'
 
 const registeredDom = typeof document === 'undefined'
@@ -70,6 +73,75 @@ const pageSettings = defineStateField<SlatePageSettings>({
   history: 'push',
   initial: () => ({ margins: 96, preset: 'a4' }),
   persist: true,
+})
+
+const expectedSlateLayoutRuntimeRootExports = [
+  'createEstimatedPageLayoutEngine',
+  'createSlateLayout',
+  'createSlatePage',
+  'createSlatePageBreakSnapshot',
+  'createSlatePageLayout',
+  'getSlatePageLayoutDecorations',
+  'getSlatePageLayoutFragments',
+  'getSlatePageLayoutGeometry',
+  'getSlatePageLayoutPathKey',
+  'getSlatePageLayoutProjection',
+  'getSlatePagePresetSize',
+  'normalizeSlatePageSettings',
+  'paginateSlatePageLayoutBlocks',
+  'pretextPageLayoutEngine',
+]
+
+const expectedSlateLayoutRuntimeReactExports = [
+  'PagedEditable',
+  'useSlateLayout',
+  'useSlateLayoutFragments',
+  'useSlateLayoutFragmentsAtPath',
+  'useSlateLayoutSnapshot',
+  'useSlatePageLayout',
+  'useSlatePageLayoutSnapshot',
+]
+
+describe('slate-layout public runtime exports', () => {
+  it('keeps public root and React subpath runtime values exact', () => {
+    expect({
+      react: Object.keys(SlateLayoutReact).sort(),
+      root: Object.keys(SlateLayout).sort(),
+    }).toEqual({
+      react: expectedSlateLayoutRuntimeReactExports,
+      root: expectedSlateLayoutRuntimeRootExports,
+    })
+  })
+})
+
+describe('slate-layout public docs', () => {
+  it('keeps package and library docs experimental and proof-gated', () => {
+    const packageReadme = readFileSync(
+      new URL('../README.md', import.meta.url),
+      'utf8'
+    )
+    const libraryReadme = readFileSync(
+      new URL(
+        '../../../docs/libraries/slate-layout/README.md',
+        import.meta.url
+      ),
+      'utf8'
+    )
+
+    expect(packageReadme).toContain('Experimental page layout helpers')
+    expect(packageReadme).toContain('explicit product proof')
+    expect(packageReadme).toContain('derived geometry')
+    expect(packageReadme).toContain(
+      "import { PagedEditable, useSlateLayout } from 'slate-layout/react'"
+    )
+    expect(libraryReadme).toContain('The package is experimental')
+    expect(libraryReadme).toContain('explicit flags')
+    expect(libraryReadme).toContain('authoritative page breaks')
+    expect(libraryReadme).toContain('Headless And Static Use')
+    expect(libraryReadme).toContain(
+      'authoritative PDF, print, or collaboration'
+    )
+  })
 })
 
 describe('createSlatePageLayout', () => {
@@ -377,11 +449,63 @@ describe('createSlatePageLayout', () => {
     const layout = createSlateLayout(editor, () => ({
       page: { margins: 72, preset: 'letter' },
     }))
-    const snapshot: SlateLayoutSnapshot = layout.getSnapshot()
+    const snapshot: SlatePageLayoutSnapshot = layout.getSnapshot()
 
     expect(snapshot.settings).toEqual({ margins: 72, preset: 'letter' })
     expect(snapshot.page.width).toBe(816)
     expect(snapshot.blocks[0]!.text).toBe('Generic layout call site.')
+
+    layout.destroy()
+  })
+
+  it('rejects explicit public main roots in layout options', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Primary layout.' }],
+        },
+      ],
+    })
+
+    expect(() =>
+      createSlatePageLayout(editor, () => ({
+        engine: createEstimatedPageLayoutEngine(),
+        page: pageSettings,
+        root: 'main',
+      }))
+    ).toThrow(/Omit root to target the primary document/)
+  })
+
+  it('rejects explicit public main roots in layout projection options', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Primary projection.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+    }))
+
+    expect(() =>
+      layout.projectRange(
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 7 },
+        },
+        { root: 'main' }
+      )
+    ).toThrow(/Omit root to target the primary document/)
+    expect(() =>
+      layout.projectRange({
+        anchor: { path: [0, 0], offset: 0, root: 'main' },
+        focus: { path: [0, 0], offset: 7 },
+      })
+    ).toThrow(/Omit root to target the primary document/)
 
     layout.destroy()
   })
@@ -664,17 +788,17 @@ describe('createSlatePageLayout', () => {
     const mainText = 'Main '.repeat(12)
     const editor = createEditor({
       initialValue: {
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: mainText }],
+          },
+        ],
         roots: {
           header: [
             {
               type: 'paragraph',
               children: [{ text: headerText }],
-            },
-          ],
-          main: [
-            {
-              type: 'paragraph',
-              children: [{ text: mainText }],
             },
           ],
         },
@@ -703,14 +827,14 @@ describe('createSlatePageLayout', () => {
     ).toBeGreaterThan(0)
     expect(
       layout.projectRange({
-        anchor: { path: [0, 0], offset: 0, root: 'main' },
-        focus: { path: [0, 0], offset: 4, root: 'main' },
+        anchor: { path: [0, 0], offset: 0, root: 'footer' },
+        focus: { path: [0, 0], offset: 4, root: 'footer' },
       })
     ).toEqual([])
     expect(
       layout.projectRange({
         anchor: { path: [0, 0], offset: 0, root: 'header' },
-        focus: { path: [0, 0], offset: 4, root: 'main' },
+        focus: { path: [0, 0], offset: 4, root: 'footer' },
       })
     ).toEqual([])
 
@@ -1173,9 +1297,9 @@ describe('createSlatePageLayout', () => {
 
     expect(snapshot.pages).toHaveLength(2)
     expect(snapshot.blocks).toHaveLength(1)
-    expect(editor.read((state) => state.value.get().roots.main)).toHaveLength(1)
+    expect(editor.read((state) => state.value.root())).toHaveLength(1)
     expect(
-      editor.read((state) => state.value.get().roots.main[0]?.children)
+      editor.read((state) => state.value.root()[0]?.children)
     ).toHaveLength(4)
     expect(snapshot.fragments.map((fragment) => fragment.path)).toEqual([
       [0],

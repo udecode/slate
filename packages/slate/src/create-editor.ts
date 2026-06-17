@@ -129,7 +129,6 @@ import type {
   Operation,
   Point,
   Range,
-  SnapshotChange,
   Span,
   Value,
 } from './interfaces'
@@ -598,6 +597,10 @@ const createEditorTransformRegistry = <V extends Value>(
   } satisfies EditorTransformRegistry<V>)
 }
 
+/**
+ * Create a mutable Slate editor with schema, command, query, state, and
+ * extension runtime APIs installed.
+ */
 export function createEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
@@ -624,7 +627,7 @@ export function createEditor<
     getFragment: () => getFragment(editor) as DescendantIn<V>[],
     getLastCommit: () => getLastCommit(editor) as EditorCommit<V> | null,
     getOperationDirtiness: (operations, options) =>
-      getOperationDirtiness(editor, operations, options) as SnapshotChange<V>,
+      getOperationDirtiness(editor, operations, options) as EditorCommit<V>,
     getOperations: (startIndex) =>
       getOperations(editor, startIndex) as readonly Operation<V>[],
     getPathByRuntimeId: (runtimeId) => getPathByRuntimeId(editor, runtimeId),

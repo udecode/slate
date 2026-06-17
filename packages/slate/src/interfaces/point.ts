@@ -1,6 +1,7 @@
-import { isObject, type Operation, type Path, PathApi } from '..'
+import { type Operation, type Path, PathApi } from '..'
 import { getOperationRoot, getPointRoot } from '../internal/root-location'
 import type { TextDirection } from '../types/types'
+import { isObject } from '../utils/is-object'
 
 /**
  * `Point` objects refer to a specific location in a text node in a Slate
@@ -46,7 +47,7 @@ export interface PointInterface {
   /**
    * Check if a value implements the `Point` interface.
    */
-  isPoint: (value: any) => value is Point
+  isPoint: (value: unknown) => value is Point
 
   /**
    * Transform a point by an operation.
@@ -96,7 +97,7 @@ export const PointApi: PointInterface = {
     )
   },
 
-  isPoint(value: any): value is Point {
+  isPoint(value: unknown): value is Point {
     return (
       isObject(value) &&
       typeof value.offset === 'number' &&

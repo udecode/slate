@@ -1,5 +1,8 @@
 import { expect, type Locator, test } from '@playwright/test'
-import { openExample } from 'slate-browser/playwright'
+import {
+  openExample,
+  recordSlateBrowserRuntimeErrors,
+} from 'slate-browser/playwright'
 
 const getBrowserUndoHotkey = async (root: Locator) =>
   root
@@ -16,10 +19,8 @@ test.describe('placeholder example', () => {
   test('renders custom placeholder', async ({ page }) => {
     const placeholderElement = page.locator('[data-slate-placeholder=true]')
 
-    expect(await placeholderElement.textContent()).toContain('Type something')
-    expect(await page.locator('pre').textContent()).toContain(
-      'renderPlaceholder'
-    )
+    await expect(placeholderElement).toContainText('Type something')
+    await expect(page.locator('pre')).toContainText('renderPlaceholder')
   })
 
   test('keeps an empty editor value and start selection while showing a placeholder', async ({
@@ -35,11 +36,76 @@ test.describe('placeholder example', () => {
     await editor.focus()
 
     await editor.assert.placeholderVisible(true)
-    expect(await editor.get.modelText()).toBe('')
+    await expect.poll(() => editor.get.modelText()).toBe('')
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     })
+  })
+
+  test('excludes placeholder text from native selected text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop native selection proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'custom-placeholder', {
+        ready: {
+          editor: 'visible',
+          placeholder: 'visible',
+        },
+      })
+
+      await editor.focus()
+      await page.keyboard.press('ControlOrMeta+A')
+
+      await expect
+        .poll(async () => {
+          const nativeSelectedText = await page.evaluate(
+            () => window.getSelection()?.toString() ?? ''
+          )
+
+          return {
+            hasPlaceholderText:
+              nativeSelectedText.includes('Type something') ||
+              nativeSelectedText.includes(
+                'Use the renderPlaceholder prop to customize rendering of the placeholder'
+              ),
+            normalizedSelectedText: nativeSelectedText.replace(/\n/g, ''),
+          }
+        })
+        .toEqual({
+          hasPlaceholderText: false,
+          normalizedSelectedText: '',
+        })
+      await expect
+        .poll(async () => {
+          const selectedText = await editor.get.selectedText()
+
+          return {
+            hasPlaceholderText:
+              selectedText.includes('Type something') ||
+              selectedText.includes(
+                'Use the renderPlaceholder prop to customize rendering of the placeholder'
+              ),
+            normalizedSelectedText: selectedText.replace(/\n/g, ''),
+          }
+        })
+        .toEqual({
+          hasPlaceholderText: false,
+          normalizedSelectedText: '',
+        })
+      await editor.assert.placeholderVisible(true)
+      await expect.poll(() => editor.get.modelText()).toBe('')
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('renders editor tall enough to fit placeholder', async ({ page }) => {
@@ -85,7 +151,7 @@ test.describe('placeholder example', () => {
     })
 
     await editor.assert.text('abc')
-    expect(await editor.get.modelText()).toBe('abc')
+    await expect.poll(() => editor.get.modelText()).toBe('abc')
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 'abc'.length },
       focus: { path: [0, 0], offset: 'abc'.length },
@@ -132,7 +198,7 @@ test.describe('placeholder example', () => {
     })
 
     await editor.assert.text('dictated text')
-    expect(await editor.get.modelText()).toBe('dictated text')
+    await expect.poll(() => editor.get.modelText()).toBe('dictated text')
     await editor.assert.placeholderVisible(false)
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 'dictated text'.length },
@@ -225,7 +291,7 @@ test.describe('placeholder example', () => {
     }
 
     await editor.assert.text('Undo me')
-    expect(await editor.get.modelText()).toBe('Undo me')
+    await expect.poll(() => editor.get.modelText()).toBe('Undo me')
     await editor.assert.placeholderVisible(false)
 
     if (needsSemanticTransport) {
@@ -235,17 +301,14 @@ test.describe('placeholder example', () => {
     }
 
     await expect(editor.root).not.toContainText('Undo me')
-    expect(await editor.get.modelText()).toBe('')
+    await expect.poll(() => editor.get.modelText()).toBe('')
     await editor.assert.placeholderVisible(true)
   })
 
   test('splits after native typing from the custom placeholder empty state', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium native input proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native input proof')
 
     const editor = await openExample(page, 'custom-placeholder', {
       ready: {
@@ -260,8 +323,8 @@ test.describe('placeholder example', () => {
     await page.waitForTimeout(80)
     await editor.press('Enter')
 
-    expect(await editor.get.blockTexts()).toEqual(['ab', ''])
-    expect(await editor.get.modelText()).toBe('ab')
+    await editor.assert.blockTexts(['ab', ''])
+    await expect.poll(() => editor.get.modelText()).toBe('ab')
     await editor.assert.selection({
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },

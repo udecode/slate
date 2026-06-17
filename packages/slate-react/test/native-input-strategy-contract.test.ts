@@ -1,5 +1,5 @@
 import { Editor } from 'slate/internal'
-import { IS_NODE_MAP_DIRTY } from 'slate-dom'
+import { IS_NODE_MAP_DIRTY } from 'slate-dom/internal'
 import { canUseNativeSingleCharacterInput } from '../src/editable/native-input-strategy'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createReactEditor } from '../src/plugin/with-react'

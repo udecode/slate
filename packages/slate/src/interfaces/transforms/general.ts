@@ -29,6 +29,7 @@ import {
   modifyDescendant,
   modifyLeaf,
   removeChildren,
+  replaceChildRange,
   replaceChildren,
 } from '../../utils/modify'
 import { inheritRuntimeId } from '../../utils/runtime-ids'
@@ -499,11 +500,11 @@ export const transform: OperationTransformMethods['transform'] = (
       modifyChildren(editor, op.path, (children) => {
         assertChildRange(op, children.length, op.children.length)
 
-        return replaceChildren(
+        return replaceChildRange(
           children,
           op.index,
           op.children.length,
-          ...(op.newChildren as Descendant[])
+          op.newChildren as Descendant[]
         )
       })
       setCurrentSelection(editor, op.newSelection, op.root)

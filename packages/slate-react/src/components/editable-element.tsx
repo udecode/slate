@@ -4,6 +4,12 @@ import { SlateElement } from './slate-element'
 
 type IntrinsicTag = keyof HTMLElementTagNameMap
 
+/**
+ * Render the default editable element shell around custom element content.
+ *
+ * The shell binds Slate element metadata, forwards DOM props, and keeps the
+ * element positioned for placeholders, decorations, and DOM coverage.
+ */
 export const EditableElement = ({
   as,
   children,

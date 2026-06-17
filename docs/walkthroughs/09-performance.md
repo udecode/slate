@@ -12,7 +12,7 @@ INP is easiest to measure in Chrome using the [Performance panel](https://develo
 
 ![Screenshot of the Stack Chart tab of the Firefox Profiler, annotated to show a breakdown of time spent in core Slate, React, and painting the DOM.](../images/performance/firefox-inp.png)
 
-There are three main areas that can be optimized:
+There are three areas that can be optimized:
 
 - [Improving Performance](#improving-performance)
   - [Optimizing Slate Core](#optimizing-slate-core)
@@ -41,9 +41,10 @@ Make sure you only normalize the node passed into `normalizeNode` and (occasiona
 
 The `renderElement` prop and any React component it returns will re-render every time the element or any of its descendants changes. This is unavoidable. However, sometimes custom logic can cause React components to re-render more often than this, which can have a detrimental effect on performance.
 
-Prefer stable renderer registration with `renderElement(...)`, or define raw
-renderer functions at module scope when you need an `Editable` escape hatch.
-Avoid creating renderer functions inside the editor component during render.
+Prefer stable renderer functions passed through `Editable` props. Define
+`renderElement`, `renderLeaf`, `renderText`, and `renderSegment` at module
+scope, or memoize them once when they need editor-local data. Avoid creating
+renderer functions inside the editor component during render.
 
 If unmodified elements are being re-rendered, check to see if they are subscribing to any contexts or hooks that are causing unnecessary re-renders. You can also apply these techniques to any toolbars or other non-element React components that may be re-rendering in response to changes in the editor.
 
@@ -75,9 +76,12 @@ const onClick = () => {
 ### DOM Strategy
 
 `Editable` keeps large documents DOM-bounded by default. Use
-`domStrategy="staged"` only when a product needs eventual native DOM coverage
-for the whole document, or `domStrategy="full"` to render the full document
-surface while debugging.
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate groups off-DOM
+content behind model-backed coverage boundaries and mounts a small active window
+inside the opened group, leaving the surrounding range selectable and copyable
+through the model until it materializes. Use `domStrategy="staged"` only when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface while debugging.
 
 Experimental virtualized rendering is a separate viewport-mounted stress path
 for pathological documents. Read
@@ -88,7 +92,10 @@ For paginated documents, keep virtualization at the page boundary. See
 [Slate Layout](../libraries/slate-layout/README.md) for `PagedEditable` and
 page mount planning.
 
-Use projection stores for overlays instead of render-time decoration callbacks. Projection sources let decorations, annotations, widgets, diagnostics, and search results share the same range projection runtime without forcing everything through one `decorate` prop.
+Use projection sources for overlays instead of render-time decoration callbacks.
+Projection sources let decorations, annotations, widgets, diagnostics, and
+search results share the same range projection runtime without forcing
+everything through one `decorate` prop.
 
 ## Optimizing DOM Painting
 

@@ -3,6 +3,7 @@ import { cleanupTextLeafLifecycle } from '../core/leaf-lifecycle'
 import {
   getCurrentSelection,
   getCurrentSelectionRoot,
+  profileCoreDuration,
   runEditorTransaction,
   withEditorOperationRoot,
   withEditorOperationRootChildren,
@@ -336,7 +337,11 @@ const restorePreservedEmptyStartBlock = (
   })
 }
 
-type DeleteOptions = NonNullable<Parameters<TextMutationMethods['delete']>[1]>
+type DeleteOptions = NonNullable<
+  Parameters<TextMutationMethods['delete']>[1]
+> & {
+  preserveInlineEdge?: boolean
+}
 type DeleteUnit = NonNullable<DeleteOptions['unit']>
 type DeletePoint = import('../interfaces').Point
 type DeleteRange = import('../interfaces').Range
@@ -367,6 +372,7 @@ type DeleteRangePlan = {
   startNonEditable: ReturnType<typeof getHighestNonEditable>
   endNonEditable: ReturnType<typeof getHighestNonEditable>
   preserveEndBlock: boolean
+  preserveInlineEdge: boolean
   preserveEmptyStartBlockPath: Path | null
   preservedEmptyStartBlock: SlateElement | null
   startMergeBlockPath: Path | null
@@ -659,6 +665,94 @@ const moveTrailingTextPointIntoFollowingInline = (
   return livePoint
 }
 
+const moveExpandedInlineEdgeDeletePointOutsideInline = (
+  editor: Editor,
+  plan: DeleteRangePlan,
+  point: DeletePoint | null | undefined
+) => {
+  const livePoint = getLivePoint(editor, point)
+
+  if (
+    !livePoint ||
+    plan.isCollapsed ||
+    plan.isAcrossBlocks ||
+    plan.preserveInlineEdge ||
+    livePoint.path.length < 2
+  ) {
+    return livePoint
+  }
+
+  const parentPath = livePoint.path.slice(0, -1) as Path
+
+  if (!EditorApi.hasPath(editor, parentPath)) {
+    return livePoint
+  }
+
+  const originalStartParentPath = plan.start.path.slice(0, -1) as Path
+  const originalEndParentPath = plan.end.path.slice(0, -1) as Path
+
+  if (
+    !PathApi.equals(originalStartParentPath, parentPath) ||
+    !PathApi.equals(originalEndParentPath, parentPath)
+  ) {
+    return livePoint
+  }
+
+  const parent = getCurrentNode(editor, parentPath)
+
+  if (
+    !NodeApi.isElement(parent) ||
+    !getEditorSchema(editor).isInline(parent) ||
+    getEditorSchema(editor).isVoid(parent)
+  ) {
+    return livePoint
+  }
+
+  const currentText = NodeApi.string(parent)
+
+  if (currentText.length === 0) {
+    return livePoint
+  }
+
+  const parentStart = EditorApi.point(editor, parentPath, { edge: 'start' })
+  const parentEnd = EditorApi.point(editor, parentPath, { edge: 'end' })
+
+  if (plan.start.offset === 0 && PointApi.equals(livePoint, parentStart)) {
+    const previousSiblingPath =
+      parentPath.at(-1) === 0 ? null : PathApi.previous(parentPath)
+
+    if (previousSiblingPath && EditorApi.hasPath(editor, previousSiblingPath)) {
+      const previousSibling = getCurrentNode(editor, previousSiblingPath)
+
+      if (isTextNode(previousSibling)) {
+        return EditorApi.point(editor, previousSiblingPath, { edge: 'end' })
+      }
+    }
+  }
+
+  const deletedLength = plan.end.offset - plan.start.offset
+  const removedThroughInlineEnd = plan.start.offset >= currentText.length
+
+  if (
+    deletedLength > 0 &&
+    removedThroughInlineEnd &&
+    PointApi.equals(livePoint, parentEnd)
+  ) {
+    const nextSiblingPath =
+      parentPath.at(-1) == null ? null : PathApi.next(parentPath)
+
+    if (nextSiblingPath && EditorApi.hasPath(editor, nextSiblingPath)) {
+      const nextSibling = getCurrentNode(editor, nextSiblingPath)
+
+      if (isTextNode(nextSibling)) {
+        return EditorApi.point(editor, nextSiblingPath, { edge: 'start' })
+      }
+    }
+  }
+
+  return livePoint
+}
+
 const shouldKeepSplitTextAfterInteriorElementRemoval = (
   editor: Editor,
   start: DeletePoint,
@@ -812,6 +906,7 @@ const resolveDeleteTarget = (
     reverse = false,
     unit = 'character',
     distance = 1,
+    preserveInlineEdge = false,
     voids = false,
   } = options
   let { at = resolvedAt ?? getCurrentSelection(editor), hanging = false } =
@@ -1054,6 +1149,7 @@ const resolveDeleteTarget = (
     startNonEditable,
     endNonEditable,
     preserveEndBlock,
+    preserveInlineEdge,
     preserveEmptyStartBlockPath,
     preservedEmptyStartBlock,
     startMergeBlockPath: startMergeBlock?.[1] ?? null,
@@ -1411,6 +1507,8 @@ const resolveDeleteSelection = (
     point = movePointToFollowingInline(editor, point)
   }
 
+  point = moveExpandedInlineEdgeDeletePointOutsideInline(editor, plan, point)
+
   if (
     plan.reverse &&
     plan.unit === 'character' &&
@@ -1503,6 +1601,12 @@ const resolveDeleteSelection = (
         normalizedSelectionPoint
       )
     }
+
+    normalizedSelectionPoint = moveExpandedInlineEdgeDeletePointOutsideInline(
+      editor,
+      plan,
+      normalizedSelectionPoint
+    )
 
     if (
       normalizedSelectionPoint &&
@@ -2010,37 +2114,50 @@ const getWholeTopLevelBlockRange = (editor: Editor, plan: DeleteRangePlan) => {
   const startIndex = plan.start.path[0]
   const endIndex = plan.end.path[0]
   const editorChildren = EditorApi.getChildren(editor)
+  const deletesWholeDocument =
+    startIndex === 0 && endIndex === editorChildren.length - 1
 
-  if (
-    startIndex == null ||
-    endIndex == null ||
-    (startIndex === 0 && endIndex === editorChildren.length - 1)
-  ) {
+  if (startIndex == null || endIndex == null) {
     return null
   }
 
-  if (
-    !PointApi.equals(
-      plan.start,
-      EditorApi.point(editor, [startIndex], { edge: 'start' })
-    ) ||
-    !PointApi.equals(
-      plan.end,
-      EditorApi.point(editor, [endIndex], { edge: 'end' })
-    )
-  ) {
+  const coversWholeEdgeRange = profileCoreDuration(
+    'delete-whole-range-edge-check',
+    () =>
+      PointApi.equals(
+        plan.start,
+        EditorApi.point(editor, [startIndex], { edge: 'start' })
+      ) &&
+      PointApi.equals(
+        plan.end,
+        EditorApi.point(editor, [endIndex], { edge: 'end' })
+      )
+  )
+
+  if (!coversWholeEdgeRange) {
     return null
   }
 
-  for (let index = startIndex; index <= endIndex; index += 1) {
-    const node = editorChildren[index]
+  const containsOnlyBlocks = profileCoreDuration(
+    'delete-whole-range-block-scan',
+    () => {
+      for (let index = startIndex; index <= endIndex; index += 1) {
+        const node = editorChildren[index]
 
-    if (!NodeApi.isElement(node) || !EditorApi.isBlock(editor, node)) {
-      return null
+        if (!NodeApi.isElement(node) || !EditorApi.isBlock(editor, node)) {
+          return false
+        }
+      }
+
+      return true
     }
+  )
+
+  if (!containsOnlyBlocks) {
+    return null
   }
 
-  return { endIndex, startIndex }
+  return { deletesWholeDocument, endIndex, startIndex }
 }
 
 const deleteWholeTopLevelBlockRange = (
@@ -2049,6 +2166,48 @@ const deleteWholeTopLevelBlockRange = (
   tx: TransactionWriter
 ) => {
   const children = EditorApi.getChildren(editor)
+  const startBlock = children[range.startIndex]
+
+  if (range.deletesWholeDocument) {
+    if (
+      !NodeApi.isElement(startBlock) ||
+      getEditorSchema(editor).isVoid(startBlock) ||
+      !startBlock.children.every(
+        (child) =>
+          NodeApi.isText(child) ||
+          (NodeApi.isElement(child) && getEditorSchema(editor).isInline(child))
+      )
+    ) {
+      return false
+    }
+
+    const removedChildren = profileCoreDuration(
+      'delete-whole-range-children-slice',
+      () => children.slice()
+    )
+
+    profileCoreDuration('delete-whole-range-apply', () => {
+      tx.apply({
+        children: removedChildren,
+        index: 0,
+        newChildren: [
+          {
+            ...startBlock,
+            children: [{ text: '' }],
+          },
+        ],
+        newSelection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        path: [],
+        selection: getCurrentSelection(editor),
+        type: 'replace_children',
+      })
+    })
+    return true
+  }
+
   const preferNext = range.endIndex + 1 < children.length
   const selectionPath = preferNext
     ? [range.endIndex + 1]
@@ -2063,18 +2222,26 @@ const deleteWholeTopLevelBlockRange = (
       : selectionPoint.path,
   }
 
-  tx.apply({
-    children: children.slice(range.startIndex, range.endIndex + 1),
-    index: range.startIndex,
-    newChildren: [],
-    newSelection: {
-      anchor: newSelectionPoint,
-      focus: newSelectionPoint,
-    },
-    path: [],
-    selection: getCurrentSelection(editor),
-    type: 'replace_children',
+  const removedChildren = profileCoreDuration(
+    'delete-whole-range-children-slice',
+    () => children.slice(range.startIndex, range.endIndex + 1)
+  )
+
+  profileCoreDuration('delete-whole-range-apply', () => {
+    tx.apply({
+      children: removedChildren,
+      index: range.startIndex,
+      newChildren: [],
+      newSelection: {
+        anchor: newSelectionPoint,
+        focus: newSelectionPoint,
+      },
+      path: [],
+      selection: getCurrentSelection(editor),
+      type: 'replace_children',
+    })
   })
+  return true
 }
 
 export const deleteText: TextMutationMethods['delete'] = (
@@ -2110,8 +2277,10 @@ export const deleteText: TextMutationMethods['delete'] = (
           target
         )
 
-        if (wholeTopLevelBlockRange) {
+        if (
+          wholeTopLevelBlockRange &&
           deleteWholeTopLevelBlockRange(editor, wholeTopLevelBlockRange, tx)
+        ) {
           if (deletedMarks && getCurrentSelection(editor)) {
             tx.setMarks(deletedMarks)
           }

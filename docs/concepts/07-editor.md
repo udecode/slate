@@ -45,8 +45,8 @@ should use narrow state groups like `state.value`, `state.selection`, and
 extension-owned state.
 
 ```javascript
-const unsubscribe = editor.subscribe((_snapshot, commit) => {
-  if (commit?.childrenChanged || commit?.dirtyStateKeys.length) {
+const unsubscribe = editor.subscribe((_snapshot, change) => {
+  if (change?.childrenChanged || change?.dirtyStateKeys.length) {
     const documentValue = editor.read((state) => state.value.get())
 
     saveDocument(documentValue)
@@ -63,6 +63,31 @@ operation index, and runtime id index.
 ```javascript
 const snapshot = editor.read((state) => state.runtime.snapshot())
 ```
+
+## Local Provenance
+
+Use update `tag` values for cheap lifecycle labels and `metadata.origin` for
+typed local policy. A paste handler, import tool, or command palette action can
+label the commit without adding provenance fields to document nodes.
+
+```javascript
+editor.update(
+  tx => {
+    tx.text.insert(importedText)
+  },
+  {
+    tag: ['paste', 'import'],
+    metadata: {
+      origin: { kind: 'clipboard', source: 'html' },
+    },
+  }
+)
+```
+
+Use `persist: false` state fields for local provenance UI that should follow the
+runtime but stay out of saved document JSON. Runtime ids are useful for local
+projection and debug links; semantic product ids belong in your own model when
+they need to persist.
 
 ## Preserving Ranges
 
@@ -95,7 +120,10 @@ the document.
 
 ## Extending The Editor
 
-Extensions package reusable behavior without mutating random fields onto the editor object. They can register read namespaces with `state`, write namespaces with `tx`, schema specs, commit listeners, operation middleware, normalizer entries, and optional runtime registration.
+Extensions package reusable behavior without mutating random fields onto the
+editor object. They can register read namespaces with `state`, write namespaces
+with `tx`, schema specs, commit listeners, operation middleware, normalizer
+entries, and optional runtime registration.
 
 Here's a small extension that adds a table namespace:
 
@@ -106,12 +134,12 @@ const tables = defineEditorExtension({
   name: 'tables',
   state: {
     table(state) {
-        return {
-          rowCount() {
-            return state.nodes.children().length
-          },
-        }
-      },
+      return {
+        rowCount() {
+          return state.nodes.children().length
+        },
+      }
+    },
   },
   tx: {
     table(tx) {
@@ -162,7 +190,7 @@ const point = editor.read(state => state.points.start([0, 0]))
 const text = editor.read(state => state.text.string(range))
 
 for (const [node, path] of editor.read(state =>
-  state.nodes.match({ at: range })
+  state.nodes.entries({ at: range })
 )) {
   // ...
 }

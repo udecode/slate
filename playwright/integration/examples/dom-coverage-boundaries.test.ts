@@ -179,14 +179,8 @@ test.describe('dom coverage boundaries example', () => {
   })
 
   test('imports a native drag selection across a boundary placeholder', async ({
-    browserName,
     page,
   }) => {
-    test.skip(
-      browserName === 'firefox',
-      'Firefox does not extend native drag selections into contentEditable=false placeholders'
-    )
-
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
 
@@ -227,14 +221,8 @@ test.describe('dom coverage boundaries example', () => {
   })
 
   test('imports a native drag selection from a list item to a boundary placeholder', async ({
-    browserName,
     page,
   }) => {
-    test.skip(
-      browserName === 'firefox',
-      'Firefox does not extend native drag selections into contentEditable=false placeholders'
-    )
-
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
 

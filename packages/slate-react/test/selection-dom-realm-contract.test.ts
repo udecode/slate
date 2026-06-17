@@ -95,6 +95,46 @@ test('selectionchange listener ignores input targets from the target document re
   }
 })
 
+test('selectionchange listener skips repair-induced model-owned history imports', async () => {
+  const { attachEditableSelectionChangeListener } = await import(
+    '../src/editable/selection-reconciler'
+  )
+  const { frame, frameDocument, frameWindow } = createFrameDocument()
+  const scheduleOnDOMSelectionChange = vi.fn()
+  const state = createInputController().state
+
+  state.activeIntent = 'history'
+  state.selectionChangeOrigin = 'repair-induced'
+  state.selectionSource = 'model-owned'
+  state.modelSelectionPreference = {
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  }
+
+  const detach = attachEditableSelectionChangeListener({
+    scheduleOnDOMSelectionChange,
+    state,
+    targetDocument: frameDocument,
+  })
+
+  try {
+    frameDocument.dispatchEvent(new frameWindow.Event('selectionchange'))
+
+    expect(scheduleOnDOMSelectionChange).not.toHaveBeenCalled()
+    expect(state.pendingDOMSelectionImport).toBe(false)
+
+    state.selectionChangeOrigin = 'native-user'
+    frameDocument.dispatchEvent(new frameWindow.Event('selectionchange'))
+
+    expect(scheduleOnDOMSelectionChange).toHaveBeenCalledTimes(1)
+    expect(state.pendingDOMSelectionImport).toBe(true)
+  } finally {
+    detach()
+    frame.remove()
+  }
+})
+
 test('WebKit shadow selectionchange uses the editor document realm', async () => {
   const { applyEditableDOMSelectionChange, ReactEditor } =
     await importWebKitSelectionModules()

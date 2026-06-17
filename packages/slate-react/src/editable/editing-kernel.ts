@@ -28,6 +28,7 @@ import {
   classifyClipboardIntent,
   classifyCompositionIntent,
   classifyKeyboardIntent,
+  getDocumentBoundaryKeyboardMove,
   isInteractiveInternalTarget,
 } from './input-controller'
 import type {
@@ -195,6 +196,7 @@ export function getEditableCommandDefinition(command: EditableCommand | null) {
 }
 
 export type EditableMovementAxis =
+  | 'document'
   | 'horizontal'
   | 'line'
   | 'unknown'
@@ -202,6 +204,7 @@ export type EditableMovementAxis =
   | 'word'
 
 export type EditableMovementOwnershipReason =
+  | 'model-document-boundary'
   | 'model-horizontal-inline-void'
   | 'model-line-browser'
   | 'model-word-boundary'
@@ -699,7 +702,8 @@ const hasAuthoritativeModelSelection = ({
 }: {
   inputController: EditableInputController
 }) =>
-  inputController.state.selectionSource === 'model-owned' &&
+  (inputController.state.selectionSource === 'model-owned' ||
+    inputController.state.selectionSource === 'partial-dom-backed') &&
   (inputController.preferModelSelectionForInputRef.current ||
     hasProgrammaticSelectionOrigin(inputController.state.selectionChangeOrigin))
 
@@ -1051,6 +1055,15 @@ export const getEditableCommandFromKeyDown = ({
       unit: 'word',
     })
   }
+  const documentBoundaryMove = getDocumentBoundaryKeyboardMove(nativeEvent)
+  if (documentBoundaryMove) {
+    return {
+      axis: 'document',
+      extend: documentBoundaryMove.extend || undefined,
+      kind: 'move-selection',
+      reverse: documentBoundaryMove.reverse || undefined,
+    }
+  }
   if (Hotkeys.isMoveLineBackward(nativeEvent)) {
     return { axis: 'line', kind: 'move-selection', reverse: true }
   }
@@ -1114,11 +1127,13 @@ export const getEditableMovementOwnershipTrace = ({
 }): EditableMovementOwnershipTrace | null => {
   if (command?.kind === 'move-selection' && ownership === 'model-owned') {
     const reason: EditableMovementOwnershipReason =
-      command.axis === 'line'
-        ? 'model-line-browser'
-        : command.axis === 'word'
-          ? 'model-word-boundary'
-          : 'model-horizontal-inline-void'
+      command.axis === 'document'
+        ? 'model-document-boundary'
+        : command.axis === 'line'
+          ? 'model-line-browser'
+          : command.axis === 'word'
+            ? 'model-word-boundary'
+            : 'model-horizontal-inline-void'
 
     return {
       axis: command.axis,
@@ -1197,9 +1212,15 @@ export const prepareEditableKeyDownKernel = ({
     intent === 'format' ||
     intent === 'insert-break' ||
     intent === 'model-selection-move'
+  const authoritativeModelSelection = hasAuthoritativeModelSelection({
+    inputController,
+  })
   const shouldPreserveModelSelection =
-    (shouldForceDOMImport || intent === 'text-insert') &&
-    hasAuthoritativeModelSelection({ inputController })
+    intent === 'history' ||
+    (authoritativeModelSelection &&
+      (ownership === 'model-owned' ||
+        intent === 'text-insert' ||
+        intent === null))
   const shouldApplyForcedDOMImport =
     shouldForceDOMImport && !shouldPreserveModelSelection
 
@@ -1230,7 +1251,13 @@ export const prepareEditableKeyDownKernel = ({
             reason: 'native-selection-move',
             selectionSource: 'dom-current',
           }
-        : null,
+        : intent === 'history' && shouldPreserveModelSelection
+          ? {
+              preferModelSelection: true,
+              reason: 'model-command',
+              selectionSource: 'model-owned',
+            }
+          : null,
     shouldForceDOMImport: shouldApplyForcedDOMImport,
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource

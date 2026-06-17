@@ -105,6 +105,11 @@ test.describe('example query controls', () => {
       },
     })
 
+    await expect(page.getByLabel('Blocks')).toHaveValue('120')
+    await expect(
+      page.locator('#huge-document-blocks option:checked')
+    ).toHaveText('120')
+
     await page.getByLabel('DOM strategy').selectOption('virtualized')
     await expect.poll(() => getQueryParam(page, 'strategy')).toBe('virtualized')
 

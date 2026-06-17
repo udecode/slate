@@ -2,12 +2,15 @@ import {
   type DescendantIn,
   RangeApi,
   NodeApi as SlateNode,
+  type Text,
   type Value,
 } from 'slate'
 import {
   applyOperation,
   Editor,
+  getEditorCurrentMarks,
   getEditorTransformRegistry,
+  setEditorMarks,
 } from 'slate/internal'
 import {
   getPlainText,
@@ -66,9 +69,20 @@ const samePoint = (
   left.path.length === right.path.length &&
   left.path.every((segment, index) => segment === right.path[index])
 
+const createPlainTextFallbackText = (
+  textNode: Text,
+  text: string,
+  activeMarks: ReturnType<typeof getEditorCurrentMarks>
+) => {
+  const next = { ...textNode, text }
+
+  return activeMarks ? { ...next, ...activeMarks } : next
+}
+
 const replaceSingleEmptyBlockWithPlainTextLines = (
   editor: DOMEditor<any>,
-  lines: string[]
+  lines: string[],
+  activeMarks: ReturnType<typeof getEditorCurrentMarks>
 ) => {
   const snapshot = Editor.getSnapshot(editor)
   const { selection } = snapshot
@@ -104,7 +118,7 @@ const replaceSingleEmptyBlockWithPlainTextLines = (
   const lastLine = lines.at(-1) ?? ''
   const newChildren = lines.map((line) => ({
     ...block,
-    children: [{ ...textNode, text: line }],
+    children: [createPlainTextFallbackText(textNode, line, activeMarks)],
   }))
   const newSelection = {
     anchor: { path: [lines.length - 1, 0], offset: lastLine.length },
@@ -126,7 +140,8 @@ const replaceSingleEmptyBlockWithPlainTextLines = (
 
 const insertPlainTextLinesAsFragment = (
   editor: DOMEditor<any>,
-  lines: string[]
+  lines: string[],
+  activeMarks: ReturnType<typeof getEditorCurrentMarks>
 ) => {
   const snapshot = Editor.getSnapshot(editor)
   const { selection } = snapshot
@@ -162,7 +177,7 @@ const insertPlainTextLinesAsFragment = (
 
   const fragment = lines.map((line) => ({
     ...block,
-    children: [{ ...text, text: line }],
+    children: [createPlainTextFallbackText(text, line, activeMarks)],
   }))
 
   getEditorTransformRegistry(editor).insertFragment(fragment)
@@ -441,25 +456,33 @@ export const insertDOMData = <V extends Value>(
   return insertDOMFragmentData(editor, data) || insertDOMTextData(editor, data)
 }
 
-export const insertDOMFragmentData = <V extends Value>(
+export const readDOMFragmentData = <V extends Value>(
   editor: DOMEditor<V>,
   data: DataTransfer
-): boolean => {
+): DescendantIn<V>[] | null => {
   const clipboardFormatKey = getDOMClipboardFormatKey(editor)
   const fragment =
     data.getData(`application/${clipboardFormatKey}`) ||
     getSlateFragmentAttribute(data, clipboardFormatKey)
 
   if (fragment) {
-    const parsed = decodeClipboardFragment(editor, fragment)
+    return decodeClipboardFragment(editor, fragment)
+  }
 
-    if (!parsed) {
-      return false
-    }
+  return null
+}
 
+export const insertDOMFragmentData = <V extends Value>(
+  editor: DOMEditor<V>,
+  data: DataTransfer
+): boolean => {
+  const parsed = readDOMFragmentData(editor, data)
+
+  if (parsed) {
     getEditorTransformRegistry(editor).insertFragment(parsed)
     return true
   }
+
   return false
 }
 
@@ -471,20 +494,27 @@ export const insertDOMTextData = (
 
   if (text) {
     const lines = text.split(NEWLINE_SPLIT_RE)
+    const activeMarks = getEditorCurrentMarks(editor)
 
     if (
       lines.length === 1 &&
       isSelectedInlineTextRange(editor) &&
-      insertPlainTextLinesAsFragment(editor, lines)
+      insertPlainTextLinesAsFragment(editor, lines, activeMarks)
     ) {
+      if (activeMarks) {
+        setEditorMarks(editor, null)
+      }
       return true
     }
 
     if (
       lines.length > 1 &&
-      (replaceSingleEmptyBlockWithPlainTextLines(editor, lines) ||
-        insertPlainTextLinesAsFragment(editor, lines))
+      (replaceSingleEmptyBlockWithPlainTextLines(editor, lines, activeMarks) ||
+        insertPlainTextLinesAsFragment(editor, lines, activeMarks))
     ) {
+      if (activeMarks) {
+        setEditorMarks(editor, null)
+      }
       return true
     }
 
@@ -496,8 +526,15 @@ export const insertDOMTextData = (
         transforms.splitNodes({ always: true })
       }
 
-      transforms.insertText(line)
+      if (activeMarks && line.length > 0) {
+        transforms.insertNodes({ text: line, ...activeMarks }, { select: true })
+      } else {
+        transforms.insertText(line)
+      }
       split = true
+    }
+    if (activeMarks) {
+      setEditorMarks(editor, null)
     }
     return true
   }

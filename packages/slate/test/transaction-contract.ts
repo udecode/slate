@@ -200,8 +200,13 @@ describe('slate transaction contract', () => {
     const value = editor.read((state) => state.value.get())
 
     assert.deepEqual(root, [paragraph('header')])
-    assert.deepEqual(value.roots.header, [paragraph('header')])
-    assert.notEqual(root, value.roots.header)
+    assert.deepEqual(
+      editor.read((state) => state.value.root()),
+      [paragraph('main')]
+    )
+    assert.deepEqual(value.children, [paragraph('main')])
+    assert.deepEqual(value.roots?.header, [paragraph('header')])
+    assert.notEqual(root, value.roots?.header)
   })
 
   it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
@@ -301,16 +306,135 @@ describe('slate transaction contract', () => {
     ])
   })
 
+  it('keeps runtime-id multi-node replacement atomic until commit and rollbackable', () => {
+    const editor = createEditor()
+    const publishedStates: ReturnType<typeof getVisibleState>[] = []
+    const normalizedPaths: string[] = []
+
+    replaceChildren(editor, [
+      paragraph('before'),
+      paragraph('target'),
+      paragraph('after'),
+    ])
+
+    const targetRuntimeId = Editor.getRuntimeId(editor, [1])
+    assert(targetRuntimeId)
+
+    const unextend = editor.extend({
+      name: 'atomic-replace-normalizer-spy',
+      normalizers: {
+        node({ entry, next }) {
+          normalizedPaths.push(entry[1].join('.'))
+          next()
+        },
+      },
+    })
+    const unsubscribe = Editor.subscribe(editor, () => {
+      publishedStates.push(getVisibleState(editor))
+    })
+
+    publishedStates.length = 0
+    normalizedPaths.length = 0
+
+    editor.update((transaction) => {
+      const targetPath = Editor.getPathByRuntimeId(editor, targetRuntimeId)
+
+      assert.deepEqual(targetPath, [1])
+      assert(targetPath)
+
+      transaction.nodes.remove({ at: targetPath })
+
+      assert.equal(publishedStates.length, 0)
+      assert.deepEqual(normalizedPaths, [])
+      assert.equal(Editor.getPathByRuntimeId(editor, targetRuntimeId), null)
+
+      transaction.nodes.insert(
+        [paragraph('replacement-a'), paragraph('replacement-b')],
+        { at: targetPath }
+      )
+
+      assert.equal(Editor.string(editor, [1]), 'replacement-a')
+      assert.equal(Editor.string(editor, [2]), 'replacement-b')
+      assert.equal(publishedStates.length, 0)
+      assert.deepEqual(normalizedPaths, [])
+    })
+
+    unsubscribe()
+    unextend()
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert.equal(publishedStates.length, 1)
+    assert(normalizedPaths.length > 0)
+    assert(commit)
+    assert.deepEqual(commit.classes, ['structural'])
+    assert.deepEqual(
+      commit.operations.map((operation) => operation.type),
+      ['remove_node', 'insert_node', 'insert_node']
+    )
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('before'),
+      paragraph('replacement-a'),
+      paragraph('replacement-b'),
+      paragraph('after'),
+    ])
+
+    const rollbackEditor = createEditor()
+    const rollbackPublishedStates: ReturnType<typeof getVisibleState>[] = []
+
+    replaceChildren(rollbackEditor, [
+      paragraph('before'),
+      paragraph('target'),
+      paragraph('after'),
+    ])
+
+    const rollbackTargetRuntimeId = Editor.getRuntimeId(rollbackEditor, [1])
+    assert(rollbackTargetRuntimeId)
+
+    const rollbackBefore = getVisibleState(rollbackEditor)
+    const unsubscribeRollback = Editor.subscribe(rollbackEditor, () => {
+      rollbackPublishedStates.push(getVisibleState(rollbackEditor))
+    })
+
+    rollbackPublishedStates.length = 0
+
+    assert.throws(() => {
+      rollbackEditor.update((transaction) => {
+        const targetPath = Editor.getPathByRuntimeId(
+          rollbackEditor,
+          rollbackTargetRuntimeId
+        )
+
+        assert.deepEqual(targetPath, [1])
+        assert(targetPath)
+
+        transaction.nodes.remove({ at: targetPath })
+        transaction.nodes.insert(
+          [paragraph('replacement-a'), paragraph('replacement-b')],
+          { at: targetPath }
+        )
+
+        throw new Error('reject preview')
+      })
+    }, /reject preview/)
+
+    unsubscribeRollback()
+
+    assert.equal(rollbackPublishedStates.length, 0)
+    assert.deepEqual(getVisibleState(rollbackEditor), rollbackBefore)
+    assert.deepEqual(
+      Editor.getPathByRuntimeId(rollbackEditor, rollbackTargetRuntimeId),
+      [1]
+    )
+  })
+
   it('internal transaction exposes live draft state through the transaction argument', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
 
     editor.update((tx) => {
-      assert.deepEqual(tx.value.get().roots.main, [
-        paragraph('one'),
-        paragraph('two'),
-      ])
+      assert.deepEqual(tx.value.root(), [paragraph('one'), paragraph('two')])
       assert.equal(tx.selection.get(), null)
       assert.deepEqual(tx.value.operations(), [])
 
@@ -323,7 +447,7 @@ describe('slate transaction contract', () => {
         },
       ])
 
-      assert.equal(tx.value.get().roots.main[0]?.children[0]?.text, 'one!')
+      assert.equal(tx.value.root()[0]?.children[0]?.text, 'one!')
       assert.equal(tx.value.operations().length, 1)
 
       tx.selection.set({
@@ -343,7 +467,7 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('internal transaction exposes tx.apply as the transaction-owned write seam', () => {
+  it('internal transaction exposes tx.apply as the transaction-owned write boundary', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
@@ -516,7 +640,7 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('internal transaction exposes tx.setMarks as the transaction-owned marks seam', () => {
+  it('internal transaction exposes tx.setMarks as the transaction-owned marks boundary', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -538,7 +662,7 @@ describe('slate transaction contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).marks, { bold: true })
   })
 
-  it('internal transaction exposes tx.setSelection as the transaction-owned selection seam', () => {
+  it('internal transaction exposes tx.setSelection as the transaction-owned selection boundary', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -1002,10 +1126,8 @@ describe('slate transaction contract', () => {
   it('keeps rootless selection commands caller-shaped while committing the view root', () => {
     const runtime = createEditorRuntime({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })

@@ -1,8 +1,11 @@
-import { PathApi } from 'slate'
+import { PathApi, type Range, RangeApi, type RootKey } from 'slate'
 import {
   cloneSlateViewBoundaryProjectedPoint,
+  createSlateViewBoundaryGraph,
+  getSlatePointRoot,
   getSlateViewBoundaryOwnerKey,
   getSlateViewBoundaryPointRoot,
+  rootSlatePoint,
   SlateViewBoundaryGraph,
   type SlateViewBoundaryGraphModel,
   type SlateViewBoundaryPoint,
@@ -85,6 +88,44 @@ export const createSlateViewSelection = (
   })
 }
 
+export const createMainRootSlateViewSelection = (
+  selection: Range,
+  fallbackRoot: RootKey = 'main'
+): SlateViewSelection | null => {
+  const [start, end] = RangeApi.edges(selection)
+  const startIndex = start.path[0]
+  const endIndex = end.path[0]
+  const startRoot = getSlatePointRoot(start, fallbackRoot)
+  const endRoot = getSlatePointRoot(end, fallbackRoot)
+
+  if (typeof startIndex !== 'number' || typeof endIndex !== 'number') {
+    return null
+  }
+
+  const graph =
+    startIndex === endIndex && startRoot === endRoot
+      ? createSlateViewBoundaryGraph([{ path: [startIndex], root: startRoot }])
+      : createSlateViewBoundaryGraph([
+          { path: [startIndex], root: startRoot },
+          { path: [endIndex], root: endRoot },
+        ])
+
+  return createSlateViewSelection(graph, {
+    anchor: {
+      point: rootSlatePoint(
+        selection.anchor,
+        getSlatePointRoot(selection.anchor, fallbackRoot)
+      ),
+    },
+    focus: {
+      point: rootSlatePoint(
+        selection.focus,
+        getSlatePointRoot(selection.focus, fallbackRoot)
+      ),
+    },
+  })
+}
+
 export const extendSlateViewSelection = (
   graph: SlateViewBoundaryGraphModel,
   selection: SlateViewSelection,
@@ -125,21 +166,23 @@ export const readSlateViewSelection = (
 
 export const writeSlateViewSelection = (
   editor: object,
-  selection: SlateViewSelection | null
+  selection: SlateViewSelection | null,
+  options: { notify?: boolean } = {}
 ) => {
   const key = getViewSelectionStoreKey(editor)
   const previous = EDITOR_TO_VIEW_SELECTION.get(key) ?? null
+  const shouldNotify = options.notify !== false
 
   if (!selection) {
     EDITOR_TO_VIEW_SELECTION.delete(key)
-    if (previous) {
+    if (previous && shouldNotify) {
       notifyViewSelectionListeners(key)
     }
     return
   }
 
   EDITOR_TO_VIEW_SELECTION.set(key, selection)
-  if (previous !== selection) {
+  if (previous !== selection && shouldNotify) {
     notifyViewSelectionListeners(key)
   }
 }

@@ -1,10 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
 import { Component, type ReactNode, useLayoutEffect } from 'react'
 import {
+  type EditorCommit,
   type Operation,
   type RuntimeId,
-  type SnapshotChange,
   TextApi,
 } from 'slate'
 import { Editor } from 'slate/internal'
@@ -58,6 +59,19 @@ class SelectorErrorBoundary extends Component<
 }
 
 describe('slate-react provider hooks contract', () => {
+  test('providers read operation counts without cloning operation payloads', () => {
+    const slateSource = readFileSync('src/components/slate.tsx', 'utf8')
+    const runtimeSource = readFileSync(
+      'src/hooks/use-slate-runtime.tsx',
+      'utf8'
+    )
+
+    expect(slateSource).toContain('getOperationCount(editor)')
+    expect(runtimeSource).toContain('getOperationCount(runtime.editor)')
+    expect(slateSource).not.toContain('value.operations().length')
+    expect(runtimeSource).not.toContain('value.operations().length')
+  })
+
   test('useSlateEditor creates a React editor with initialized value', () => {
     const { result } = renderHook(() =>
       useSlateEditor({
@@ -66,7 +80,7 @@ describe('slate-react provider hooks contract', () => {
     )
 
     expect(result.current.read((state) => state.value.get())).toEqual({
-      roots: { main: initialValue },
+      children: initialValue,
     })
     expect(result.current.read((state) => state.value.operations())).toEqual([])
     expect(result.current.read((state) => state.value.lastCommit())).toBe(null)
@@ -436,7 +450,7 @@ describe('slate-react provider hooks contract', () => {
     const targetRuntimeId = Editor.getSnapshot(editor).index.pathToId['1.0']
     const selector = jest.fn(() => Editor.getLastCommit(editor)?.version ?? 0)
     const shouldUpdate = jest.fn(
-      (_operations?: readonly Operation[], change?: SnapshotChange) =>
+      (_operations?: readonly Operation[], change?: EditorCommit) =>
         Boolean(
           change?.selectionImpactRuntimeIds?.includes(targetRuntimeId ?? '')
         )
@@ -493,8 +507,8 @@ describe('slate-react provider hooks contract', () => {
     const blockRuntimeId = snapshot.index.pathToId['0']
     const textRuntimeId = snapshot.index.pathToId['0.0']
     const selector = jest.fn((state) => state.selection.get())
-    const seenChanges: SnapshotChange[] = []
-    const shouldUpdate = jest.fn((change?: SnapshotChange) => {
+    const seenChanges: EditorCommit[] = []
+    const shouldUpdate = jest.fn((change?: EditorCommit) => {
       if (change) {
         seenChanges.push(change)
       }
@@ -1150,7 +1164,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable keeps large DOM-present root groups stable across local edits and parent rerenders', async () => {
+  test('Editable keeps large staged root groups stable across local edits and parent rerenders', async () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
@@ -1207,7 +1221,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can explicitly use DOM-present dom-strategy grouping', () => {
+  test('Editable can explicitly use staged dom-strategy grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],

@@ -23,6 +23,7 @@ export const parsePackageManager = async (repo) => {
 
 export const run = (command, args, cwd, env = {}) =>
   new Promise((resolvePromise, rejectPromise) => {
+    const streamStderr = env.BENCHMARK_PROGRESS === '1'
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
@@ -37,7 +38,12 @@ export const run = (command, args, cwd, env = {}) =>
     })
 
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString()
+      const text = chunk.toString()
+      stderr += text
+
+      if (streamStderr) {
+        process.stderr.write(text)
+      }
     })
 
     child.on('exit', (code) => {

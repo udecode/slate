@@ -150,6 +150,22 @@ const getTextChildrenEndPoint = (children: Descendant[], fallbackIndex = 0) => {
   }
 }
 
+const getDescendantEndPoint = (node: Descendant) => {
+  if (NodeApi.isText(node)) {
+    return {
+      offset: node.text.length,
+      path: [],
+    }
+  }
+
+  const [lastNode, lastPath] = NodeApi.last(node, [])
+
+  return {
+    offset: NodeApi.string(lastNode).length,
+    path: lastPath,
+  }
+}
+
 const createTextBlock = (block: Element, children: Descendant[]): Element => ({
   ...block,
   children: children.length > 0 ? children : [{ text: '' }],
@@ -582,7 +598,11 @@ const getEmptyTopLevelTextBlockFragmentReplacement = (
 
   const [onlyFragmentNode] = fragment
 
-  if (fragment.length !== 1 || !isTextBlockElement(editor, onlyFragmentNode)) {
+  if (
+    fragment.length === 0 ||
+    !fragment.every((node) => isTextBlockElement(editor, node)) ||
+    !isTextBlockElement(editor, onlyFragmentNode)
+  ) {
     return null
   }
 
@@ -607,6 +627,15 @@ const getEmptyTopLevelTextBlockFragmentReplacement = (
     !samePoint(at.anchor, { path: blockPath.concat(0), offset: 0 })
   ) {
     return null
+  }
+
+  if (fragment.length > 1) {
+    return {
+      children: fragment.map(cloneDescendant),
+      index: blockPath[0],
+      previousChildren: [block],
+      selection: getOffsetFragmentEndSelection(fragment, blockPath[0]),
+    }
   }
 
   const clonedBlock = cloneDescendant(onlyFragmentNode)
@@ -896,6 +925,66 @@ const isCompatibleStructuralContainer = (
   isStructuralBlockElement(editor, fragmentNode) &&
   hasSameElementType(target, fragmentNode)
 
+const unwrapLeadingStructuralFragmentChildren = (
+  editor: Editor,
+  children: Descendant[]
+): Descendant[] => {
+  const [firstChild, ...restChildren] = children
+
+  if (
+    NodeApi.isElement(firstChild) &&
+    isStructuralBlockElement(editor, firstChild)
+  ) {
+    return [
+      ...unwrapLeadingStructuralFragmentChildren(
+        editor,
+        firstChild.children as Descendant[]
+      ),
+      ...restChildren.map(cloneDescendant),
+    ]
+  }
+
+  return children.map(cloneDescendant)
+}
+
+const getNestedStructuralFragmentChildren = (
+  editor: Editor,
+  block: Element,
+  fragment: Descendant[]
+) => {
+  const [onlyFragmentNode] = fragment
+
+  if (
+    fragment.length !== 1 ||
+    !NodeApi.isElement(onlyFragmentNode) ||
+    !isStructuralBlockElement(editor, onlyFragmentNode)
+  ) {
+    return null
+  }
+
+  const children = unwrapLeadingStructuralFragmentChildren(
+    editor,
+    onlyFragmentNode.children as Descendant[]
+  )
+  const elementChildren = children.every(NodeApi.isElement) ? children : null
+
+  if (!elementChildren) {
+    return null
+  }
+
+  const [firstChild] = elementChildren
+
+  if (!isTextBlockElement(editor, firstChild)) {
+    return null
+  }
+
+  if (!hasSameElementType(block, firstChild)) {
+    return null
+  }
+
+  return elementChildren
+}
+
 const getNestedTextBlockFragmentReplacement = (
   editor: Editor,
   at: Range,
@@ -1005,11 +1094,91 @@ const getNestedTextBlockFragmentReplacement = (
   }
 
   const firstFragmentNode = fragment[0]
+  const nestedStructuralFragmentChildren = getNestedStructuralFragmentChildren(
+    editor,
+    block,
+    fragment
+  )
+
+  if (nestedStructuralFragmentChildren) {
+    const [firstSourceBlock, ...remainingSourceBlocks] =
+      nestedStructuralFragmentChildren
+    const mergedChildren = [...beforeTargetChildren]
+    let insertedEnd:
+      | {
+          offset: number
+          path: Path
+        }
+      | undefined
+
+    for (const child of firstSourceBlock.children) {
+      insertedEnd = pushBlockChild(editor, mergedChildren, child)
+    }
+
+    if (afterText) {
+      pushBlockChild(editor, mergedChildren, {
+        ...targetText,
+        text: afterText,
+      })
+    }
+
+    for (const child of block.children.slice(textIndex + 1)) {
+      pushBlockChild(editor, mergedChildren, child)
+    }
+
+    if (mergedChildren.length === 0) {
+      mergedChildren.push({ ...targetText, text: '' })
+    }
+
+    headContainerChildren.push(createTextBlock(block, mergedChildren))
+
+    for (const child of remainingSourceBlocks) {
+      headContainerChildren.push(cloneDescendant(child))
+    }
+
+    const selectionBlockIndex = headContainerChildren.length - 1
+    const selectionPoint =
+      remainingSourceBlocks.length > 0
+        ? getDescendantEndPoint(headContainerChildren[selectionBlockIndex]!)
+        : insertedEnd
+          ? getPointAfterInlineVoid(editor, mergedChildren, insertedEnd)
+          : getTextChildrenEndPoint(mergedChildren)
+    const nextParentChildren = [
+      ...headContainerChildren,
+      ...tailContainerChildren,
+    ]
+
+    return {
+      children: [{ ...parent, children: nextParentChildren }],
+      index: parentIndex,
+      path: parentPath.slice(0, -1),
+      previousChildren: [parent],
+      selection: {
+        anchor: {
+          path: parentPath.concat([
+            selectionBlockIndex,
+            ...selectionPoint.path,
+          ]),
+          offset: selectionPoint.offset,
+        },
+        focus: {
+          path: parentPath.concat([
+            selectionBlockIndex,
+            ...selectionPoint.path,
+          ]),
+          offset: selectionPoint.offset,
+        },
+      },
+    }
+  }
 
   if (
     NodeApi.isElement(firstFragmentNode) &&
     isCompatibleStructuralContainer(editor, parent, firstFragmentNode)
   ) {
+    // Structural containers are generic Slate blocks, not table grids. Merge
+    // only the active block with the first compatible fragment child; table
+    // extensions own positional multi-cell paste behavior.
     const [onlyFragmentChild] = firstFragmentNode.children
 
     if (

@@ -1,11 +1,12 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import type { Operation, RootKey } from 'slate'
+import type { EditorUpdateOptions, Operation, RootKey } from 'slate'
 import { resolveHistoryFocusEditor } from '../editable/history-focus'
 import {
   getHistoryDirectionFromNativeEvent,
   type HistoryDirection,
 } from '../editable/history-keyboard'
 import {
+  readSlateViewSelection,
   readSlateViewSelectionHistoryEntry,
   writeSlateViewSelection,
 } from '../view-selection'
@@ -19,22 +20,28 @@ import {
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
+
 const getOperationRoot = (operation: Operation): RootKey =>
   ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
-export type SlateHistoryFocusPolicy = 'none' | 'preserve-dom' | 'restore-root'
+/** Focus behavior after undo or redo commands. */
+export type SlateHistoryFocusPolicy = 'none' | 'preserve' | 'restore-root'
 
+/** Options for history commands and shortcut handling. */
 export type UseSlateHistoryOptions = {
   focusPolicy?: SlateHistoryFocusPolicy
   root?: RootKey
 }
 
+/** Undo/redo state and command handlers for one Slate root. */
 export type SlateHistoryController = {
   canRedo: boolean
   canUndo: boolean
   onKeyDown: (event: KeyboardEvent) => void
   redo: () => void
-  root: RootKey
+  root: RootKey | undefined
   undo: () => void
 }
 
@@ -148,9 +155,11 @@ const selectHistoryAvailability = (state: unknown): HistoryAvailability => {
   }
 }
 
-const getHistoryUpdateOptions = (focus: SlateHistoryFocusPolicy) =>
-  focus === 'preserve-dom'
-    ? ({
+const getHistoryUpdateOptions = (
+  focus: SlateHistoryFocusPolicy
+): EditorUpdateOptions => ({
+  ...(focus === 'preserve'
+    ? {
         metadata: {
           selection: {
             dom: 'preserve',
@@ -158,13 +167,29 @@ const getHistoryUpdateOptions = (focus: SlateHistoryFocusPolicy) =>
             scroll: false,
           },
         },
-      } as const)
-    : undefined
+      }
+    : null),
+  skipNormalize: true,
+})
 
+/**
+ * Create undo/redo commands and keyboard handling for the active or fixed root.
+ *
+ * The controller follows the current selection root by default, or a fixed
+ * `root` when provided. Use `canUndo` / `canRedo` for disabled UI, wire
+ * `onKeyDown` to editor chrome that owns shortcuts, and choose `focusPolicy`
+ * based on whether undo/redo should restore editor focus.
+ */
 export function useSlateHistory({
   focusPolicy = 'restore-root',
   root: fixedRoot,
 }: UseSlateHistoryOptions = {}): SlateHistoryController {
+  if (fixedRoot === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to bind history to the primary document. `main` is an internal root key.'
+    )
+  }
+
   const historyRootSelector = useMemo(() => createHistoryRootSelector(), [])
   const historyRoot = useSlateRuntimeState(historyRootSelector, {
     deps: [historyRootSelector],
@@ -172,7 +197,8 @@ export function useSlateHistory({
     shouldUpdate: (change) => Boolean(change?.selectionChanged),
   })
   const root = fixedRoot ?? historyRoot
-  const editor = useSlateRootEditor(root)
+  const publicRoot = toPublicRootOption(root)
+  const editor = useSlateRootEditor(publicRoot)
   const {
     getActiveContentRootOwner,
     getContentRootOwnerViewEditor,
@@ -196,15 +222,28 @@ export function useSlateHistory({
         editor,
         direction
       )
+      const previousViewSelection = readSlateViewSelection(editor)
+      let applied = false
 
-      editor.update((tx) => {
-        if (!hasHistoryCommands(tx)) {
-          return
-        }
-
-        tx.history[direction]()
-      }, getHistoryUpdateOptions(focusPolicy))
       writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
+      try {
+        editor.update((tx) => {
+          if (!hasHistoryCommands(tx)) {
+            return
+          }
+
+          tx.history[direction]()
+          applied = true
+        }, getHistoryUpdateOptions(focusPolicy))
+      } catch (error) {
+        writeSlateViewSelection(editor, previousViewSelection)
+        throw error
+      }
+
+      if (!applied) {
+        writeSlateViewSelection(editor, previousViewSelection)
+        return
+      }
 
       if (focusPolicy === 'restore-root') {
         scheduleSlateReactFocus(() => {
@@ -273,9 +312,16 @@ export function useSlateHistory({
       canUndo: availability.canUndo,
       onKeyDown,
       redo,
-      root,
+      root: publicRoot,
       undo,
     }),
-    [availability.canRedo, availability.canUndo, onKeyDown, redo, root, undo]
+    [
+      availability.canRedo,
+      availability.canUndo,
+      onKeyDown,
+      publicRoot,
+      redo,
+      undo,
+    ]
   )
 }

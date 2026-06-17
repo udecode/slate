@@ -24,6 +24,17 @@ import {
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
+const assertPublicRootKey = (root: RootKey | undefined) => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+}
+
+const toPublicRootOption = (root: RootKey): RootKey | undefined =>
+  root === MAIN_ROOT_KEY ? undefined : root
+
 export type SlatePagePreset = 'a4' | 'letter'
 
 export type SlatePageMargins =
@@ -35,11 +46,13 @@ export type SlatePageMargins =
       top: number
     }
 
+/** Page size and margins used by Slate page-layout readers. */
 export type SlatePageSettings = {
   margins: SlatePageMargins
   preset: SlatePagePreset
 }
 
+/** Rectangle in layout coordinates. */
 export type SlatePageRect = {
   height: number
   left: number
@@ -414,6 +427,7 @@ export type SlatePageSettingsSource<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = EditorStateField<TSettings> | TSettings
 
+/** Simplified layout options that choose a built-in engine when possible. */
 export type SlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
@@ -437,6 +451,7 @@ export type SlatePageLayoutTextChangeRefresh =
   | 'deferred'
   | SlatePageLayoutDeferredTextChangeRefresh
 
+/** Full page-layout options for callers that own the measurement engine. */
 export type SlatePageLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
@@ -454,6 +469,7 @@ export type SlatePageLayoutProjectRangeOptions =
     root?: RootKey
   }
 
+/** Live derived layout reader. It owns subscriptions, not document content. */
 export type SlatePageLayout = {
   destroy: () => void
   getFragments: (path: Path) => readonly SlatePageLayoutFragment[]
@@ -466,10 +482,6 @@ export type SlatePageLayout = {
   refresh: (reason?: SlatePageLayoutRefreshReason) => void
   subscribe: (listener: () => void) => () => void
 }
-
-export type SlateLayoutSnapshot = SlatePageLayoutSnapshot
-
-export type SlateLayout = SlatePageLayout
 
 const PAGE_PRESETS: Record<SlatePagePreset, { height: number; width: number }> =
   {
@@ -778,6 +790,7 @@ const normalizeMargins = (margins: SlatePageMargins) =>
 export const getSlatePagePresetSize = (preset: SlatePagePreset) =>
   PAGE_PRESETS[preset]
 
+/** Normalize page settings without resolving shorthand margins. */
 export const normalizeSlatePageSettings = (
   settings: SlatePageSettings
 ): SlatePageSettings => ({
@@ -785,6 +798,7 @@ export const normalizeSlatePageSettings = (
   preset: settings.preset,
 })
 
+/** Create one page rectangle and its content box from settings. */
 export const createSlatePage = (
   settings: SlatePageSettings,
   index = 0
@@ -805,6 +819,7 @@ export const createSlatePage = (
   }
 }
 
+/** Compute page placements for single-page or spread rendering. */
 export const getSlatePageLayoutGeometry = (
   pages: readonly SlatePageLayoutPage[],
   {
@@ -864,6 +879,7 @@ export const getSlatePageLayoutGeometry = (
   return { height, pagePlacements, width }
 }
 
+/** Stable key for layout maps keyed by Slate path. */
 export const getSlatePageLayoutPathKey = (path: Path) => path.join('.')
 
 const getRunId = (path: Path, start: number, end: number) =>
@@ -1083,6 +1099,7 @@ export const getSlatePageLayoutProjection = (
   }
 }
 
+/** Convert projected line runs into Slate decorations keyed by path. */
 export const getSlatePageLayoutDecorations = <TData = unknown>(
   projection: SlatePageLayoutProjection,
   options: SlatePageLayoutDecorationOptions<TData> = {}
@@ -1630,7 +1647,9 @@ const extractLayoutBlocks = (
   typography: SlatePageLayoutTypography | undefined,
   nodeLayout: SlateNodeLayoutProvider | undefined
 ): SlatePageLayoutBlock[] => {
-  const children = editor.read((state) => state.value.root(root))
+  const children = editor.read((state) =>
+    state.value.root(toPublicRootOption(root))
+  )
 
   return children.flatMap((node: Descendant, index: number) => {
     if (!isElement(node)) {
@@ -1876,13 +1895,21 @@ export const getSlatePageLayoutFragments = (
 const readLayoutRoot = <TSettings extends SlatePageSettings>(
   editor: SlateEditor<Value>,
   options: SlatePageLayoutOptions<TSettings>
-): RootKey => options.root ?? editor.read((state) => state.view.root())
+): RootKey => {
+  assertPublicRootKey(options.root)
+
+  return options.root ?? editor.read((state) => state.view.root())
+}
 
 const resolveProjectionRoot = (
   range: Range,
   layoutRoot: RootKey,
   options: SlatePageLayoutProjectRangeOptions | undefined
 ): RootKey | null => {
+  assertPublicRootKey(options?.root)
+  assertPublicRootKey(range.anchor.root)
+  assertPublicRootKey(range.focus.root)
+
   const fallbackRoot = options?.root ?? layoutRoot
   const anchorRoot = range.anchor.root ?? fallbackRoot
   const focusRoot = range.focus.root ?? fallbackRoot
@@ -2852,6 +2879,7 @@ export const paginateSlatePageLayoutBlocks = ({
   return { fragments, pages }
 }
 
+/** Create a page-layout reader with an explicit measurement engine. */
 export const createSlatePageLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
@@ -3158,12 +3186,13 @@ export const createSlatePageLayout = <
   }
 }
 
+/** Create a layout reader with the built-in browser or estimated engine. */
 export const createSlateLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
   editor: SlateEditor<Value>,
   getOptions: () => SlateLayoutOptions<TSettings>
-): SlateLayout => {
+): SlatePageLayout => {
   const fallbackEngine = canUseCanvasTextMeasurement()
     ? pretextPageLayoutEngine()
     : createEstimatedPageLayoutEngine()

@@ -3,22 +3,21 @@ import React from 'react'
 import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 import { vi } from 'vitest'
-
 import {
-  createDecorationSource,
   createReactEditor,
   Editable,
   type EditableDOMStrategyMetrics,
   Slate,
 } from '../src'
+import { createDecorationSource } from '../src/decoration-source'
 import { createLayoutVirtualizerSizeMap } from '../src/dom-strategy/use-virtualized-root-plan'
 import { syncEditableDOMSelectionToEditor } from '../src/editable/selection-controller'
 import { didSyncTextPathToDOM } from '../src/hooks/use-slate-node-ref'
@@ -86,6 +85,40 @@ const fireEditorPaste = (
   })
   fireEvent.paste(root, { clipboardData })
 }
+
+test('Editable full DOM Ctrl+A keeps select-all native-owned', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface editor={editor} id="full-dom-select-all" />
+  )
+  const root = rendered.container.querySelector(
+    '#full-dom-select-all'
+  ) as HTMLElement | null
+
+  expect(root).toBeTruthy()
+
+  await act(async () => {
+    fireEditorSelectAll(root!)
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: Editor.point(editor, [], { edge: 'start' }),
+    focus: Editor.point(editor, [], { edge: 'end' }),
+  })
+  expect(root!.getAttribute('data-slate-dom-strategy-selection')).toBe(null)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-view-selection="true"]')
+  ).toHaveLength(0)
+})
 
 test('Editable domStrategy partial-DOMs far segments without mounting editable descendants', async () => {
   const editor = createReactEditor()
@@ -474,9 +507,7 @@ test('Editable domStrategy experimental virtualized mode can use layout-backed i
         type: 'virtualized',
         threshold: 1,
       }}
-      editor={editor}
-      id="dom-strategy-virtualized-layout"
-      layout={{
+      domStrategyLayout={{
         getVirtualizedTopLevelItems: () => [
           { index: 0, size: 20, start: 0 },
           { index: 1, size: 80, start: 20 },
@@ -484,6 +515,8 @@ test('Editable domStrategy experimental virtualized mode can use layout-backed i
           { index: 3, size: 80, start: 120 },
         ],
       }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout"
       style={{ height: 48, overflowY: 'auto' }}
     />
   )
@@ -512,9 +545,100 @@ test('Editable domStrategy experimental virtualized mode can use layout-backed i
   const secondRow = rendered.container.querySelector(
     '[data-slate-dom-strategy-virtual-row="true"][data-index="1"]'
   ) as HTMLElement | null
+  const secondRowGroup = secondRow?.closest(
+    '[data-slate-dom-strategy-virtual-row-group="true"]'
+  ) as HTMLElement | null
 
   expect(secondRow?.style.minHeight).toBe('80px')
-  expect(secondRow?.style.transform).toBe('translateY(20px)')
+  expect(secondRowGroup?.style.transform).toBe('translateY(20px)')
+})
+
+test('Editable domStrategy experimental virtualized mode preserves layout gaps between consecutive rows', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 4 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        estimatedBlockSize: 24,
+        overscan: 0,
+        type: 'virtualized',
+        threshold: 1,
+      }}
+      domStrategyLayout={{
+        getVirtualizedPageItems: () => [
+          {
+            index: 0,
+            key: 'page-0',
+            pageIndexes: [0],
+            size: 100,
+            start: 0,
+            topLevelIndexes: [0, 1],
+          },
+          {
+            index: 1,
+            key: 'page-1',
+            pageIndexes: [1],
+            size: 100,
+            start: 140,
+            topLevelIndexes: [2, 3],
+          },
+        ],
+        getVisibleVirtualizedPageItems: () => [
+          {
+            index: 0,
+            key: 'page-0',
+            pageIndexes: [0],
+            size: 100,
+            start: 0,
+            topLevelIndexes: [0, 1],
+          },
+          {
+            index: 1,
+            key: 'page-1',
+            pageIndexes: [1],
+            size: 100,
+            start: 140,
+            topLevelIndexes: [2, 3],
+          },
+        ],
+        getVirtualizedTopLevelItems: () => [
+          { index: 0, size: 20, start: 0 },
+          { index: 1, size: 80, start: 20 },
+          { index: 2, size: 20, start: 140 },
+          { index: 3, size: 80, start: 160 },
+        ],
+      }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout-gap"
+      style={{ height: 240, overflowY: 'auto' }}
+    />
+  )
+
+  await waitFor(() =>
+    expect(
+      rendered.container.querySelector(
+        '[data-slate-dom-strategy-virtual-row="true"][data-index="2"]'
+      )
+    ).toBeTruthy()
+  )
+
+  const thirdRow = rendered.container.querySelector(
+    '[data-slate-dom-strategy-virtual-row="true"][data-index="2"]'
+  ) as HTMLElement | null
+  const thirdRowGroup = thirdRow?.closest(
+    '[data-slate-dom-strategy-virtual-row-group="true"]'
+  ) as HTMLElement | null
+
+  expect(thirdRow?.style.minHeight).toBe('20px')
+  expect(thirdRowGroup?.style.transform).toBe('translateY(140px)')
 })
 
 test('Editable domStrategy experimental virtualized mode materializes layout-backed targets through exact offsets', async () => {
@@ -536,9 +660,7 @@ test('Editable domStrategy experimental virtualized mode materializes layout-bac
         type: 'virtualized',
         threshold: 1,
       }}
-      editor={editor}
-      id="dom-strategy-virtualized-layout-scroll"
-      layout={{
+      domStrategyLayout={{
         getVirtualizedTopLevelItems: () => [
           { index: 0, size: 20, start: 0 },
           { index: 1, size: 80, start: 20 },
@@ -550,6 +672,8 @@ test('Editable domStrategy experimental virtualized mode materializes layout-bac
           { index: 7, size: 80, start: 320 },
         ],
       }}
+      editor={editor}
+      id="dom-strategy-virtualized-layout-scroll"
       style={{ height: 48, overflowY: 'auto' }}
     />
   )
@@ -627,6 +751,109 @@ test('Editable domStrategy experimental virtualized mode materializes layout-bac
     behavior: 'auto',
     top: 236,
   })
+})
+
+test('Editable domStrategy experimental virtualized mode materializes estimated targets through virtualizer index scrolling', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        estimatedBlockSize: 24,
+        overscan: 0,
+        type: 'virtualized',
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-virtualized-estimated-scroll"
+      style={{ height: 48, overflowY: 'auto' }}
+    />
+  )
+
+  await waitFor(() =>
+    expect(
+      rendered.container.querySelector(
+        '[data-slate-dom-strategy-virtualizer="true"]'
+      )
+    ).toBeTruthy()
+  )
+
+  const root = rendered.container.querySelector(
+    '#dom-strategy-virtualized-estimated-scroll'
+  ) as HTMLElement | null
+
+  expect(root).toBeTruthy()
+
+  Object.defineProperties(root!, {
+    clientHeight: {
+      configurable: true,
+      value: 48,
+    },
+    scrollHeight: {
+      configurable: true,
+      value: 192,
+    },
+  })
+
+  const scrollTo = vi.fn((options?: ScrollToOptions) => {
+    root!.scrollTop = Number(options?.top ?? 0)
+  })
+
+  Object.defineProperty(root!, 'scrollTo', {
+    configurable: true,
+    value: scrollTo,
+  })
+
+  const targetRange = {
+    anchor: { offset: 0, path: [5, 0] },
+    focus: { offset: 0, path: [5, 0] },
+  }
+
+  const boundary = await waitFor(() => {
+    const nextBoundary = DOMCoverage.getBoundaryForPoint(
+      editor,
+      targetRange.anchor
+    )
+
+    expect(nextBoundary).toMatchObject({
+      reason: 'viewport-virtualization',
+      selectionPolicy: 'materialize',
+    })
+
+    return nextBoundary
+  })
+
+  scrollTo.mockClear()
+
+  await act(async () => {
+    expect(
+      DOMCoverage.materializeBoundary(
+        editor,
+        boundary!.boundaryId,
+        'selection',
+        {
+          range: targetRange,
+        }
+      )
+    ).toMatchObject({ status: 'handled' })
+  })
+
+  await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+  await waitFor(() =>
+    expect(
+      rendered.container.querySelector(
+        '[data-slate-dom-strategy-virtual-row="true"][data-index="5"]'
+      )
+    ).toBeTruthy()
+  )
 })
 
 test('Editable domStrategy experimental virtualized mode estimates layout-backed page gaps', () => {
@@ -754,7 +981,7 @@ test('Editable reports domStrategy metrics for experimental virtualized surfaces
   expect(latest.editableDescendantCount).toBeGreaterThanOrEqual(0)
 })
 
-test('Editable reports domStrategy metrics for staged DOM-present surfaces', async () => {
+test('Editable reports domStrategy metrics for staged active DOM group surfaces', async () => {
   const editor = createReactEditor()
   const recordedMetrics: EditableDOMStrategyMetrics[] = []
 
@@ -787,10 +1014,10 @@ test('Editable reports domStrategy metrics for staged DOM-present surfaces', asy
     documentSize: 1001,
     effectiveStrategy: 'staged',
     mountedGroupCount: 1,
-    mountedTopLevelCount: 32,
+    mountedTopLevelCount: 16,
     nativeSurfaceComplete: false,
-    pendingGroupCount: 31,
-    pendingTopLevelCount: 969,
+    pendingGroupCount: 62,
+    pendingTopLevelCount: 985,
     requestedStrategy: 'staged',
   })
   expect(latest.domStrategyStagedBoundaryCount).toBeGreaterThan(0)
@@ -1484,8 +1711,8 @@ test('Editable staged full-document replacement removes stale far DOM immediatel
     />
   )
 
-  expect(rendered.container.textContent).toContain('line 31')
-  expect(rendered.container.textContent).not.toContain('line 32')
+  expect(rendered.container.textContent).toContain('line 15')
+  expect(rendered.container.textContent).not.toContain('line 16')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1496,7 +1723,7 @@ test('Editable staged full-document replacement removes stale far DOM immediatel
     await new Promise((resolve) => setTimeout(resolve, 750))
   })
 
-  expect(rendered.container.textContent).toContain('line 1000')
+  expect(rendered.container.textContent).not.toContain('line 1000')
 
   await act(async () => {
     editor.update((tx) => {
@@ -1548,8 +1775,8 @@ test('Editable staged full-document replacement resets staged coverage without s
     await new Promise((resolve) => setTimeout(resolve, 750))
   })
 
-  expect(rendered.container.textContent).toContain('old line 1000')
-  expect(DOMCoverage.getBoundaries(editor)).toHaveLength(0)
+  expect(rendered.container.textContent).not.toContain('old line 1000')
+  expect(DOMCoverage.getBoundaries(editor)).toHaveLength(1)
 
   await act(async () => {
     editor.update((tx) => {
@@ -1568,8 +1795,8 @@ test('Editable staged full-document replacement resets staged coverage without s
 
   expect(Editor.string(editor, [])).toContain('fresh line 1000')
   expect(rendered.container.textContent).toContain('fresh line 0')
-  expect(rendered.container.textContent).toContain('fresh line 31')
-  expect(rendered.container.textContent).not.toContain('fresh line 32')
+  expect(rendered.container.textContent).toContain('fresh line 15')
+  expect(rendered.container.textContent).not.toContain('fresh line 16')
   expect(rendered.container.textContent).not.toContain('fresh line 1000')
   expect(rendered.container.textContent).not.toContain('old line 1000')
   expect(
@@ -1589,7 +1816,7 @@ test('Editable staged full-document replacement resets staged coverage without s
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
 })
 
 test('Editable staged stages far root groups without partial-DOM placeholders', async () => {
@@ -1612,8 +1839,8 @@ test('Editable staged stages far root groups without partial-DOM placeholders', 
   )
 
   expect(rendered.container.textContent).toContain('line 0')
-  expect(rendered.container.textContent).toContain('line 31')
-  expect(rendered.container.textContent).not.toContain('line 32')
+  expect(rendered.container.textContent).toContain('line 15')
+  expect(rendered.container.textContent).not.toContain('line 16')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1629,12 +1856,12 @@ test('Editable staged stages far root groups without partial-DOM placeholders', 
     await new Promise((resolve) => setTimeout(resolve, 750))
   })
 
-  expect(rendered.container.textContent).toContain('line 1000')
+  expect(rendered.container.textContent).not.toContain('line 1000')
   expect(
     rendered.container.querySelectorAll(
       '[data-slate-root-group-state="pending-mount"]'
     ).length
-  ).toBe(0)
+  ).toBe(1)
 })
 
 test('Editable staged registers pending root groups as DOM coverage boundaries', async () => {
@@ -1667,13 +1894,13 @@ test('Editable staged registers pending root groups as DOM coverage boundaries',
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
 
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 750))
   })
 
-  expect(DOMCoverage.getBoundaries(editor)).toHaveLength(0)
+  expect(DOMCoverage.getBoundaries(editor)).toHaveLength(1)
 })
 
 test('Editable staged selection export consults DOM coverage before raw DOM lookup', () => {
@@ -2079,6 +2306,90 @@ test('Editable domStrategy keeps model inserts stable after partial-DOM promotio
   expect(Editor.string(editor, [blockIndex]).match(/X/g) ?? []).toHaveLength(10)
 })
 
+test('Editable domStrategy promotes large partial-DOM segments as bounded windows with tail coverage', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 96 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        type: 'partial-dom',
+        segmentSize: 32,
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-large-window-promotion"
+    />
+  )
+
+  const targetPartialDOMPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+  )
+
+  expect(targetPartialDOMPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    targetPartialDOMPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [64, 0] },
+    focus: { offset: 0, path: [64, 0] },
+  })
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(8)
+  expect(DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:2')).toBe(null)
+  expect(
+    DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:2:after')
+  ).toMatchObject({
+    copyPolicy: 'model',
+    coveredPathRanges: [{ anchor: [72], focus: [95] }],
+    reason: 'partial-dom-aggressive',
+    selectionPolicy: 'model',
+    state: 'virtualized',
+  })
+
+  const tailPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2:after"]'
+  )
+
+  expect(tailPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    tailPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [72, 0] },
+    focus: { offset: 0, path: [72, 0] },
+  })
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(8)
+})
+
 test('Editable domStrategy partial-DOM focus does not activate or change model selection', async () => {
   const editor = createReactEditor()
 
@@ -2442,6 +2753,44 @@ test('Editable domStrategy keeps broad select-all from replanning the active seg
     rendered?.unmount()
     globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
   }
+})
+
+test('Editable staged domStrategy keeps broad select-all model-backed', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 1200 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy="staged"
+      editor={editor}
+      id="dom-strategy-staged-select-all"
+    />
+  )
+
+  const root = rendered.container.querySelector(
+    '#dom-strategy-staged-select-all'
+  ) as HTMLElement | null
+
+  expect(root).toBeTruthy()
+
+  await act(async () => {
+    fireEditorSelectAll(root!)
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: Editor.point(editor, [], { edge: 'start' }),
+    focus: Editor.point(editor, [], { edge: 'end' }),
+  })
+  expect(root!.getAttribute('data-slate-dom-strategy-selection')).toBe(
+    'partial-dom-backed'
+  )
 })
 
 test('Editable domStrategy preserves multiline plain text over a full-document partial-dom-backed selection', async () => {

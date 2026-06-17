@@ -69,21 +69,21 @@ const SyncedBlocksExample = () => {
   const editor = useSlateEditor({
     extensions: [syncedBlocks()],
     initialValue: {
+      children: [
+        paragraph('p1'),
+        createSyncedBlock(sharedBodyRoot, 'original'),
+        paragraph('Between synced copies.'),
+        createSyncedBlock(separateBodyRoot, 'separate'),
+        paragraph('Between synced documents.'),
+        createSyncedBlock(sharedBodyRoot, 'copy'),
+        paragraph('p2'),
+      ],
       roots: {
         [sharedBodyRoot]: createSyncedBlockBody(),
         [separateBodyRoot]: createSyncedBlockBody(
           'Separate synced document',
           'This block proves a different synced root stays isolated.'
         ),
-        main: [
-          paragraph('p1'),
-          createSyncedBlock(sharedBodyRoot, 'original'),
-          paragraph('Between synced copies.'),
-          createSyncedBlock(separateBodyRoot, 'separate'),
-          paragraph('Between synced documents.'),
-          createSyncedBlock(sharedBodyRoot, 'copy'),
-          paragraph('p2'),
-        ],
       },
     },
   })
@@ -192,12 +192,13 @@ const SyncedBlock = ({
     }
 
     const nextRoot = nextSyncedBlockRoot()
-    const body = editor.read(
-      (state) => state.value.get().roots[bodyRoot] ?? createSyncedBlockBody()
-    )
+    const body = editor.read((state) => state.value.root(bodyRoot))
 
     editor.update((tx) => {
-      tx.roots.create(nextRoot, cloneValue(body))
+      tx.roots.create(
+        nextRoot,
+        cloneValue(body.length > 0 ? [...body] : createSyncedBlockBody())
+      )
       tx.nodes.set(
         {
           childRoots: { body: nextRoot },

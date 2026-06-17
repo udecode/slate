@@ -298,11 +298,6 @@ details > summary {
   color: #1f2937;
 }
 
-.example-badge-new {
-  background: #93c5fd;
-  color: #172554;
-}
-
 .example-tab.active {
   color: white;
   background: #333;
@@ -421,7 +416,7 @@ details > summary {
   font-size: 14px;
   color: #666;
 }
-/* Slate example classes migrated to the site stylesheet. */
+/* Slate example classes live in the site stylesheet. */
 .slate-comment-mode-panel {
   max-width: 1180px;
   margin: 40px auto;

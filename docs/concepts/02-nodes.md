@@ -1,147 +1,165 @@
 # Nodes
 
-The most important types are the `Node` objects:
+Slate documents are JSON trees. The editable content in each root is built from
+two node types:
 
-- A root-level `Editor` node that contains the entire document's content.
-- Container `Element` nodes that have semantic meaning in your domain.
-- And leaf-level `Text` nodes which contain the document's text.
+- `Element` nodes hold structure and contain child nodes.
+- `Text` nodes hold string content and mark properties.
 
-These three interfaces are combined to form a tree—just like the DOM. For example, here's a simple plaintext value:
+The editor runtime can also act as the root ancestor for node APIs, but the
+persisted document value is primary children, optional extra roots, and optional
+state fields. Save `state.value.get()` when you need the whole document.
 
-```javascript
-const editor = {
+```ts
+const documentValue = {
   children: [
     {
       type: 'paragraph',
-      children: [
-        {
-          text: 'A line of text!',
-        },
-      ],
+      children: [{ text: 'A line of text!' }],
     },
   ],
-  // ...the editor has other properties too.
+  state: {
+    'document.title': 'Draft',
+  },
 }
 ```
 
-Mirroring the DOM as much as possible is one of Slate's principles. People use the DOM to represent documents with rich text-like structures all the time. Mirroring the DOM helps make the library familiar for new users, and it lets us reuse battle-tested patterns without having to reinvent them ourselves.
+The short editor value is still an array of block elements. Slate treats that
+array as the primary document.
 
-> 🤖 The following content on Mozilla's Developer Network may help you learn more about the corresponding DOM concepts:
->
-> - [Document](https://developer.mozilla.org/en-US/docs/Web/API/Document)
-> - [Block Elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Block-level_elements)
-> - [Inline elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Inline_elements)
-> - [Text elements](https://developer.mozilla.org/en-US/docs/Web/API/Text)
-
-A Slate document is a nested and recursive structure. In a document, elements can have children nodes—all of which may have children nodes without limit. The nested and recursive structure enables you to model simple behaviors such as user mentions and hashtags or complex behaviors such as tables and figures with captions.
-
-## `Editor`
-
-The top-level node in a Slate document is the `Editor` itself. It encapsulates all of the rich text "content" of the document. Its interface is:
-
-```typescript
-interface Editor {
-  children: Node[]
-  ...
-}
+```ts
+const initialValue = [
+  {
+    type: 'paragraph',
+    children: [{ text: 'A line of text!' }],
+  },
+]
 ```
 
-We'll cover its functionality later, but the important part as far as nodes are concerned is its `children` property which contains a tree of `Node` objects.
+See [Document State](14-document-state.md) for persistence and
+[Roots](13-roots.md) for extra roots, content roots, and multi-root rendering.
 
-## `Element`
+## Element
 
-Elements make up the middle layers of a rich text document. They are the nodes that are custom to your domain. Their interface is:
+Elements make up the structure of a Slate document. They are the nodes that are
+custom to your product domain.
 
-```typescript
+```ts
 interface Element {
   children: Node[]
 }
 ```
 
-You can define custom elements for any type of content you want. For example, you might have paragraphs and quotes in your data model which are differentiated by a `type` property:
+A paragraph, quote, heading, link, image, or custom card is an element. Element
+properties are yours to define.
 
-```javascript
+```ts
 const paragraph = {
   type: 'paragraph',
-  children: [...],
+  children: [{ text: 'Hello' }],
 }
 
-const quote = {
-  type: 'quote',
-  children: [...],
-}
-```
-
-It's important to note that you can use _any_ custom properties you want. The `type` property in that example isn't something Slate knows or cares about. If you were defining your own "link" nodes, you might have a `url` property:
-
-```javascript
 const link = {
   type: 'link',
   url: 'https://example.com',
-  children: [...],
+  children: [{ text: 'Example' }],
 }
 ```
 
-Or maybe you want to give all of your nodes an ID property:
+All elements have `children`. Void elements still keep a text child in the
+model so selection, marks, copy/paste, and normalization have a stable location.
 
-```javascript
-const paragraph = {
-  id: 1,
-  type: 'paragraph',
-  children: [...],
+```ts
+const image = {
+  type: 'image',
+  url: 'https://example.com/image.png',
+  children: [{ text: '' }],
 }
 ```
 
-All that matters is that elements always have a `children` property.
+## Text
 
-## Blocks vs. Inlines
+Text nodes are leaves. They contain the string plus any mark properties.
 
-Depending on your use case, you might want to define another behavior for `Element` nodes which determines their editing "flow".
-
-All elements default to being "block" elements. They each appear separated by vertical space, and they never run into each other.
-
-But in certain cases, like for links, you might want to make them "inline" flowing elements instead. That way they live at the same level as text nodes, and flow.
-
-> 🤖 This is a concept borrowed from the DOM's behavior, see [Block Elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Block-level_elements) and [Inline Elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Inline_elements).
-
-You can define which nodes are treated as inline nodes with element specs.
-Note that inline nodes cannot be the first or last child of a parent
-block, nor can they be next to another inline node in the `children` array.
-Slate will automatically space these with `{ text: '' }` children by default
-with [`normalizeNode`](11-normalizing.md#built-in-constraints).
-
-Elements can either contain block elements or inline elements intermingled with text nodes as children. But elements **cannot** contain some children that are blocks and some that are inlined.
-
-## Voids
-
-Similar to blocks and inlines, there is another element-specific behavior you can define depending on your use case: their "void"-ness.
-
-Elements default to being non-void, meaning that their children are fully editable as text. But in some cases, like for images, you want to ensure that Slate doesn't treat their content as editable text, but instead as a black box.
-
-> 🤖 This is a concept borrowed from the HTML spec, see [Void Elements](https://www.w3.org/TR/2011/WD-html-markup-20110405/syntax.html#void-element).
-
-You can define which elements are treated as void with element specs. See
-[Rendering Void Elements](../api/nodes/element.md#rendering-void-elements)
-for implementation details.
-
-## `Text`
-
-Text nodes are the lowest-level nodes in the tree, containing the text content of the document, along with any formatting. Their interface is:
-
-```typescript
+```ts
 interface Text {
   text: string
 }
 ```
 
-For example, a string of bold text:
+Marks are normal custom properties on text nodes.
 
-```javascript
-const text = {
-  text: 'A string of bold text',
+```ts
+const boldText = {
+  text: 'Bold',
   bold: true,
 }
 ```
 
-Text nodes too can contain any custom properties you want, and that's how you implement custom formatting like **bold**, _italic_, `code`, etc.
-These custom properties are sometimes called [marks](../api/nodes/editor.md#mark-methods).
+Slate splits adjacent text into leaves for rendering when decorations or marks
+change, but the document model is still text nodes inside elements.
+
+## Blocks And Inlines
+
+Elements default to block behavior. A block element can only be a sibling of
+other block elements.
+
+Inline elements live in text flow. Links, mentions, and inline equations are
+typical inline elements. Inline elements can be siblings with text nodes and
+other inline elements.
+
+Declare inline behavior with element specs.
+
+```ts
+const links = defineEditorExtension({
+  name: 'links',
+  elements: [
+    {
+      type: 'link',
+      inline: true,
+    },
+  ],
+})
+```
+
+Inline nodes cannot be the first or last child of a block and cannot sit next
+to another inline without a text node between them. Slate's normalizer inserts
+empty text nodes where the model needs spacing.
+
+## Voids
+
+Void elements render visible content without making their own children directly
+editable. Use voids for images, embeds, mentions, horizontal rules, and other
+objects that behave as a single editor unit.
+
+Declare void behavior with element specs.
+
+```ts
+const images = defineEditorExtension({
+  name: 'images',
+  elements: [
+    {
+      type: 'image',
+      void: true,
+    },
+  ],
+})
+```
+
+The React runtime owns the hidden editable anchor and selection shell for voids.
+App renderers return the visible content through `Editable`'s `renderVoid`
+prop. See [Element API](../api/nodes/element.md#rendering-void-elements) for a
+complete rendering example.
+
+## Node Tree Rules
+
+Slate keeps document trees valid while operations run.
+
+- Roots contain block elements.
+- Elements contain either block children or inline/text children, not both.
+- Every element has at least one text descendant.
+- Text nodes merge with adjacent text nodes that have matching marks.
+- Inline and void elements get empty text spacing where selection needs it.
+
+See [Normalizing](11-normalizing.md) for the full set of built-in constraints
+and custom normalization hooks.

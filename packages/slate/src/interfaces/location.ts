@@ -22,7 +22,7 @@ export interface LocationInterface {
   /**
    * Check if a value implements the `Location` interface.
    */
-  isLocation: (value: any) => value is Location
+  isLocation: (value: unknown) => value is Location
 
   /**
    * Check if a location is a `Path`.
@@ -47,7 +47,7 @@ export interface LocationInterface {
 
 // eslint-disable-next-line no-redeclare
 export const LocationApi: LocationInterface = {
-  isLocation(value: any): value is Location {
+  isLocation(value: unknown): value is Location {
     return (
       PathApi.isPath(value) ||
       PointApi.isPoint(value) ||
@@ -83,12 +83,12 @@ export interface SpanInterface {
   /**
    * Check if a value implements the `Span` interface.
    */
-  isSpan: (value: any) => value is Span
+  isSpan: (value: unknown) => value is Span
 }
 
 // eslint-disable-next-line no-redeclare
 export const SpanApi: SpanInterface = {
-  isSpan(value: any): value is Span {
+  isSpan(value: unknown): value is Span {
     return (
       Array.isArray(value) && value.length === 2 && value.every(PathApi.isPath)
     )

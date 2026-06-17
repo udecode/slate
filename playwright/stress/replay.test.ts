@@ -12,6 +12,7 @@ import {
 } from './stress-utils'
 
 const replayPath = process.env.STRESS_REPLAY
+const reductionLabel = process.env.STRESS_REDUCTION
 
 test.skip(!replayPath, 'Set STRESS_REPLAY to a stress artifact path.')
 test.describe.configure({ mode: 'serial' })
@@ -24,7 +25,7 @@ test('replays a generated browser stress artifact', async ({
   }
 
   const artifact = readStressArtifact(replayPath)
-  const steps = artifactStepsToScenarioSteps(artifact)
+  const steps = artifactStepsToScenarioSteps(artifact, { reductionLabel })
   await installSlateReactRenderProfiler(page)
   const editor = await openExample(page, artifact.route, {
     ready: { editor: 'visible' },
@@ -32,11 +33,16 @@ test('replays a generated browser stress artifact', async ({
   })
   const result = await editor.scenario.run(`${artifact.id}-replay`, steps, {
     metadata: {
-      capabilities: ['stress-replay', artifact.family, artifact.route],
+      capabilities: [
+        'stress-replay',
+        ...(reductionLabel ? ['stress-reduction'] : []),
+        artifact.family,
+        artifact.route,
+      ],
       platform: testInfo.project.name,
       transport: 'playwright-browser',
     },
-    tracePath: stressResultPath(replayPath),
+    tracePath: stressResultPath(replayPath, reductionLabel),
   })
 
   assertNoIllegalKernelTransitions(result)

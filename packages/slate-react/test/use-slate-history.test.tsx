@@ -16,6 +16,7 @@ import {
   useSlateHistory,
   useSlateRootEditor,
 } from '../src'
+import { applyEditableCommand } from '../src/editable/mutation-controller'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -33,6 +34,10 @@ const editorText = (editor: {
     return firstBlock?.children[0]?.text ?? ''
   })
 
+const editorChildren = (editor: {
+  read: <T>(fn: (state: { nodes: { children: () => Descendant[] } }) => T) => T
+}) => editor.read((state) => state.nodes.children())
+
 describe('useSlateHistory', () => {
   test('exposes undo and redo availability from the active root history', async () => {
     const editor = createReactEditor({
@@ -46,7 +51,7 @@ describe('useSlateHistory', () => {
 
     expect(result.current.canUndo).toBe(false)
     expect(result.current.canRedo).toBe(false)
-    expect(result.current.root).toBe('main')
+    expect(result.current.root).toBeUndefined()
 
     await act(async () => {
       editor.update((tx) => {
@@ -93,13 +98,64 @@ describe('useSlateHistory', () => {
     expect(result.current.canRedo).toBe(false)
   })
 
+  test('controller undo avoids normalizing the outer history transaction', async () => {
+    const blockCount = 128
+    const initialValue = Array.from({ length: blockCount }, (_, index) =>
+      paragraph(`block-${index}`)
+    )
+    const editor = createReactEditor({
+      initialValue,
+    })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <Slate editor={editor}>{children}</Slate>
+    )
+
+    const { result } = renderHook(() => useSlateHistory(), { wrapper })
+
+    await act(async () => {
+      applyEditableCommand({
+        command: {
+          kind: 'delete-fragment',
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: {
+              path: [blockCount - 1, 0],
+              offset: `block-${blockCount - 1}`.length,
+            },
+          },
+        },
+        editor,
+      })
+    })
+
+    const events: { id?: string | null }[] = []
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event: { id?: string | null }) {
+        events.push(event)
+      },
+    }
+
+    try {
+      await act(async () => {
+        result.current.undo()
+      })
+    } finally {
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(events.map((event) => event.id)).not.toContain(
+      'transaction-normalize'
+    )
+    expect(editorChildren(editor)).toEqual(initialValue)
+  })
+
   test('fixed-root external shortcut preserves the input focus', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
 
@@ -107,7 +163,7 @@ describe('useSlateHistory', () => {
 
     const TitleInput = () => {
       const history = useSlateHistory({
-        focusPolicy: 'preserve-dom',
+        focusPolicy: 'preserve',
         root: 'header',
       })
       headerEditor = useSlateRootEditor('header')
@@ -142,10 +198,8 @@ describe('useSlateHistory', () => {
   test('restore-root focuses the active mounted copy of a shared root', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          main: [paragraph('body')],
-          shared: [paragraph('shared')],
-        },
+        children: [paragraph('body')],
+        roots: { shared: [paragraph('shared')] },
       },
     })
     let sharedEditor!: ReturnType<typeof useSlateRootEditor>
@@ -199,10 +253,8 @@ describe('useSlateHistory', () => {
   test('fixed-root availability follows sibling root history changes', async () => {
     const editor = createReactEditor({
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
@@ -219,7 +271,7 @@ describe('useSlateHistory', () => {
       </Slate>
     )
 
-    const { result } = renderHook(() => useSlateHistory({ root: 'main' }), {
+    const { result } = renderHook(() => useSlateHistory(), {
       wrapper,
     })
 

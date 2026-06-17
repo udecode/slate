@@ -20,6 +20,7 @@ import {
   applyEditableFocus,
   applyEditableMouseDown,
   type EditableSelectionReconcilerState,
+  selectEditableVoidTarget,
 } from './selection-reconciler'
 
 type FocusHandler = (event: FocusEvent<HTMLDivElement>) => boolean | void
@@ -235,8 +236,22 @@ export const useRuntimeFocusMouseEvents = ({
   const handleMouseDownCapture = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       markNativePointerFocus(event)
+
+      if (readOnly) {
+        return
+      }
+
+      const selectedVoidPath = selectEditableVoidTarget({
+        editor,
+        inputController,
+        target: event.target,
+      })
+
+      if (selectedVoidPath) {
+        event.preventDefault()
+      }
     },
-    [markNativePointerFocus]
+    [editor, inputController, markNativePointerFocus, readOnly]
   )
   const onRuntimeMouseDownCapture = useEditableMouseHandler({
     handleMouse: handleMouseDownCapture,

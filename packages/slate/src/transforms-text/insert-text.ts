@@ -152,7 +152,13 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
             const start = RangeApi.start(at)
             const startRef = Editor.pointRef(editor, start)
             const endRef = Editor.pointRef(editor, end)
-            transforms.delete({ at, voids })
+            transforms.delete({
+              at,
+              preserveInlineEdge: true,
+              voids,
+            } as Parameters<typeof transforms.delete>[0] & {
+              preserveInlineEdge: true
+            })
             const selectionAfterDelete = getPublicSelection(editor)
             const selectionPointAfterDelete =
               selectionAfterDelete && RangeApi.isCollapsed(selectionAfterDelete)

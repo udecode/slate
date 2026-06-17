@@ -1,26 +1,30 @@
 import {
-  createSlateBrowserPluginContractRegistry,
-  defineSlateBrowserPluginContract,
-  type SlateBrowserPluginContractRow,
-} from './plugin-contracts'
+  createSlateBrowserFeatureContractRegistry,
+  defineSlateBrowserFeatureContract,
+  type SlateBrowserFeatureContractRow,
+} from './feature-contracts'
 
+/** First-party browser behavior row without its owning feature label. */
 export type SlateBrowserOperationFamilyContract = Omit<
-  SlateBrowserPluginContractRow,
-  'plugin'
+  SlateBrowserFeatureContractRow,
+  'feature'
 >
 
-export type SlateBrowserFirstLegacyParityFamily = {
+/** Small cross-route parity slice used to keep canonical examples aligned. */
+export type SlateBrowserFirstPartyParityFamily = {
   assertions: readonly string[]
   family: string
   routes: readonly string[]
 }
 
+/** Summary returned after first-party browser contract validation. */
 export type SlateBrowserFirstPartyParityContractResult = {
   operationFamilyCount: number
   parityFamilies: string[]
   registryRowCount: number
 }
 
+/** Canonical first-party browser behavior families Slate v2 must preserve. */
 export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   {
     assertions: [
@@ -66,6 +70,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     assertions: [
       'editable island visible content stays inside a runtime-owned block void',
       'internal input focus remains native-owned',
+      'internal input range selection stays visible without becoming editor selection',
       'outer editor selection is preserved while the native control edits',
       'follow-up editor typing records a legal insert-text transition',
     ],
@@ -158,6 +163,37 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
+      'repeated Shift+ArrowDown extends the model focus monotonically',
+      'Shift+ArrowUp reverses the recent focus sequence',
+      'projected selection uses view markers while native selected text stays empty',
+      'native and projected selection do not double-highlight',
+      'vertical movement stays inside the hot-path budget',
+    ],
+    family: 'huge-document-projected-vertical-selection',
+    routes: ['huge-document'],
+  },
+  {
+    assertions: [
+      'virtualized row stacking has no overlap during immediate scrollbar jumps',
+      'settled virtualized rows have no gaps or overlaps after scroll repaint',
+      'native scrollbar drag buffers mounted rows before React commits the next range',
+      'dynamic-height backward scroll stays near the requested offset',
+    ],
+    family: 'huge-document-virtualized-scroll-stability',
+    routes: ['huge-document'],
+  },
+  {
+    assertions: [
+      'beforeinput target ranges replace browser substitution spans',
+      'dirty node maps reject stale target ranges while keeping current runtime ids',
+      'native partial text replacement undo restores text and selection',
+      'mouse-drag typed replacement undo restores DOM and model selection',
+    ],
+    family: 'native-beforeinput-target-range-repair',
+    routes: ['plaintext'],
+  },
+  {
+    assertions: [
       'paste normalizes multiline content',
       'follow-up typing commits',
       'undo replays the last edit',
@@ -168,6 +204,16 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
+      'ProseMirror list slices import without exposing slice metadata',
+      'ProseMirror text slices paste only visible text',
+      'comment-bounded clipboard HTML imports only the bounded fragment',
+      'external table clipboard HTML preserves rows, cells, and cell-local marks',
+    ],
+    family: 'external-clipboard-slice-context',
+    routes: ['paste-html'],
+  },
+  {
+    assertions: [
       'composition commits through the browser scenario runner',
       'model text includes the composed text',
       'focus remains editor-owned',
@@ -175,6 +221,36 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     ],
     family: 'selection-repair-ime',
     routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'composition commits inside formatted markup without breaking marks',
+      'active-mark cursor-wrapper composition creates marked text',
+      'composition can replace multiple formatted text nodes once',
+      'WebKit compositionend cleanup deletes expanded rich text selections',
+    ],
+    family: 'ime-composition-formatted-boundaries',
+    routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'rapid consecutive compositions commit in separate rich text blocks',
+      'cross-paragraph native composition replaces the selected range once',
+      'synthetic composition transport does not mutate React-owned expanded DOM ranges',
+      'final model selection lands after the committed composition text',
+    ],
+    family: 'ime-composition-cross-block-repair',
+    routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'synthetic composition can stay open across app-owned decoration refresh',
+      'prop and hook decoration sources refresh while composition remains active',
+      'committed composition text survives the decoration restructure',
+      'model, DOM caret, and final text agree after compositionend',
+    ],
+    family: 'ime-composition-decoration-refresh',
+    routes: ['decorations-async'],
   },
   {
     assertions: [
@@ -198,7 +274,8 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
 ] satisfies readonly SlateBrowserOperationFamilyContract[]
 
-export const SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES = [
+/** Focused parity families that compare the same invariant across routes. */
+export const SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES = [
   {
     assertions: [
       'model selection lands on the next inline void from both sides',
@@ -239,47 +316,48 @@ export const SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES = [
     family: 'table-cell-boundary-navigation',
     routes: ['tables'],
   },
-] satisfies readonly SlateBrowserFirstLegacyParityFamily[]
+] satisfies readonly SlateBrowserFirstPartyParityFamily[]
 
 const rowsByFamily = (families: readonly string[]) =>
   SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.filter((contract) =>
     families.includes(contract.family)
   )
 
-export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
-  createSlateBrowserPluginContractRegistry([
-    defineSlateBrowserPluginContract({
-      plugin: 'mentions',
+/** Feature-indexed registry built from the first-party behavior families. */
+export const SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY =
+  createSlateBrowserFeatureContractRegistry([
+    defineSlateBrowserFeatureContract({
+      feature: 'mentions',
       rows: rowsByFamily([
         'inline-void-boundary-navigation',
         'markable-inline-void-formatting',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'media',
+    defineSlateBrowserFeatureContract({
+      feature: 'media',
       rows: rowsByFamily([
         'block-void-navigation',
         'paste-html-image-void',
         'stale-target-remote-rebase',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'editable-island',
+    defineSlateBrowserFeatureContract({
+      feature: 'editable-island',
       rows: rowsByFamily(['editable-island-native-focus']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'table',
+    defineSlateBrowserFeatureContract({
+      feature: 'table',
       rows: rowsByFamily(['table-cell-boundary-navigation']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'external-decorations',
+    defineSlateBrowserFeatureContract({
+      feature: 'external-decorations',
       rows: rowsByFamily([
         'external-decoration-refresh',
         'overlay-many-decoration-sources',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'annotations',
+    defineSlateBrowserFeatureContract({
+      feature: 'annotations',
       rows: rowsByFamily([
         'overlay-annotation-metadata-only',
         'overlay-annotation-bookmark-rebase',
@@ -287,34 +365,42 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
         'overlay-mixed-update',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'selection-ui',
+    defineSlateBrowserFeatureContract({
+      feature: 'selection-ui',
       rows: rowsByFamily(['mouse-selection-toolbar']),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'core-editing',
+    defineSlateBrowserFeatureContract({
+      feature: 'core-editing',
       rows: rowsByFamily([
+        'huge-document-projected-vertical-selection',
+        'huge-document-virtualized-scroll-stability',
+        'native-beforeinput-target-range-repair',
+        'ime-composition-formatted-boundaries',
+        'ime-composition-cross-block-repair',
+        'ime-composition-decoration-refresh',
+        'external-clipboard-slice-context',
         'paste-normalize-undo',
         'selection-repair-ime',
         'ime-composition-undo',
       ]),
     }),
-    defineSlateBrowserPluginContract({
-      plugin: 'inline-void-ime',
+    defineSlateBrowserFeatureContract({
+      feature: 'inline-void-ime',
       rows: rowsByFamily(['ime-composition-inline-void-boundary']),
     }),
   ])
 
+/** Assert that first-party behavior and parity contract registries agree. */
 export const assertSlateBrowserFirstPartyParityContracts =
   (): SlateBrowserFirstPartyParityContractResult => {
-    const registry = SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY
+    const registry = SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY
 
     if (
       registry.rows.length !==
       SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.length
     ) {
       throw new Error(
-        'Plugin browser contract registry is missing stress rows.'
+        'Feature browser contract registry is missing stress rows.'
       )
     }
 
@@ -323,29 +409,29 @@ export const assertSlateBrowserFirstPartyParityContracts =
 
       if (!row) {
         throw new Error(
-          `Plugin browser contract registry is missing "${contract.family}".`
+          `Feature browser contract registry is missing "${contract.family}".`
         )
       }
       if (row.routes.join('\0') !== contract.routes.join('\0')) {
         throw new Error(
-          `Plugin browser contract "${contract.family}" has stale routes.`
+          `Feature browser contract "${contract.family}" has stale routes.`
         )
       }
     }
 
-    for (const parityFamily of SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES) {
+    for (const parityFamily of SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES) {
       const row = registry.rowByFamily.get(parityFamily.family)
 
       if (!row) {
         throw new Error(
-          `First legacy parity family "${parityFamily.family}" is not registered.`
+          `First-party parity family "${parityFamily.family}" is not registered.`
         )
       }
 
       for (const route of parityFamily.routes) {
         if (!row.routes.includes(route)) {
           throw new Error(
-            `First legacy parity family "${parityFamily.family}" is missing route "${route}".`
+            `First-party parity family "${parityFamily.family}" is missing route "${route}".`
           )
         }
       }
@@ -353,7 +439,7 @@ export const assertSlateBrowserFirstPartyParityContracts =
       for (const assertion of parityFamily.assertions) {
         if (!row.assertions.includes(assertion)) {
           throw new Error(
-            `First legacy parity family "${parityFamily.family}" is missing assertion "${assertion}".`
+            `First-party parity family "${parityFamily.family}" is missing assertion "${assertion}".`
           )
         }
       }
@@ -362,7 +448,7 @@ export const assertSlateBrowserFirstPartyParityContracts =
     return {
       operationFamilyCount:
         SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.length,
-      parityFamilies: SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES.map(
+      parityFamilies: SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES.map(
         (family) => family.family
       ),
       registryRowCount: registry.rows.length,

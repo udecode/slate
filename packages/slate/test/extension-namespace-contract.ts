@@ -155,7 +155,7 @@ describe('extension namespace contract', () => {
     })
 
     assert.deepEqual(
-      editor.read((state) => state.value.get().roots.main),
+      editor.read((state) => state.value.root()),
       [paragraph('one')]
     )
     assert.equal(editor.api.blockSelection.selectedPath(), null)

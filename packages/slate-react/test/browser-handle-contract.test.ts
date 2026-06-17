@@ -136,6 +136,87 @@ test('browser handle selectRange flushes pending native text repair first', () =
   })
 })
 
+test('browser handle selectRange clears projected view selection', () => {
+  const editor = createReactEditor({
+    initialValue: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+  })
+  const element = document.createElement('div') as SlateBrowserHandleElement
+
+  attachSlateBrowserHandle({
+    browserHandleNextId: { current: 0 },
+    browserHandleRangeRefs: { current: new Map() },
+    editor,
+    element,
+    forceRender: vi.fn(),
+    inputController: createInputController(),
+    isPartialDOMBackedSelection: () => false,
+    setExplicitPartialDOMBackedSelection: vi.fn(),
+  })
+
+  element.__slateBrowserHandle?.setViewSelection({
+    anchor: { point: { offset: 1, path: [0, 0] } },
+    focus: { point: { offset: 1, path: [1, 0] } },
+    graph: [
+      { path: [0], root: 'main' },
+      { path: [1], root: 'main' },
+    ],
+  })
+
+  expect(element.__slateBrowserHandle?.getViewSelection()).not.toBeNull()
+
+  element.__slateBrowserHandle?.selectRange({
+    anchor: { offset: 1, path: [1, 0] },
+    focus: { offset: 1, path: [1, 0] },
+  })
+
+  expect(element.__slateBrowserHandle?.getViewSelection()).toBeNull()
+  expect(element.__slateBrowserHandle?.getSelection()).toEqual({
+    anchor: { offset: 1, path: [1, 0] },
+    focus: { offset: 1, path: [1, 0] },
+  })
+})
+
+test('browser handle importDOMSelection clears projected view selection', () => {
+  const editor = createReactEditor({
+    initialValue: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+  })
+  const element = document.createElement('div') as SlateBrowserHandleElement
+
+  attachSlateBrowserHandle({
+    browserHandleNextId: { current: 0 },
+    browserHandleRangeRefs: { current: new Map() },
+    editor,
+    element,
+    forceRender: vi.fn(),
+    inputController: createInputController(),
+    isPartialDOMBackedSelection: () => false,
+    setExplicitPartialDOMBackedSelection: vi.fn(),
+  })
+
+  element.__slateBrowserHandle?.setViewSelection({
+    anchor: { point: { offset: 1, path: [0, 0] } },
+    focus: { point: { offset: 1, path: [1, 0] } },
+    graph: [
+      { path: [0], root: 'main' },
+      { path: [1], root: 'main' },
+    ],
+  })
+
+  expect(element.__slateBrowserHandle?.getViewSelection()).not.toBeNull()
+
+  expect(() => element.__slateBrowserHandle?.importDOMSelection()).toThrow(
+    /Cannot resolve a DOM node/
+  )
+
+  expect(element.__slateBrowserHandle?.getViewSelection()).toBeNull()
+})
+
 test('browser handle selectAll marks partial-DOM-backed selections', () => {
   const editor = createReactEditor({
     initialValue: [

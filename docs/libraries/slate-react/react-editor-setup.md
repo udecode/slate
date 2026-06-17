@@ -1,0 +1,60 @@
+# React Editor Setup
+
+Create React-backed editors with `useSlateEditor` when a React component owns
+the editor lifetime.
+
+```tsx
+import { Slate, useSlateEditor } from 'slate-react'
+
+const MyEditor = () => {
+  const editor = useSlateEditor({
+    initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
+  })
+
+  return <Slate editor={editor}>...</Slate>
+}
+```
+
+`useSlateEditor` creates one editor for the component lifetime and installs
+React, DOM, clipboard, and default history capabilities. The editor exposes host
+APIs through `editor.api`.
+
+```typescript
+editor.api.dom.focus()
+editor.api.clipboard.insertTextData(dataTransfer)
+editor.api.react.isComposing()
+```
+
+Use `createReactEditor` when the editor is created outside a component or
+inside a custom hook that owns the same one-shot lifetime.
+
+```typescript
+const editor = createReactEditor({
+  initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
+})
+```
+
+Use the lower-level `react()` extension only when composing extensions through
+`createEditor`.
+
+```typescript
+import { createEditor } from 'slate'
+import { react } from 'slate-react'
+
+const editor = createEditor({
+  extensions: [react()],
+  initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
+})
+```
+
+Configure the internal Slate clipboard payload with `clipboardFormatKey`.
+
+```typescript
+const editor = createReactEditor({
+  clipboardFormatKey: 'x-acme-editor-fragment',
+  initialValue,
+})
+```
+
+See [React Editor](./react-editor.md) for DOM, focus, selection, and clipboard
+APIs.

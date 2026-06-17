@@ -23,7 +23,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: argument to made that fragment should go into the inline
+// Current policy: with voids enabled, text fragments split the void inline and
+// land at the surrounding block text level.
 export const output = (
   <editor>
     <block>

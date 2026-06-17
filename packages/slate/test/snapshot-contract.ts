@@ -2,13 +2,19 @@ import assert from 'node:assert/strict'
 import {
   createEditor,
   type Descendant,
+  type EditorCommit,
   type EditorElementSpec,
   type Operation,
+  OperationApi,
   type Path,
-  type SnapshotChange,
 } from '../src'
 import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
-import { Editor, getEditorRuntime } from '../src/internal'
+import {
+  Editor,
+  getCachedFullRootReplaceTopLevelRuntimeIds,
+  getEditorRuntime,
+  projectRangeInSnapshot,
+} from '../src/internal'
 
 const runEditorTransaction = (
   editor: Parameters<typeof runInternalEditorTransaction>[0],
@@ -1496,6 +1502,47 @@ it('insertBreak from an empty selectable block void creates a trailing block', (
   })
 })
 
+it('insertSoftBreak from an empty selectable block void creates a trailing block', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'thematic-break', void: 'block' })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'thematic-break',
+        children: [{ text: '' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertSoftBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'thematic-break',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak after marked text moves selection into the new block', () => {
   const editor = createEditor()
 
@@ -1819,7 +1866,7 @@ it('insertBreak inside a list item splits the item and keeps the list wrapper', 
   })
 })
 
-it('insertSoftBreak currently aliases insertBreak on the proved block split seam', () => {
+it('insertSoftBreak splits the current block through its own command', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -2058,7 +2105,7 @@ it('reuses snapshot indexes for selection-only listener snapshots', () => {
 
 it('publishes touched runtime ids for collapsed insert_text operations', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2112,7 +2159,7 @@ it('publishes touched runtime ids for collapsed insert_text operations', () => {
 it('notifies snapshot subscribers with commit metadata for operation replay', () => {
   const editor = createEditor()
   const callOrder: string[] = []
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2152,7 +2199,7 @@ it('notifies snapshot subscribers with commit metadata for operation replay', ()
 
 it('publishes selection-only dirtiness without touched runtime ids', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2199,6 +2246,64 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
     selectedTextRuntimeId,
     selectedBlockRuntimeId,
   ])
+  assert.deepEqual(
+    changes[0]?.decorationImpactRuntimeIds,
+    changes[0]?.selectionImpactRuntimeIds
+  )
+})
+
+it('keeps small top-level expanded selection impact precise', () => {
+  const editor = createEditor()
+  const changes: EditorCommit[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 12 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block ${index}` }],
+    })),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  const initialSnapshot = Editor.getSnapshot(editor)
+  const runtimeId = (path: string) => initialSnapshot.index.pathToId[path]
+
+  Editor.subscribe(editor, (_snapshot, change) => {
+    if (change) {
+      changes.push(change)
+    }
+  })
+
+  editor.update(() => {
+    Editor.select(editor, {
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [6, 0], offset: 'block 6'.length },
+    })
+  })
+
+  assert.equal(changes.length, 1)
+  assert.deepEqual(changes[0]?.classes, ['selection'])
+  assert.deepEqual(changes[0]?.selectionImpactRuntimeIds, [
+    runtimeId('0.0'),
+    runtimeId('0'),
+    runtimeId('2.0'),
+    runtimeId('2'),
+    runtimeId('6.0'),
+    runtimeId('6'),
+    runtimeId('3'),
+    runtimeId('3.0'),
+    runtimeId('4'),
+    runtimeId('4.0'),
+    runtimeId('5'),
+    runtimeId('5.0'),
+  ])
+  assert.deepEqual(
+    changes[0]?.affectedSelectionRuntimeIds,
+    changes[0]?.selectionImpactRuntimeIds
+  )
   assert.deepEqual(
     changes[0]?.decorationImpactRuntimeIds,
     changes[0]?.selectionImpactRuntimeIds
@@ -2368,7 +2473,7 @@ it('routes selection-only commits through source subscribers only', () => {
 
 it('uses broad selection impact for large cross-document selections', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: Array.from({ length: 200 }, (_, index) => ({
@@ -2403,7 +2508,7 @@ it('uses broad selection impact for large cross-document selections', () => {
 
 it('publishes replace-level broad invalidation for Editor.replace', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2442,7 +2547,7 @@ it('publishes replace-level broad invalidation for Editor.replace', () => {
 
 it('publishes marks-only dirtiness without pretending the document paths changed', () => {
   const editor = createEditor()
-  const changes: SnapshotChange[] = []
+  const changes: EditorCommit[] = []
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -2640,6 +2745,38 @@ it('state marks return the current text leaf marks for a collapsed selection', (
       focus: { path: [0, 0], offset: 2 },
     },
     marks: null,
+  })
+
+  assert.deepEqual(getMarks(editor), { bold: true })
+})
+
+it('state marks are direction-independent for expanded marked selections', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'al', bold: true },
+          { text: 'pha', bold: true },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 1], offset: 3 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(getMarks(editor), { bold: true })
+
+  editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 0], offset: 0 },
+    })
   })
 
   assert.deepEqual(getMarks(editor), { bold: true })
@@ -6428,6 +6565,60 @@ it('mirrors the legacy delete/selection/inline-inside.tsx oracle row', () => {
   })
 })
 
+it('collapses outside an inline after deleting its first selected character', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { inline: true, type: 'link' })
+  Editor.replace(editor, {
+    children: createLegacyInlineDeleteInsideChildren(),
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 1 },
+    },
+    marks: null,
+  })
+
+  Editor.delete(editor, { reverse: true })
+
+  const after = Editor.getSnapshot(editor)
+  const link = after.children[0].children[1] as Descendant & {
+    children: Descendant[]
+  }
+
+  assert.equal(link.children[0].text, 'ord')
+  assert.deepEqual(after.selection, {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 0 },
+  })
+})
+
+it('collapses outside an inline after deleting its last selected character', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { inline: true, type: 'link' })
+  Editor.replace(editor, {
+    children: createLegacyInlineDeleteInsideChildren(),
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 3 },
+      focus: { path: [0, 1, 0], offset: 4 },
+    },
+    marks: null,
+  })
+
+  Editor.delete(editor, { reverse: false })
+
+  const after = Editor.getSnapshot(editor)
+  const link = after.children[0].children[1] as Descendant & {
+    children: Descendant[]
+  }
+
+  assert.equal(link.children[0].text, 'wor')
+  assert.deepEqual(after.selection, {
+    anchor: { path: [0, 2], offset: 0 },
+    focus: { path: [0, 2], offset: 0 },
+  })
+})
+
 it('mirrors the legacy delete/selection/inline-over.tsx oracle row', () => {
   const editor = createEditor()
 
@@ -6452,6 +6643,106 @@ it('mirrors the legacy delete/selection/inline-over.tsx oracle row', () => {
     anchor: { path: [0, 0], offset: 1 },
     focus: { path: [0, 0], offset: 1 },
   })
+})
+
+it('deletes equivalent forward and backward expanded selections across text, block, and inline boundaries', () => {
+  const cases = [
+    {
+      assertSnapshot(snapshot: ReturnType<typeof Editor.getSnapshot>) {
+        assert.equal(snapshot.children[0].children[0].text, 'wd')
+        assert.deepEqual(snapshot.selection, {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        })
+      },
+      children: () => [
+        {
+          type: 'paragraph',
+          children: [{ text: 'word' }],
+        },
+      ],
+      name: 'same text',
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    },
+    {
+      assertSnapshot(snapshot: ReturnType<typeof Editor.getSnapshot>) {
+        assert.deepEqual(getBlockTexts(snapshot.children), ['woother'])
+        assert.deepEqual(snapshot.selection, {
+          anchor: { path: [0, 0], offset: 2 },
+          focus: { path: [0, 0], offset: 2 },
+        })
+      },
+      children: createLegacyDeleteBoundaryChildren,
+      name: 'block boundary',
+      selection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [1, 0], offset: 2 },
+      },
+    },
+    {
+      assertSnapshot(snapshot: ReturnType<typeof Editor.getSnapshot>) {
+        const remainingTexts = snapshot.children[0].children
+          .map((child) => ('text' in child ? child.text : ''))
+          .join('')
+
+        assert.equal(remainingTexts, 'oe')
+        assert.deepEqual(snapshot.selection, {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        })
+      },
+      children: createLegacyInlineDeleteChildren,
+      configure(editor: ReturnType<typeof createEditor>) {
+        defineElement(editor, { inline: true, type: 'link' })
+      },
+      name: 'inline boundary',
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 2], offset: 4 },
+      },
+    },
+  ]
+
+  for (const testCase of cases) {
+    const run = (invert: boolean) => {
+      const editor = createEditor()
+      const selection = invert
+        ? {
+            anchor: testCase.selection.focus,
+            focus: testCase.selection.anchor,
+          }
+        : testCase.selection
+
+      testCase.configure?.(editor)
+      Editor.replace(editor, {
+        children: testCase.children(),
+        marks: null,
+        selection,
+      })
+      Editor.delete(editor)
+
+      return Editor.getSnapshot(editor)
+    }
+
+    const forward = run(false)
+    const backward = run(true)
+
+    testCase.assertSnapshot(forward)
+    testCase.assertSnapshot(backward)
+    assert.deepEqual(
+      backward.children,
+      forward.children,
+      `${testCase.name} backward selection deletes different content`
+    )
+    assert.deepEqual(
+      backward.selection,
+      forward.selection,
+      `${testCase.name} backward selection collapses differently`
+    )
+  }
 })
 
 it('mirrors the legacy delete/selection/inline-whole.tsx oracle row', () => {
@@ -7112,6 +7403,107 @@ it('projects a cross-block range into local text segments keyed by runtime id', 
       },
     ]
   )
+})
+
+it('projects ranges against an explicit snapshot for internal projection stores', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+  const leftId = snapshot.index.pathToId['0.0']
+  const rightId = snapshot.index.pathToId['1.0']
+
+  assert.ok(leftId)
+  assert.ok(rightId)
+
+  Editor.replace(editor, {
+    children: [{ children: [{ text: 'replaced' }] }],
+    selection: null,
+  })
+
+  assert.deepEqual(
+    projectRangeInSnapshot(snapshot, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [1, 0], offset: 2 },
+    }),
+    [
+      {
+        runtimeId: leftId,
+        path: [0, 0],
+        start: 2,
+        end: 5,
+      },
+      {
+        runtimeId: rightId,
+        path: [1, 0],
+        start: 0,
+        end: 2,
+      },
+    ]
+  )
+})
+
+it('reuses cached full-root replace indexes for top-level runtime ids', () => {
+  const editor = createEditor()
+  const children = Array.from({ length: 12 }, (_value, index) => ({
+    type: 'paragraph',
+    children: [{ text: `block ${index}` }],
+  }))
+
+  Editor.replace(editor, {
+    children,
+    selection: null,
+  })
+
+  const unsubscribe = Editor.subscribe(editor, () => {})
+  const operation: Operation = {
+    children,
+    index: 0,
+    newChildren: [{ type: 'paragraph', children: [{ text: '' }] }],
+    newSelection: null,
+    path: [],
+    selection: null,
+    type: 'replace_children',
+  }
+
+  try {
+    applyOperation(editor, operation)
+
+    const committedDeleteOperation = Editor.getLastCommit(editor)?.operations[0]
+
+    assert(committedDeleteOperation)
+    assert.equal(committedDeleteOperation.type, 'replace_children')
+
+    applyOperation(editor, OperationApi.inverse(committedDeleteOperation))
+
+    const committedUndoOperation = Editor.getLastCommit(editor)?.operations[0]
+
+    assert(committedUndoOperation)
+    assert.equal(committedUndoOperation.type, 'replace_children')
+
+    const topLevelRuntimeIds = getCachedFullRootReplaceTopLevelRuntimeIds(
+      committedUndoOperation
+    )
+    const restored = Editor.getSnapshot(editor)
+
+    assert.deepEqual(
+      topLevelRuntimeIds,
+      Array.from(
+        { length: 12 },
+        (_value, index) => restored.index.pathToId[index]
+      )
+    )
+    assert.equal(
+      topLevelRuntimeIds?.includes(restored.index.pathToId['0.0']!),
+      false
+    )
+  } finally {
+    unsubscribe()
+  }
 })
 
 it('projects a collapsed range into a zero-width local segment', () => {

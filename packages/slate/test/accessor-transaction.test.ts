@@ -68,7 +68,7 @@ const getVisibleState = (editor: ReturnType<typeof createEditor>) => {
   }
 }
 
-describe('slate public accessor + transaction seam', () => {
+describe('slate public accessor + transaction boundary', () => {
   it('read and replace are the public snapshot state path', () => {
     const editor = createEditor()
     const value = [paragraph('one')]
@@ -76,7 +76,7 @@ describe('slate public accessor + transaction seam', () => {
     Editor.replace(editor, { children: value, selection: null, marks: null })
     const currentValue = editor.read((state) => state.value.get())
 
-    assert.deepEqual(currentValue, { roots: { main: value } })
+    assert.deepEqual(currentValue, { children: value })
     assert.equal(Editor.isEditor(editor, { deep: true }), true)
     assert.deepEqual(Editor.getChildren(editor), value)
     assert.equal('children' in editor, false)

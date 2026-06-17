@@ -9,6 +9,7 @@ import {
 } from '../widget-store'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
+/** React-state projector used to refresh a widget store. */
 export type SlateWidgetStoreProjector<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
@@ -25,6 +26,10 @@ const isSlateWidgetStoreProjector = <
   value: readonly SlateWidget<T>[] | SlateWidgetStoreProjector<T, TAnnotation>
 ): value is SlateWidgetStoreProjector<T, TAnnotation> => !Array.isArray(value)
 
+/**
+ * Create a widget store from static widgets or an explicit React-state
+ * projector.
+ */
 export function useSlateWidgetStore<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,

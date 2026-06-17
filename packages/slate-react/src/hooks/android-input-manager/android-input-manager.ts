@@ -11,15 +11,6 @@ import {
 } from 'slate'
 import {
   applyStringDiff,
-  EDITOR_TO_FORCE_RENDER,
-  EDITOR_TO_PENDING_ACTION,
-  EDITOR_TO_PENDING_DIFFS,
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_PENDING_SELECTION,
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  EDITOR_TO_USER_MARKS,
-  IS_COMPOSING,
-  IS_NODE_MAP_DIRTY,
   isDOMElement,
   isDOMSelection,
   isDOMText,
@@ -33,6 +24,17 @@ import {
   verifyDiffState,
 } from 'slate-dom'
 import {
+  EDITOR_TO_FORCE_RENDER,
+  EDITOR_TO_PENDING_ACTION,
+  EDITOR_TO_PENDING_DIFFS,
+  EDITOR_TO_PENDING_INSERTION_MARKS,
+  EDITOR_TO_PENDING_SELECTION,
+  EDITOR_TO_PLACEHOLDER_ELEMENT,
+  EDITOR_TO_USER_MARKS,
+  IS_COMPOSING,
+  IS_NODE_MAP_DIRTY,
+} from 'slate-dom/internal'
+import {
   getInputEventData,
   getInputEventTargetRanges,
 } from '../../editable/dom-input-event'
@@ -40,6 +42,7 @@ import {
   type EditableCommand,
   getEditableCommandFromBeforeInputType,
 } from '../../editable/editing-kernel'
+import type { EditableInputController } from '../../editable/input-state'
 import { applyEditableCommand } from '../../editable/mutation-controller'
 import {
   Editor,
@@ -62,12 +65,12 @@ const RESOLVE_DELAY = 25
 // Time with no user interaction before the current user action is considered as done.
 const FLUSH_DELAY = 200
 
-// Replace with `const debug = console.log` to debug
-const debug = (..._: unknown[]) => {}
-
-// Type guard to check if a value is a DataTransfer
-const isDataTransfer = (value: any): value is DataTransfer =>
-  value?.constructor.name === 'DataTransfer'
+const isDataTransfer = (value: unknown): value is DataTransfer =>
+  typeof value === 'object' &&
+  value !== null &&
+  'constructor' in value &&
+  (value as { constructor?: { name?: string } }).constructor?.name ===
+    'DataTransfer'
 
 const clonePoint = (point: Point): Point => ({
   path: [...point.path],
@@ -86,6 +89,7 @@ export const shouldFlushStoredTextDiffForTransformMiddleware = (
 
 export type CreateAndroidInputManagerOptions = {
   editor: ReactRuntimeEditor
+  inputController: EditableInputController
   receivedUserInput: RefObject<boolean>
 
   scheduleOnDOMSelectionChange: DebouncedFunc<() => void>
@@ -115,6 +119,7 @@ export type AndroidInputManager = {
 
 export function createAndroidInputManager({
   editor,
+  inputController,
   receivedUserInput,
   scheduleOnDOMSelectionChange,
   onDOMSelectionChange,
@@ -134,8 +139,6 @@ export function createAndroidInputManager({
     if (pendingSelection) {
       const selection = readRuntimeSelection(editor)
       const normalized = normalizeRange(editor, pendingSelection)
-
-      debug('apply pending selection', pendingSelection, normalized)
 
       if (
         normalized &&
@@ -210,12 +213,6 @@ export function createAndroidInputManager({
       editor.read((state) => state.marks.get())
     )
 
-    debug(
-      'flush',
-      EDITOR_TO_PENDING_ACTION.get(editor),
-      EDITOR_TO_PENDING_DIFFS.get(editor)
-    )
-
     let scheduleSelectionChange = hasPendingDiffs()
 
     while (true) {
@@ -230,7 +227,37 @@ export function createAndroidInputManager({
 
       if (pendingMarks && insertPositionHint === false) {
         insertPositionHint = null
-        debug('insert after mark placeholder')
+      }
+
+      const recentEcho = inputController.state.recentTextInputRepairEcho
+      const slateText = NodeApi.leaf(editor, diff.path).text
+      const isDuplicateRecentEchoText =
+        !!recentEcho &&
+        diff.diff.start === diff.diff.end &&
+        diff.diff.text.length > 0 &&
+        diff.diff.start + diff.diff.text.length ===
+          recentEcho.selectionOffset &&
+        slateText.slice(
+          diff.diff.start,
+          diff.diff.start + diff.diff.text.length
+        ) === diff.diff.text
+
+      if (
+        recentEcho &&
+        performance.now() <= recentEcho.expiresAt &&
+        diff.path.join(',') === recentEcho.pathKey &&
+        slateText === recentEcho.text &&
+        !hasFreshNativeUserSelection() &&
+        isDuplicateRecentEchoText
+      ) {
+        inputController.state.recentTextInputRepairEcho = null
+        EDITOR_TO_PENDING_DIFFS.set(
+          editor,
+          EDITOR_TO_PENDING_DIFFS.get(editor)?.filter(
+            ({ id }) => id !== diff.id
+          ) ?? []
+        )
+        continue
       }
 
       const range = targetRange(diff)
@@ -263,7 +290,6 @@ export function createAndroidInputManager({
       )
 
       if (!verifyDiffState(editor, diff)) {
-        debug('invalid diff state')
         scheduleSelectionChange = false
         EDITOR_TO_PENDING_ACTION.delete(editor)
         EDITOR_TO_USER_MARKS.delete(editor)
@@ -299,7 +325,6 @@ export function createAndroidInputManager({
     // so we have to manually schedule it to ensure we don't 'throw away' the selection
     // while rendering if we have pending changes.
     if (scheduleSelectionChange) {
-      debug('scheduleOnDOMSelectionChange pending changes')
       scheduleOnDOMSelectionChange()
     }
 
@@ -333,8 +358,6 @@ export function createAndroidInputManager({
   const handleCompositionStart = (
     _event: React.CompositionEvent<HTMLDivElement>
   ) => {
-    debug('composition start')
-
     IS_COMPOSING.set(editor, true)
 
     if (compositionEndTimeoutId) {
@@ -357,18 +380,41 @@ export function createAndroidInputManager({
     placeholderElement.style.removeProperty('display')
   }
 
-  const storeDiff = (path: Path, diff: StringDiff) => {
-    debug('storeDiff', path, diff)
+  const hasFreshNativeUserSelection = () =>
+    inputController.state.selectionSource === 'dom-current' &&
+    inputController.state.selectionChangeOrigin === 'native-user'
 
+  const storeDiff = (path: Path, diff: StringDiff) => {
     const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor) ?? []
     EDITOR_TO_PENDING_DIFFS.set(editor, pendingDiffs)
 
     const target = NodeApi.leaf(editor, path)
+    const pathKey = path.join(',')
+    const recentEcho = inputController.state.recentTextInputRepairEcho
+    let nextDiff = diff
+
+    if (
+      recentEcho &&
+      performance.now() <= recentEcho.expiresAt &&
+      recentEcho.pathKey === pathKey &&
+      target.text === recentEcho.text &&
+      !hasFreshNativeUserSelection() &&
+      diff.start === diff.end &&
+      diff.start < recentEcho.selectionOffset &&
+      diff.text.length > 0
+    ) {
+      nextDiff = {
+        ...diff,
+        end: recentEcho.selectionOffset,
+        start: recentEcho.selectionOffset,
+      }
+    }
+
     const idx = pendingDiffs.findIndex((change) =>
       PathApi.equals(change.path, path)
     )
     if (idx < 0) {
-      const normalized = normalizeStringDiff(target.text, diff)
+      const normalized = normalizeStringDiff(target.text, nextDiff)
       if (normalized) {
         pendingDiffs.push({ path, diff: normalized, id: idCounter++ })
       }
@@ -377,7 +423,29 @@ export function createAndroidInputManager({
       return
     }
 
-    const merged = mergeStringDiffs(target.text, pendingDiffs[idx].diff, diff)
+    const merged = mergeStringDiffs(
+      target.text,
+      pendingDiffs[idx].diff,
+      nextDiff
+    )
+    const previousDiff = pendingDiffs[idx].diff
+
+    if (
+      previousDiff.start === previousDiff.end &&
+      nextDiff.start === nextDiff.end &&
+      previousDiff.start === nextDiff.start &&
+      previousDiff.text.length > 0 &&
+      nextDiff.text.length > 0 &&
+      !hasFreshNativeUserSelection()
+    ) {
+      pendingDiffs[idx].diff = {
+        ...previousDiff,
+        text: previousDiff.text + nextDiff.text,
+      }
+      updatePlaceholderVisibility()
+      return
+    }
+
     if (!merged) {
       pendingDiffs.splice(idx, 1)
       updatePlaceholderVisibility()
@@ -388,6 +456,67 @@ export function createAndroidInputManager({
       ...pendingDiffs[idx],
       diff: merged,
     }
+  }
+
+  const getTextInsertRepairOffset = (
+    path: Path,
+    diff: StringDiff,
+    { trustRuntimeCaret = false }: { trustRuntimeCaret?: boolean } = {}
+  ) => {
+    if (diff.start !== diff.end || diff.text.length === 0) {
+      return null
+    }
+
+    const pathKey = path.join(',')
+    const pendingRepairPathKey =
+      inputController.state.pendingNativeTextInputRepairPathKey
+    const pendingRepairOffset =
+      inputController.state.pendingNativeTextInputRepairOffset
+    const freshNativeUserSelection = hasFreshNativeUserSelection()
+
+    if (
+      !freshNativeUserSelection &&
+      pendingRepairPathKey === pathKey &&
+      pendingRepairOffset != null &&
+      diff.start < pendingRepairOffset
+    ) {
+      return pendingRepairOffset
+    }
+
+    const target = NodeApi.leaf(editor, path)
+    const recentEcho = inputController.state.recentTextInputRepairEcho
+
+    if (
+      recentEcho &&
+      performance.now() <= recentEcho.expiresAt &&
+      recentEcho.pathKey === pathKey &&
+      target.text === recentEcho.text &&
+      !freshNativeUserSelection &&
+      diff.start < recentEcho.selectionOffset
+    ) {
+      return recentEcho.selectionOffset
+    }
+
+    const selection = readRuntimeSelection(editor)
+    const shouldTrustRuntimeCaret =
+      trustRuntimeCaret ||
+      inputController.state.selectionChangeOrigin === 'repair-induced' ||
+      inputController.state.modelSelectionPreference?.reason ===
+        'repair-induced'
+
+    if (
+      !freshNativeUserSelection &&
+      shouldTrustRuntimeCaret &&
+      selection &&
+      RangeApi.isCollapsed(selection) &&
+      PathApi.equals(selection.anchor.path, path) &&
+      diff.start < selection.anchor.offset &&
+      selection.anchor.offset <= target.text.length
+    ) {
+      return selection.anchor.offset
+    }
+
+    return null
   }
 
   const canStoreDOMTextDiffAtRange = (range: Range) => {
@@ -424,7 +553,6 @@ export function createAndroidInputManager({
     if (!preserveInsertPositionHint) {
       insertPositionHint = false
     }
-    debug('scheduleAction', { at, run })
 
     EDITOR_TO_PENDING_SELECTION.delete(editor)
     scheduleOnDOMSelectionChange.cancel()
@@ -463,6 +591,17 @@ export function createAndroidInputManager({
     let targetRange: Range | null = null
     const data: DataTransfer | string | undefined =
       getInputEventData(event) ?? undefined
+
+    const hasPendingChangesBeforeInput = hasPendingChanges()
+    if (
+      type === 'insertText' &&
+      typeof data === 'string' &&
+      data.length > 0 &&
+      hasPendingChangesBeforeInput &&
+      !IS_COMPOSING.get(editor)
+    ) {
+      flush()
+    }
 
     if (
       insertPositionHint !== false &&
@@ -784,10 +923,25 @@ export function createAndroidInputManager({
 
           const [start, end] = RangeApi.edges(targetRange)
 
-          const diff = {
+          let diff = {
             start: start.offset,
             end: end.offset,
             text,
+          }
+
+          const repairedTextInsertOffset =
+            type === 'insertText' && RangeApi.isCollapsed(targetRange)
+              ? getTextInsertRepairOffset(start.path, diff, {
+                  trustRuntimeCaret: hasPendingChangesBeforeInput,
+                })
+              : null
+
+          if (repairedTextInsertOffset != null) {
+            diff = {
+              ...diff,
+              end: repairedTextInsertOffset,
+              start: repairedTextInsertOffset,
+            }
           }
 
           // COMPAT: Swiftkey has a weird bug where the target range of the 2nd word
@@ -808,7 +962,6 @@ export function createAndroidInputManager({
               diff.end ===
                 insertPositionHint.start + insertPositionHint.text.length
             ) {
-              debug('adjusting swiftKey insert position using hint')
               diff.start -= 1
               insertPositionHint = null
               scheduleFlush()
@@ -828,6 +981,28 @@ export function createAndroidInputManager({
                 ...insertPositionHint,
                 text: insertPositionHint.text + text,
               }
+            } else if (
+              insertPositionHint &&
+              RangeApi.isCollapsed(targetRange) &&
+              diff.start === insertPositionHint.start &&
+              diff.end === insertPositionHint.start &&
+              NodeApi.leaf(editor, start.path).text.slice(
+                insertPositionHint.start,
+                insertPositionHint.start + insertPositionHint.text.length
+              ) === insertPositionHint.text
+            ) {
+              const remappedOffset =
+                insertPositionHint.start + insertPositionHint.text.length
+
+              diff = {
+                ...diff,
+                end: remappedOffset,
+                start: remappedOffset,
+              }
+              insertPositionHint = {
+                ...insertPositionHint,
+                text: insertPositionHint.text + text,
+              }
             } else {
               insertPositionHint = false
             }
@@ -842,7 +1017,7 @@ export function createAndroidInputManager({
             if (currentSelection) {
               const newPoint = {
                 path: start.path,
-                offset: start.offset + text.length,
+                offset: diff.start + text.length,
               }
 
               scheduleAction(() => {}, {
@@ -920,8 +1095,13 @@ export function createAndroidInputManager({
   }
 
   const handleInput = () => {
-    if (hasPendingAction() || !hasPendingDiffs()) {
-      debug('flush input')
+    const shouldFlushPendingDiffs =
+      hasPendingDiffs() &&
+      !IS_COMPOSING.get(editor) &&
+      (inputController.state.selectionSource !== 'dom-current' ||
+        inputController.state.selectionChangeOrigin === 'repair-induced')
+
+    if (hasPendingAction() || !hasPendingDiffs() || shouldFlushPendingDiffs) {
       flush()
     }
   }

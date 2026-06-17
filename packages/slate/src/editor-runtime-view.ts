@@ -55,6 +55,16 @@ type ViewState = {
 
 const MAIN_ROOT_KEY = 'main'
 
+const resolvePublicViewRoot = (root: RootKey | undefined): RootKey => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error(
+      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
+    )
+  }
+
+  return root ?? MAIN_ROOT_KEY
+}
+
 const createViewApi = (state: ViewState): EditorStateViewApi =>
   Object.freeze({
     isFocused: () => state.focused,
@@ -80,7 +90,7 @@ const rootMethod = <TMethod extends (...args: any[]) => any>(
   viewState: ViewState,
   method: TMethod
 ): TMethod =>
-  ((...args: any[]) =>
+  ((...args: Parameters<TMethod>): ReturnType<TMethod> =>
     withRootRead(editor, viewState, () => method(...args))) as TMethod
 
 const rootGeneratorMethod = <TMethod extends (...args: any[]) => Iterable<any>>(
@@ -88,7 +98,7 @@ const rootGeneratorMethod = <TMethod extends (...args: any[]) => Iterable<any>>(
   viewState: ViewState,
   method: TMethod
 ): TMethod =>
-  ((...args: any[]) =>
+  ((...args: Parameters<TMethod>) =>
     withRootGenerator(editor, viewState, () =>
       method(...args)
     )) as unknown as TMethod
@@ -344,20 +354,20 @@ const withRootChildren = <T extends EditorStateView<any, any>>(
     above: rootMethod(editor, viewState, state.nodes.above),
     children: rootMethod(editor, viewState, state.nodes.children),
     elementReadOnly: rootMethod(editor, viewState, state.nodes.elementReadOnly),
-    entries: rootGeneratorMethod(editor, viewState, state.nodes.entries as any),
+    entries: rootGeneratorMethod(editor, viewState, state.nodes.entries),
     find: rootMethod(editor, viewState, state.nodes.find),
     first: rootMethod(editor, viewState, state.nodes.first),
     get: rootMethod(editor, viewState, state.nodes.get),
     hasPath: rootMethod(editor, viewState, state.nodes.hasPath),
     last: rootMethod(editor, viewState, state.nodes.last),
     leaf: rootMethod(editor, viewState, state.nodes.leaf),
-    levels: rootGeneratorMethod(editor, viewState, state.nodes.levels as any),
+    levels: rootGeneratorMethod(editor, viewState, state.nodes.levels),
     next: rootMethod(editor, viewState, state.nodes.next),
     parent: rootMethod(editor, viewState, state.nodes.parent),
     path: rootMethod(editor, viewState, state.nodes.path),
     previous: rootMethod(editor, viewState, state.nodes.previous),
     some: rootMethod(editor, viewState, state.nodes.some),
-    toArray: rootMethod(editor, viewState, state.nodes.toArray as any),
+    toArray: rootMethod(editor, viewState, state.nodes.toArray),
     void: rootMethod(editor, viewState, state.nodes.void),
   }) as T['nodes']
 
@@ -375,11 +385,7 @@ const withRootPoints = <T extends EditorStateView<any, any>>(
     isEdge: rootMethod(editor, viewState, state.points.isEdge),
     isEnd: rootMethod(editor, viewState, state.points.isEnd),
     isStart: rootMethod(editor, viewState, state.points.isStart),
-    positions: rootGeneratorMethod(
-      editor,
-      viewState,
-      state.points.positions as any
-    ),
+    positions: rootGeneratorMethod(editor, viewState, state.points.positions),
     start: rootMethod(editor, viewState, state.points.start),
   }) as T['points']
 
@@ -537,10 +543,6 @@ const withViewTransaction = <V extends Value>(
       insert: (nodes, options) =>
         runImplicitSelectionMutation(options, () =>
           transaction.nodes.insert(nodes, options)
-        ),
-      insertMany: (nodes, options) =>
-        runImplicitSelectionMutation(options, () =>
-          transaction.nodes.insertMany(nodes, options)
         ),
       lift: (options) =>
         runImplicitSelectionMutation(options, () =>
@@ -795,6 +797,7 @@ const createViewRuntime = <V extends Value>(
       withRootRead(editor, viewState, () => baseRuntime.void(...args)),
   })
 
+/** Create a root editor runtime around a new Slate editor. */
 export const createEditorRuntime = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -815,6 +818,7 @@ export const createEditorRuntime = <
   })
 }
 
+/** Create a root-scoped editor view from an existing runtime. */
 export const createEditorView = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -825,7 +829,7 @@ export const createEditorView = <
   const viewState: ViewState = {
     focused: false,
     readOnly: options.readOnly ?? false,
-    root: options.root ?? MAIN_ROOT_KEY,
+    root: resolvePublicViewRoot(options.root),
   }
   const baseRuntime = getEditorRuntime(runtime.editor)
   let viewEditor: Editor<V> | null = null
@@ -842,8 +846,10 @@ export const createEditorView = <
       viewState.focused = false
     },
     get children() {
-      return runtime.editor.read(
-        (state) => state.value.get().roots[viewState.root] ?? []
+      return runtime.editor.read((state) =>
+        state.value.root(
+          viewState.root === MAIN_ROOT_KEY ? undefined : viewState.root
+        )
       )
     },
     extend: runtime.editor.extend,

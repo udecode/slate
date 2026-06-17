@@ -1,6 +1,6 @@
 {
   "name": "slate-dom",
-  "description": "Tools for building completely customizable richtext editors with React.",
+  "description": "DOM bridge and browser utilities for Slate editors.",
   "version": "0.124.1",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
@@ -25,7 +25,7 @@
     "dist/"
   ],
   "scripts": {
-    "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
+    "build": "tsdown --config ./tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },

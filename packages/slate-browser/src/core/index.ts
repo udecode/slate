@@ -1,37 +1,31 @@
 export {
+  createSlateBrowserFeatureContractRegistry,
+  defineSlateBrowserFeatureContract,
+  type SlateBrowserFeatureContractDefinition,
+  type SlateBrowserFeatureContractRegistry,
+  type SlateBrowserFeatureContractRow,
+} from './feature-contracts'
+export {
   assertSlateBrowserFirstPartyParityContracts,
-  SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES,
+  SLATE_BROWSER_FIRST_PARTY_FEATURE_CONTRACT_REGISTRY,
   SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS,
-  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
-  type SlateBrowserFirstLegacyParityFamily,
+  SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES,
   type SlateBrowserFirstPartyParityContractResult,
+  type SlateBrowserFirstPartyParityFamily,
   type SlateBrowserOperationFamilyContract,
 } from './first-party-browser-contracts'
-export {
-  createSlateBrowserPluginContractRegistry,
-  defineSlateBrowserPluginContract,
-  type SlateBrowserPluginContractDefinition,
-  type SlateBrowserPluginContractRegistry,
-  type SlateBrowserPluginContractRow,
-} from './plugin-contracts'
 export {
   type BrowserMobileScenarioId,
   type DebugPlaceholderShape,
   type DebugSnapshot,
   evaluateImeInput,
-  evaluateImeInput as evaluateImeInputProof,
   evaluatePlaceholderInput,
-  evaluatePlaceholderInput as evaluatePlaceholderInputProof,
   extractAgentBrowserDebugSnapshot,
-  extractAgentBrowserDebugSnapshot as extractAgentBrowserDebugSnapshotProof,
   extractAppiumDebugSnapshot,
-  extractAppiumDebugSnapshot as extractAppiumDebugSnapshotProof,
   type PlaceholderInputEvaluation,
   type ProofEvidenceClass,
   parseAgentBrowserBatch,
-  parseAgentBrowserBatch as parseAgentBrowserBatchProof,
   parseDebugSnapshot,
-  parseDebugSnapshot as parseDebugSnapshotProof,
 } from './proof'
 export {
   assertSlateBrowserReleaseProof,

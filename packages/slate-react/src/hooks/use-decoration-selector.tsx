@@ -7,19 +7,21 @@ import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 import type {
   SlateProjectionEntry,
   SlateProjectionStore,
-} from './use-slate-projections'
+} from './use-slate-projection-entries'
 
 const refEquality = (a: unknown, b: unknown) => a === b
 const EMPTY_PROJECTIONS = Object.freeze(
   []
 ) as readonly SlateProjectionEntry<never>[]
 
+/** Data passed to a decoration selector for one rendered runtime. */
 export type EditorDecorationSelectorContext<TData = unknown> = {
   projections: readonly SlateProjectionEntry<TData>[]
   runtimeId: RuntimeId | null
   store: SlateProjectionStore<TData> | null
 }
 
+/** Options that choose which runtime a decoration selector reads. */
 export type EditorDecorationSelectorOptions = {
   runtimeId?: RuntimeId | null
 }
@@ -39,6 +41,12 @@ const getRuntimeProjections = <TData,>(
   )
 }
 
+/**
+ * Select decoration/projection data for the current rendered runtime.
+ *
+ * Pass `runtimeId` to target another runtime explicitly. Use this for overlay
+ * UI that needs projected ranges without subscribing to the whole editor.
+ */
 export function useDecorationSelector<TSelected, TData = unknown>(
   selector: (context: EditorDecorationSelectorContext<TData>) => TSelected,
   equalityFn: (a: TSelected | null, b: TSelected) => boolean = refEquality,

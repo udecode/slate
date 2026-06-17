@@ -87,7 +87,8 @@ export type Value = TElement[]
 export type RootKey = string
 
 export type EditorDocumentValue<V extends Value = Value> = {
-  roots: Record<RootKey, V>
+  children: V
+  roots?: Record<RootKey, V>
   state?: Record<string, unknown>
 }
 
@@ -95,10 +96,7 @@ export type InitialValue<V extends Value = Value> =
   | V
   | {
       children: V
-      state?: Record<string, unknown>
-    }
-  | {
-      roots: Record<RootKey, V>
+      roots?: Record<RootKey, V>
       state?: Record<string, unknown>
     }
 
@@ -152,9 +150,10 @@ export type EditorStateValueApi<V extends Value = Value> = {
   operations: (startIndex?: number) => readonly Operation<V>[]
   /**
    * Reads one document root without cloning the serializable document value.
+   * Omit `root` to read the primary document.
    * Treat the returned nodes as read-only live state.
    */
-  root: (root: RootKey) => readonly Descendant[]
+  root: (root?: RootKey) => Readonly<V>
 }
 
 export type EditorTransactionValueApi<V extends Value = Value> =
@@ -314,10 +313,6 @@ export type EditorStateNodesApi = {
 export type EditorTransactionNodesApi<V extends Value = Value> =
   EditorStateNodesApi & {
     insert: <T extends ElementOrTextIn<V>>(
-      nodes: T | T[],
-      options?: NodeInsertNodesOptions<T>
-    ) => void
-    insertMany: <T extends ElementOrTextIn<V>>(
       nodes: T | T[],
       options?: NodeInsertNodesOptions<T>
     ) => void
@@ -616,7 +611,7 @@ export interface BaseEditor<
   ) => EditorApiValueFromExtension<TExtension>
   read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
   subscribe: (listener: SnapshotListener<any>) => () => void
-  subscribeCommit: (listener: CommitListener<any>) => () => void
+  subscribeCommit: (listener: (commit: EditorCommit<any>) => void) => () => void
   update: BivariantMethod<
     [
       fn: (
@@ -785,7 +780,7 @@ export interface EditorTransformApi<V extends Value = Value> {
 
 export type EditorTransformNext<TArgs extends object> = (
   overrides?: Partial<TArgs>
-) => EditorCommandResult
+) => boolean
 
 export type EditorPublicTransformMiddlewareKey = Exclude<
   keyof EditorTransformApi,
@@ -945,7 +940,7 @@ export type EditorTransformMiddlewareMap<
       TEditor,
       EditorTransformMiddlewareArgs<ValueOf<TEditor>>[K]
     >
-  ) => EditorCommandResult
+  ) => boolean
 }
 
 type EmptyQueryMiddlewareArgs = Record<never, never>
@@ -1198,15 +1193,13 @@ export type EditorSnapshot<V extends Value = Value> = {
   version: number
 }
 
-export type SnapshotChangeClass =
+export type EditorCommitClass =
   | 'text'
   | 'selection'
   | 'mark'
   | 'state'
   | 'structural'
   | 'replace'
-
-export type OperationClass = SnapshotChangeClass
 
 export type SnapshotDirtyScope = 'none' | 'paths' | 'all'
 
@@ -1218,11 +1211,7 @@ export type SnapshotInput<V extends Value = Value> = {
 
 export type SnapshotListener<V extends Value = Value> = (
   snapshot: EditorSnapshot<V>,
-  change?: SnapshotChange<V>
-) => void
-
-export type CommitListener<V extends Value = Value> = (
-  change: SnapshotChange<V>
+  change?: EditorCommit<V>
 ) => void
 
 export type EditorCommitSource =
@@ -1243,8 +1232,6 @@ export type EditorUpdateOptions = {
   skipNormalize?: boolean
   tag?: EditorUpdateTagInput
 }
-
-export type EditorApplyOperationsOptions = EditorUpdateOptions
 
 export type EditorOperationDirtinessOptions<V extends Value = Value> = {
   command?: EditorCommitCommand | null
@@ -1306,11 +1293,9 @@ export type EditorCommandContext<
   editor: TEditor
 }
 
-export type EditorCommandResult = boolean
-
 export type EditorCommandNext<TCommand extends EditorCommand> = (
   command?: TCommand
-) => EditorCommandResult
+) => boolean
 
 export type EditorCommandHandler<
   TCommand extends EditorCommand,
@@ -1318,7 +1303,7 @@ export type EditorCommandHandler<
 > = (
   context: EditorCommandContext<TCommand, TEditor>,
   next: EditorCommandNext<TCommand>
-) => EditorCommandResult
+) => boolean
 
 export type EditorOperationContext<TEditor extends BaseEditor<any> = Editor> = {
   editor: TEditor
@@ -1754,7 +1739,7 @@ export type EditorCommit<V extends Value = Value> = {
   affectedSelectionRuntimeIds: readonly RuntimeId[] | null
   affectedTextRuntimeIds: readonly RuntimeId[] | null
   childrenChanged: boolean
-  classes: readonly OperationClass[]
+  classes: readonly EditorCommitClass[]
   command: EditorCommitCommand | null
   decorationImpactRuntimeIds: readonly RuntimeId[] | null
   dirty: DirtyRegion
@@ -1791,8 +1776,6 @@ export type EditorCommit<V extends Value = Value> = {
   tags: readonly EditorUpdateTag[]
   version: number
 }
-
-export type SnapshotChange<V extends Value = Value> = EditorCommit<V>
 
 export interface EditorAboveOptions<T extends Ancestor> {
   at?: Location
@@ -2007,7 +1990,7 @@ export interface EditorStaticApi {
   edges: (editor: Editor, at: Location) => [Point, Point]
 
   /**
-   * Get the current operation queue through the explicit read seam.
+   * Get the current operation queue through the explicit read boundary.
    */
   getOperations: <V extends Value>(
     editor: Editor<V>,
@@ -2021,7 +2004,7 @@ export interface EditorStaticApi {
     editor: Editor<V>,
     operations: readonly Operation<V>[],
     options?: EditorOperationDirtinessOptions<V>
-  ) => SnapshotChange<V>
+  ) => EditorCommit<V>
 
   /**
    * Get the latest committed transaction metadata.
@@ -2073,7 +2056,7 @@ export interface EditorStaticApi {
   first: (editor: Editor, at: Location) => NodeEntry
 
   /**
-   * Get the current children through the public accessor seam.
+   * Get the current children through the public accessor boundary.
    */
   getChildren: <V extends Value>(editor: Editor<V>) => V
 
@@ -2190,7 +2173,7 @@ export interface EditorStaticApi {
   /**
    * Check if a value is an `Editor` object.
    */
-  isEditor: (value: any, options?: EditorIsEditorOptions) => value is Editor
+  isEditor: (value: unknown, options?: EditorIsEditorOptions) => value is Editor
 
   /**
    * Check if a value is a read-only `Element` object.
@@ -2469,7 +2452,7 @@ export interface EditorStaticApi {
 
   subscribeCommit: <V extends Value>(
     editor: Editor<V>,
-    listener: CommitListener<V>
+    listener: (commit: EditorCommit<V>) => void
   ) => () => void
 
   subscribeSource: <V extends Value>(

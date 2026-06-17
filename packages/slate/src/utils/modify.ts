@@ -23,20 +23,34 @@ const setChildren = (root: Ancestor, children: Descendant[]) => {
 const getChildren = (root: Ancestor): Descendant[] =>
   NodeApi.isEditor(root) ? Editor.getChildren(root) : root.children
 
-export const insertChildren = <T>(
+export const insertChildren = <T>(xs: T[], index: number, ...newValues: T[]) =>
+  insertChildRange(xs, index, newValues)
+
+export const insertChildRange = <T>(
   xs: T[],
   index: number,
-  ...newValues: T[]
-) => [...xs.slice(0, index), ...newValues, ...xs.slice(index)]
+  newValues: readonly T[]
+) => xs.slice(0, index).concat(newValues, xs.slice(index))
 
 export const replaceChildren = <T>(
   xs: T[],
   index: number,
   removeCount: number,
   ...newValues: T[]
-) => [...xs.slice(0, index), ...newValues, ...xs.slice(index + removeCount)]
+) => replaceChildRange(xs, index, removeCount, newValues)
 
-export const removeChildren = replaceChildren
+export const replaceChildRange = <T>(
+  xs: T[],
+  index: number,
+  removeCount: number,
+  newValues: readonly T[]
+) => xs.slice(0, index).concat(newValues, xs.slice(index + removeCount))
+
+export const removeChildren = <T>(
+  xs: T[],
+  index: number,
+  removeCount: number
+) => replaceChildRange(xs, index, removeCount, [])
 
 /**
  * Replace a descendant with a new node, replacing all ancestors

@@ -1,16 +1,18 @@
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
-import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
+import type { EditorCommit, Operation, Path, RuntimeId } from 'slate'
 import { NodeApi } from 'slate'
 import { getSelectionRoot } from '../hooks/root-selection-cache'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorSelector } from '../hooks/use-editor-selector'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { getCachedFullRootReplaceTopLevelRuntimeIds } from './runtime-editor-api'
 
 export type DOMStrategyRootConfig = {
   overscan: number
   segmentSize: number
   previewChars: number
+  promotionWindowSize: number
   threshold: number
 }
 
@@ -58,11 +60,15 @@ const createSegmentPlanFromGroups = ({
   groups,
   overscan,
   promotedSegmentIndex,
+  promotedWindowStartIndex,
+  promotionWindowSize,
 }: {
   defaultActiveSegmentIndex: number
   groups: readonly SegmentRuntimeIdGroup[]
   overscan: number
   promotedSegmentIndex: number | null
+  promotedWindowStartIndex: number | null
+  promotionWindowSize: number
 }) => {
   const activeSegmentIndex = promotedSegmentIndex ?? defaultActiveSegmentIndex
   const activeStart = Math.max(0, activeSegmentIndex - overscan)
@@ -73,11 +79,41 @@ const createSegmentPlanFromGroups = ({
     segments: groups.map((group) => {
       const isActive =
         group.segmentIndex >= activeStart && group.segmentIndex <= activeEnd
+      const shouldWindowPromotedSegment =
+        promotedSegmentIndex === group.segmentIndex &&
+        promotedWindowStartIndex != null &&
+        promotionWindowSize > 0 &&
+        promotionWindowSize < group.runtimeIds.length
+      const windowOffset = shouldWindowPromotedSegment
+        ? Math.min(
+            Math.max(0, promotedWindowStartIndex - group.startIndex),
+            Math.max(0, group.runtimeIds.length - promotionWindowSize)
+          )
+        : 0
+      const mountedRuntimeIds =
+        isActive && shouldWindowPromotedSegment
+          ? group.runtimeIds.slice(
+              windowOffset,
+              windowOffset + promotionWindowSize
+            )
+          : isActive
+            ? group.runtimeIds
+            : EMPTY_RUNTIME_IDS
+      const mountedStartIndex =
+        isActive && mountedRuntimeIds.length > 0
+          ? group.startIndex + windowOffset
+          : null
+      const mountedEndIndex =
+        mountedStartIndex == null
+          ? null
+          : mountedStartIndex + mountedRuntimeIds.length - 1
 
       return {
         ...group,
         isActive,
-        mountedRuntimeIds: isActive ? group.runtimeIds : EMPTY_RUNTIME_IDS,
+        mountedEndIndex,
+        mountedRuntimeIds,
+        mountedStartIndex,
       }
     }),
   }
@@ -95,9 +131,35 @@ const hasNoOperations = (operations: readonly Operation[] | undefined) =>
 const getOperationRoot = (operation: Operation) =>
   ((operation as { root?: string }).root ?? 'main') as string
 
+const getSingleFullRootReplaceOperation = (
+  operations: readonly Operation[] | undefined,
+  root: string
+) => {
+  if (!operations || operations.length === 0) {
+    return null
+  }
+
+  const contentOperations = operations.filter(
+    (operation) => operation.type !== 'set_selection'
+  )
+
+  if (contentOperations.length !== 1) {
+    return null
+  }
+
+  const operation = contentOperations[0]
+
+  return operation?.type === 'replace_children' &&
+    operation.path.length === 0 &&
+    operation.index === 0 &&
+    getOperationRoot(operation) === root
+    ? operation
+    : null
+}
+
 const getChangedOperations = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => operations ?? change?.operations
 
 const hasOperationForRoot = (root: string, operations?: readonly Operation[]) =>
@@ -113,17 +175,17 @@ const isStructureOperationForRoot = (operation: Operation, root: string) =>
   !isSelectionOperation(operation) &&
   getOperationRoot(operation) === root
 
-const isSelectionChangeForRoot = (root: string, change: SnapshotChange) =>
+const isSelectionChangeForRoot = (root: string, change: EditorCommit) =>
   change.selectionChanged &&
   (getSelectionRoot(change.selectionBefore) === root ||
     getSelectionRoot(change.selectionAfter) === root)
 
-const getSelectionPathKey = (selection: SnapshotChange['selectionAfter']) =>
+const getSelectionPathKey = (selection: EditorCommit['selectionAfter']) =>
   selection
     ? `${getSelectionRoot(selection)}:${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
     : 'null'
 
-const isSelectionPathChangeForRoot = (root: string, change: SnapshotChange) =>
+const isSelectionPathChangeForRoot = (root: string, change: EditorCommit) =>
   isSelectionChangeForRoot(root, change) &&
   getSelectionPathKey(change.selectionBefore) !==
     getSelectionPathKey(change.selectionAfter)
@@ -138,7 +200,7 @@ const topLevelRangesIncludeIndex = (
 const shouldUpdateRootRuntimeIds = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -158,7 +220,7 @@ const shouldUpdateRootRuntimeIds = (
 const shouldUpdateSelectedTopLevelIndex = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -177,7 +239,7 @@ const shouldUpdateSelectedTopLevelIndex = (
 const shouldUpdatePlaceholderValue = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
   const firstTopLevelChanged = topLevelRangesIncludeIndex(
@@ -200,7 +262,7 @@ const shouldUpdatePlaceholderValue = (
 const shouldUpdateEditableRootCommit = (
   root: string,
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => {
   const changedOperations = getChangedOperations(operations, change)
 
@@ -222,7 +284,7 @@ const shouldUpdateEditableRootCommit = (
 
 const shouldUpdateRootDocumentEpoch = (
   operations?: readonly Operation[],
-  change?: SnapshotChange
+  change?: EditorCommit
 ) => (change ? change.fullDocumentChanged : hasNoOperations(operations))
 
 const sameRuntimeIds = (
@@ -232,7 +294,20 @@ const sameRuntimeIds = (
   left.length === right.length &&
   left.every((runtimeId, index) => runtimeId === right[index])
 
-const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
+const selectRootRuntimeIds = (
+  editor: ReactRuntimeEditor,
+  root: string,
+  operations?: readonly Operation[]
+) => {
+  const fullRootReplace = getSingleFullRootReplaceOperation(operations, root)
+  const cachedRuntimeIds = fullRootReplace
+    ? getCachedFullRootReplaceTopLevelRuntimeIds(fullRootReplace)
+    : null
+
+  if (cachedRuntimeIds) {
+    return cachedRuntimeIds
+  }
+
   return editor.read((state) => {
     return state.nodes
       .children()
@@ -248,14 +323,19 @@ const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
 export const useRootRuntimeIds = () => {
   const editor = useEditor<ReactRuntimeEditor>()
   const root = editor.read((state) => state.view.root())
+  const selector = useCallback(
+    (editor: ReactRuntimeEditor, operations?: readonly Operation[]) =>
+      selectRootRuntimeIds(editor, root, operations),
+    [root]
+  )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdateRootRuntimeIds(root, operations, change),
     [root]
   )
 
   return useEditorSelector(
-    selectRootRuntimeIds,
+    selector,
     (left, right) => {
       return left != null && sameRuntimeIds(left as RuntimeId[], right)
     },
@@ -310,7 +390,7 @@ export const useTopLevelSelectionIndex = (enabled: boolean) => {
     [enabled]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
     [enabled, root]
   )
@@ -357,7 +437,7 @@ export const useSelectionPaths = (enabled: boolean) => {
     [enabled]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
     [enabled, root]
   )
@@ -386,7 +466,7 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
   )
 
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdatePlaceholderValue(root, operations, change),
     [root]
   )
@@ -401,7 +481,7 @@ export const useEditableRootCommitWakeup = () => {
   const editor = useEditor<ReactRuntimeEditor>()
   const root = editor.read((state) => state.view.root())
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[], change?: SnapshotChange) =>
+    (operations?: readonly Operation[], change?: EditorCommit) =>
       shouldUpdateEditableRootCommit(root, operations, change),
     [root]
   )
@@ -421,10 +501,12 @@ export const useInternalSegmentDOMStrategyRootSources = ({
   internalSegmentDOMStrategyConfig,
   promotedSegmentIndex,
   promotedSegmentOverscan,
+  promotedWindowStartIndex,
 }: {
   internalSegmentDOMStrategyConfig: DOMStrategyRootConfig | null
   promotedSegmentIndex: number | null
   promotedSegmentOverscan?: number | null
+  promotedWindowStartIndex: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
   const segmentRuntimeIdGroups = useMemo(
@@ -467,6 +549,9 @@ export const useInternalSegmentDOMStrategyRootSources = ({
             defaultActiveSegmentIndex: selectedSegmentIndex,
             groups: segmentRuntimeIdGroups,
             promotedSegmentIndex,
+            promotedWindowStartIndex,
+            promotionWindowSize:
+              internalSegmentDOMStrategyConfig.promotionWindowSize,
           })
         : null
     const mountedTopLevelRuntimeIds = segmentPlan
@@ -480,8 +565,8 @@ export const useInternalSegmentDOMStrategyRootSources = ({
       ? segmentPlan.segments
           .filter((segment) => segment.isActive)
           .map((segment) => ({
-            endIndex: segment.endIndex,
-            startIndex: segment.startIndex,
+            endIndex: segment.mountedEndIndex ?? segment.endIndex,
+            startIndex: segment.mountedStartIndex ?? segment.startIndex,
           }))
       : null
 
@@ -495,6 +580,7 @@ export const useInternalSegmentDOMStrategyRootSources = ({
     internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
     promotedSegmentOverscan,
+    promotedWindowStartIndex,
     segmentRuntimeIdGroups,
     selectedSegmentIndex,
     topLevelRuntimeIds,

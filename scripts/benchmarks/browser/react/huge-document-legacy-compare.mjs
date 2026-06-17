@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -30,6 +31,8 @@ const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const profile = process.env.REACT_HUGE_COMPARE_PROFILE === '1'
 const compareMode = process.env.REACT_HUGE_COMPARE_MODE || 'compare'
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const measureNativeSurfaceCompletion =
+  process.env.REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE === '1'
 const includeSyntheticBeforeInput =
   process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const skipBuild = process.env.REACT_HUGE_COMPARE_SKIP_BUILD === '1'
@@ -41,6 +44,7 @@ const disposeDelayMs = Number(
   process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500
 )
 const printJSON = process.env.REACT_HUGE_COMPARE_PRINT_JSON === '1'
+const progressEnabled = process.env.REACT_HUGE_COMPARE_PROGRESS !== '0'
 const pasteText = 'replacement marker'
 const createPasteFragment = () => [
   {
@@ -55,14 +59,35 @@ const currentJsdomRequireFrom = resolve(
 const latestArtifactPath =
   'tmp/slate-react-huge-document-legacy-compare-benchmark.json'
 
-const sanitizeArtifactSegment = (value) =>
+const sanitizeArtifactText = (value) =>
   String(value)
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 180) || 'default'
+    .replace(/^-+|-+$/g, '') || 'default'
+
+const sanitizeArtifactSegment = (value, limit = 180) =>
+  sanitizeArtifactText(value).slice(0, limit).replace(/-+$/g, '') || 'default'
+
+const getBoundedArtifactSegment = (value, limit) => {
+  const sanitized = sanitizeArtifactText(value)
+
+  if (sanitized.length <= limit) {
+    return sanitized
+  }
+
+  const hash = createHash('sha1').update(sanitized).digest('hex').slice(0, 8)
+  const prefix =
+    sanitized
+      .slice(0, Math.max(1, limit - hash.length - 1))
+      .replace(/-+$/g, '') || 'default'
+
+  return `${prefix}-${hash}`
+}
 
 const getSelectedSurfaceLabel = () =>
-  sanitizeArtifactSegment(process.env.REACT_HUGE_COMPARE_SURFACES || 'all')
+  getBoundedArtifactSegment(
+    process.env.REACT_HUGE_COMPARE_SURFACES || 'all',
+    32
+  )
 
 const getRunArtifactPath = ({ mode }) =>
   `${[
@@ -104,6 +129,78 @@ const printHugeDocumentSummary = (summary) => {
   console.log(`Wrote ${summary.artifactPaths.run}`)
 }
 
+const resourceSummaryLaneNames = [
+  'readyMs',
+  'middleBlockPromoteMs',
+  'middleBlockPromoteThenTypeMs',
+  'middleBlockSelectMs',
+  'middleBlockTypeAfterSelectMs',
+  'middleBlockSelectThenTypeMs',
+  'middleBlockTypeMs',
+]
+const resourceSummaryTraceKeys = [
+  'dom-node-count',
+  'editable-descendant-count',
+  'partial-dom-count',
+  'root-group-mounted-count',
+  'root-group-pending-count',
+  'slate-element-count',
+  'slate-text-count',
+  'dom-strategy-dom-node-count',
+  'dom-strategy-editable-descendant-count',
+  'dom-strategy-mounted-group-count',
+  'dom-strategy-mounted-top-level-count',
+  'dom-strategy-pending-group-count',
+  'dom-strategy-pending-top-level-count',
+  'dom-strategy-segment-size',
+]
+
+const pickResourceMetricSummary = (metric) =>
+  metric
+    ? {
+        mean: metric.mean,
+        median: metric.median,
+        p95: metric.p95,
+      }
+    : null
+
+const createLaneResourceSummary = (lane) => {
+  if (!lane?.traceTags) {
+    return null
+  }
+
+  const summary = Object.fromEntries(
+    resourceSummaryTraceKeys
+      .map((key) => [key, pickResourceMetricSummary(lane.traceTags[key])])
+      .filter(([, value]) => value)
+  )
+
+  return Object.keys(summary).length > 0 ? summary : null
+}
+
+const createResourceSummaryBySurface = (surfaces) =>
+  Object.fromEntries(
+    Object.entries(surfaces)
+      .map(([surfaceName, surface]) => [
+        surfaceName,
+        Object.fromEntries(
+          resourceSummaryLaneNames
+            .map((laneName) => [
+              laneName,
+              createLaneResourceSummary(surface?.[laneName]),
+            ])
+            .filter(([, value]) => value)
+        ),
+      ])
+      .filter(([, summary]) => Object.keys(summary).length > 0)
+  )
+
+const logProgress = (message) => {
+  if (progressEnabled) {
+    console.error(`[huge-document-compare] ${message}`)
+  }
+}
+
 const sharedSource = `
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -124,11 +221,14 @@ const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const measureNativeSurfaceCompletion =
+  process.env.REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE === '1'
 const includeSyntheticBeforeInput =
   process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const splitSelectionLanes =
   process.env.REACT_HUGE_COMPARE_SPLIT_SELECTION === '1'
 const disposeDelayMs = Number(process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500)
+const progressEnabled = process.env.REACT_HUGE_COMPARE_PROGRESS !== '0'
 const pasteText = ${JSON.stringify(pasteText)}
 const modelOwnedBeforeInputText = '@'
 const createPasteFragment = ${createPasteFragment.toString()}
@@ -163,6 +263,15 @@ const forceBenchmarkGC = () => {
     gc(true)
   }
 }
+
+const logProgress = (message) => {
+  if (progressEnabled) {
+    console.error('[huge-document-compare] ' + message)
+  }
+}
+
+const formatProgressMs = (value) =>
+  typeof value === 'number' ? value + 'ms' : 'n/a'
 
 const recordBenchmarkProfileDuration = (id, duration) => {
   globalThis.__SLATE_REACT_RENDER_PROFILER__?.record?.({
@@ -391,6 +500,25 @@ const summarize = (samples) => {
     min: round(sorted[0] ?? 0),
     max: round(sorted.at(-1) ?? 0),
   }
+}
+
+const summarizeNumericRecords = (records) => {
+  const keys = new Set()
+
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record ?? {})) {
+      if (typeof value === 'number') {
+        keys.add(key)
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...keys].sort().map((key) => [
+      key,
+      summarize(records.map((record) => record?.[key] ?? 0)),
+    ])
+  )
 }
 
 const createChildren = () =>
@@ -651,6 +779,44 @@ const createBenchEditor = ({ chunking }) => {
   return editor
 }
 
+const countElements = (root, selector) => root.querySelectorAll(selector).length
+
+const measureLegacyReadySurfaceWeights = (container) => {
+  const root = getEditableRoot(container)
+  const domNodeCount = root.querySelectorAll('*').length + 1
+  const slateElementCount = countElements(root, '[data-slate-node="element"]')
+  const slateTextCount = countElements(root, '[data-slate-node="text"]')
+  const slateLeafCount = countElements(root, '[data-slate-leaf]')
+  const rootGroupCount = countElements(root, '[data-slate-root-group="true"]')
+  const mountedRootGroupCount = countElements(
+    root,
+    '[data-slate-root-group-state="mounted"], [data-slate-root-group-state="fresh-mounted"]'
+  )
+  const pendingRootGroupCount = countElements(
+    root,
+    '[data-slate-root-group-state="pending-mount"]'
+  )
+  const partialDOMCount = countElements(
+    root,
+    '[data-slate-dom-strategy-placeholder="true"]'
+  )
+  const mountedEditableDescendantCount = slateElementCount + slateTextCount
+
+  return {
+    'dom-node-count': domNodeCount,
+    'dom-nodes-per-block': domNodeCount / blocks,
+    'editable-descendant-count': mountedEditableDescendantCount,
+    'editable-descendants-per-block': mountedEditableDescendantCount / blocks,
+    'partial-dom-count': partialDOMCount,
+    'root-group-count': rootGroupCount,
+    'root-group-mounted-count': mountedRootGroupCount,
+    'root-group-pending-count': pendingRootGroupCount,
+    'slate-element-count': slateElementCount,
+    'slate-leaf-count': slateLeafCount,
+    'slate-text-count': slateTextCount,
+  }
+}
+
 const mount = async ({ chunking }) => {
   const editor = createBenchEditor({ chunking })
   const initialValue = createChildren()
@@ -685,22 +851,33 @@ const dispose = async ({ dom, restoreGlobals, root }) => {
 
 const measureLane = async (setup, run) => {
   const samples = []
+  const traceTags = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const context = await setup()
     await settleBenchmark()
     const start = now()
-    await run(context)
+    const metrics = await run(context)
     const duration = now() - start
     await dispose(context)
     await settleBenchmark()
 
     if (iteration > 0) {
       samples.push(duration)
+      if (metrics && typeof metrics === 'object') {
+        traceTags.push(metrics)
+      }
     }
   }
 
-  return summarize(samples)
+  const summary = summarize(samples)
+
+  return {
+    ...summary,
+    ...(traceTags.length > 0
+      ? { traceTags: summarizeNumericRecords(traceTags) }
+      : {}),
+  }
 }
 
 const measurePreparedLane = async (setup, prepare, run) => {
@@ -734,7 +911,7 @@ const measureReady = async ({ chunking }) =>
 
       return { container, dom, editor, initialValue, restoreGlobals, root }
     },
-    async ({ editor, initialValue, root }) => {
+    async ({ container, editor, initialValue, root }) => {
       await act(async () => {
         root.render(
           React.createElement(
@@ -744,6 +921,8 @@ const measureReady = async ({ chunking }) =>
           )
         )
       })
+      await Promise.resolve()
+      return measureLegacyReadySurfaceWeights(container)
     }
   )
 
@@ -935,6 +1114,13 @@ const runSurface = async ({ chunking }) => {
   }
 }
 
+logProgress('surface legacyChunkOn start')
+const legacyChunkOnSurface = await runSurface({ chunking: true })
+logProgress(
+  'surface legacyChunkOn done readyP95=' +
+    formatProgressMs(legacyChunkOnSurface.readyMs?.p95)
+)
+
 console.log(JSON.stringify({
   config: {
     blocks,
@@ -946,7 +1132,7 @@ console.log(JSON.stringify({
     typeOps,
   },
   surfaces: {
-    legacyChunkOn: await runSurface({ chunking: true }),
+    legacyChunkOn: legacyChunkOnSurface,
   },
 }))
 `
@@ -1087,23 +1273,25 @@ const summarizeProfiles = (profiles) => {
   }
 }
 
-const summarizeNumericRecords = (records) => {
-  const keys = new Set()
+const toTraceKey = (key) =>
+  'dom-strategy-' + key.replace(/[A-Z]/g, (match) => '-' + match.toLowerCase())
 
-  for (const record of records) {
-    for (const [key, value] of Object.entries(record ?? {})) {
-      if (typeof value === 'number') {
-        keys.add(key)
-      }
+const collectDOMStrategyTraceTags = (metrics) => {
+  if (!metrics || typeof metrics !== 'object') {
+    return {}
+  }
+
+  const tags = {}
+
+  for (const [key, value] of Object.entries(metrics)) {
+    if (typeof value === 'number') {
+      tags[toTraceKey(key)] = value
+    } else if (typeof value === 'boolean') {
+      tags[toTraceKey(key)] = value ? 1 : 0
     }
   }
 
-  return Object.fromEntries(
-    [...keys].sort().map((key) => [
-      key,
-      summarize(records.map((record) => record?.[key] ?? 0)),
-    ])
-  )
+  return tags
 }
 
 const getRootGroupCount = () => Math.ceil(blocks / rootGroupSize)
@@ -1366,9 +1554,14 @@ const selectedSurfaceDefinitions =
       )
     : surfaceDefinitions
 
-const createEditableProps = ({ domStrategy, renderElement }) => ({
+const createEditableProps = ({
+  domStrategy,
+  onDOMStrategyMetrics,
+  renderElement,
+}) => ({
   id: 'v2-huge-compare',
   domStrategy,
+  onDOMStrategyMetrics,
   renderElement,
 })
 
@@ -1380,6 +1573,7 @@ const mount = async ({ domStrategy, renderElement }) => {
   })
   const { container, dom, restoreGlobals } = createDom()
   const root = createRoot(container)
+  let latestDOMStrategyMetrics = null
 
   await act(async () => {
     root.render(
@@ -1388,13 +1582,26 @@ const mount = async ({ domStrategy, renderElement }) => {
         { editor },
         React.createElement(
           Editable,
-          createEditableProps({ domStrategy, renderElement })
+          createEditableProps({
+            domStrategy,
+            onDOMStrategyMetrics: (metrics) => {
+              latestDOMStrategyMetrics = metrics
+            },
+            renderElement,
+          })
         )
       )
     )
   })
 
-  return { container, dom, editor, restoreGlobals, root }
+  return {
+    container,
+    dom,
+    editor,
+    getDOMStrategyMetrics: () => latestDOMStrategyMetrics,
+    restoreGlobals,
+    root,
+  }
 }
 
 const createModelOnlyContext = () => {
@@ -1442,14 +1649,22 @@ const measureLane = async (setup, run) => {
       const metrics = await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
+      const domStrategyTraceTags =
+        typeof context.getDOMStrategyMetrics === 'function'
+          ? collectDOMStrategyTraceTags(context.getDOMStrategyMetrics())
+          : {}
       await dispose(context)
       await settleBenchmark()
       forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
-        if (metrics && typeof metrics === 'object') {
-          traceTags.push(metrics)
+        const laneTraceTags =
+          metrics && typeof metrics === 'object'
+            ? { ...domStrategyTraceTags, ...metrics }
+            : domStrategyTraceTags
+        if (Object.keys(laneTraceTags).length > 0) {
+          traceTags.push(laneTraceTags)
         }
         if (profile) {
           profiles.push(profile)
@@ -1474,6 +1689,7 @@ const measureLane = async (setup, run) => {
 const measurePreparedLane = async (setup, prepare, run) => {
   const samples = []
   const profiles = []
+  const traceTags = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const counter = profileEnabled ? createProfilerCounter() : null
@@ -1493,12 +1709,19 @@ const measurePreparedLane = async (setup, prepare, run) => {
       await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
+      const domStrategyTraceTags =
+        typeof context.getDOMStrategyMetrics === 'function'
+          ? collectDOMStrategyTraceTags(context.getDOMStrategyMetrics())
+          : {}
       await dispose(context)
       await settleBenchmark()
       forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
+        if (Object.keys(domStrategyTraceTags).length > 0) {
+          traceTags.push(domStrategyTraceTags)
+        }
         if (profile) {
           profiles.push(profile)
         }
@@ -1513,9 +1736,17 @@ const measurePreparedLane = async (setup, prepare, run) => {
   return profileEnabled
     ? {
         ...summary,
+        ...(traceTags.length > 0
+          ? { traceTags: summarizeNumericRecords(traceTags) }
+          : {}),
         profile: summarizeProfiles(profiles),
       }
-    : summary
+    : {
+        ...summary,
+        ...(traceTags.length > 0
+          ? { traceTags: summarizeNumericRecords(traceTags) }
+          : {}),
+      }
 }
 
 const measureModelOnlyLane = async (setup, run) => {
@@ -1571,10 +1802,21 @@ const measureReady = async ({ domStrategy, renderElement }) =>
       })
       const { container, dom, restoreGlobals } = createDom()
       const root = createRoot(container)
+      let latestDOMStrategyMetrics = null
 
-      return { container, dom, editor, restoreGlobals, root }
+      return {
+        container,
+        dom,
+        editor,
+        getDOMStrategyMetrics: () => latestDOMStrategyMetrics,
+        onDOMStrategyMetrics: (metrics) => {
+          latestDOMStrategyMetrics = metrics
+        },
+        restoreGlobals,
+        root,
+      }
     },
-    async ({ container, editor, root }) => {
+    async ({ container, editor, onDOMStrategyMetrics, root }) => {
       await act(async () => {
         root.render(
           React.createElement(
@@ -1582,11 +1824,16 @@ const measureReady = async ({ domStrategy, renderElement }) =>
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ domStrategy, renderElement })
+              createEditableProps({
+                domStrategy,
+                onDOMStrategyMetrics,
+                renderElement,
+              })
             )
           )
         )
       })
+      await Promise.resolve()
       return recordReadySurfaceWeight(container)
     }
   )
@@ -1718,6 +1965,82 @@ const measureTypeAfterSelect = async ({
     }
   )
 
+const getPartialDOMPlaceholderForBlock = ({ blockIndex, container }) => {
+  const placeholders = [
+    ...container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ),
+  ]
+  const inferredSegmentSize = Math.max(
+    1,
+    Math.ceil(blocks / (placeholders.length + 1))
+  )
+  const segmentIndex = Math.floor(blockIndex / inferredSegmentSize)
+  const placeholder = placeholders.find(
+    (element) =>
+      element.getAttribute('data-slate-dom-strategy-segment') ===
+      String(segmentIndex)
+  )
+
+  return {
+    inferredSegmentSize,
+    placeholder,
+    segmentIndex,
+  }
+}
+
+const promoteBlock = async ({ blockIndex, container, dom }) => {
+  const { inferredSegmentSize, placeholder, segmentIndex } =
+    getPartialDOMPlaceholderForBlock({ blockIndex, container })
+
+  if (!placeholder) {
+    return {
+      inferredSegmentSize,
+      promoted: false,
+      segmentIndex,
+    }
+  }
+
+  await profileBenchmarkDurationAsync('promote-placeholder-mousedown-act', () =>
+    act(async () => {
+      placeholder.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+        })
+      )
+    })
+  )
+  await profileBenchmarkDurationAsync('promote-placeholder-settle', () =>
+    settleBenchmark()
+  )
+
+  return {
+    inferredSegmentSize,
+    promoted: true,
+    segmentIndex,
+  }
+}
+
+const measurePromoteBlock = async ({
+  blockIndex,
+  domStrategy,
+  renderElement,
+}) =>
+  measureLane(
+    () => mount({ domStrategy, renderElement }),
+    async ({ container, dom }) => {
+      const promotion = await promoteBlock({ blockIndex, container, dom })
+      const root = getEditableRoot(container)
+
+      return {
+        inferredSegmentSize: promotion.inferredSegmentSize,
+        promoted: promotion.promoted ? 1 : 0,
+        segmentIndex: promotion.segmentIndex,
+        textHostCount: root.querySelectorAll('[data-slate-node="text"]').length,
+      }
+    }
+  )
+
 const measurePromoteThenType = async ({
   blockIndex,
   domStrategy,
@@ -1726,21 +2049,7 @@ const measurePromoteThenType = async ({
   measureLane(
     () => mount({ domStrategy, renderElement }),
     async ({ container, dom, editor }) => {
-      const segmentIndex = Math.floor(blockIndex / segmentSize)
-      const partialDOMPlaceholder = container.querySelector(
-        \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
-      )
-
-      if (partialDOMPlaceholder) {
-        await act(async () => {
-          partialDOMPlaceholder.dispatchEvent(
-            new dom.window.MouseEvent('mousedown', {
-              bubbles: true,
-            })
-          )
-        })
-        await settleBenchmark()
-      }
+      await promoteBlock({ blockIndex, container, dom })
 
       await selectBlock({ blockIndex, editor })
 
@@ -1766,21 +2075,7 @@ const measurePromoteThenType = async ({
   )
 
 const promoteAndSelectBlock = async ({ blockIndex, container, dom, editor }) => {
-  const segmentIndex = Math.floor(blockIndex / segmentSize)
-  const partialDOMPlaceholder = container.querySelector(
-    \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
-  )
-
-  if (partialDOMPlaceholder) {
-    await act(async () => {
-      partialDOMPlaceholder.dispatchEvent(
-        new dom.window.MouseEvent('mousedown', {
-          bubbles: true,
-        })
-      )
-    })
-    await settleBenchmark()
-  }
+  await promoteBlock({ blockIndex, container, dom })
 
   const selection = {
     anchor: { path: [blockIndex, 0], offset: 0 },
@@ -2062,7 +2357,8 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
     }
   }
 
-  const nativeSurfaceCompleteMs = trace.stagedMountingEnabled
+  const nativeSurfaceCompleteMs =
+    trace.stagedMountingEnabled && measureNativeSurfaceCompletion
     ? await measureNativeSurfaceComplete({ domStrategy, renderElement })
     : null
 
@@ -2121,6 +2417,11 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
       renderElement,
       selectBefore: true,
     }),
+    middleBlockPromoteMs: await measurePromoteBlock({
+      blockIndex: Math.floor(blocks / 2),
+      domStrategy,
+      renderElement,
+    }),
     middleBlockPromoteThenTypeMs: await measurePromoteThenType({
       blockIndex: Math.floor(blocks / 2),
       domStrategy,
@@ -2170,7 +2471,17 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
 const surfaces = {}
 
 for (const surface of selectedSurfaceDefinitions) {
-  surfaces[surface.name] = await runSurface(surface)
+  logProgress('surface ' + surface.name + ' start')
+  const surfaceResult = await runSurface(surface)
+  logProgress(
+    'surface ' +
+      surface.name +
+      ' done readyP95=' +
+      formatProgressMs(surfaceResult.readyMs?.p95) +
+      ' promoteP95=' +
+      formatProgressMs(surfaceResult.middleBlockPromoteMs?.p95)
+  )
+  surfaces[surface.name] = surfaceResult
 }
 
 console.log(JSON.stringify({
@@ -2181,6 +2492,7 @@ console.log(JSON.stringify({
     segmentSize,
     includeSyntheticBeforeInput,
     iterations,
+    measureNativeSurfaceCompletion,
     profileEnabled,
     readyOnly,
     rootGroupSize,
@@ -2199,13 +2511,18 @@ if (!skipBuild) {
 }
 
 const env = {
+  BENCHMARK_PROGRESS: progressEnabled ? '1' : '0',
   REACT_HUGE_COMPARE_ACTIVE_RADIUS: String(overscan),
   REACT_HUGE_COMPARE_BLOCKS: String(blocks),
   REACT_HUGE_COMPARE_CHUNK_SIZE: String(chunkSize),
   REACT_HUGE_COMPARE_ISLAND_SIZE: String(segmentSize),
   REACT_HUGE_COMPARE_ISOLATE_SURFACES: isolateCurrentSurfaces ? '1' : '0',
   REACT_HUGE_COMPARE_ITERATIONS: String(iterations),
+  REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE: measureNativeSurfaceCompletion
+    ? '1'
+    : '0',
   REACT_HUGE_COMPARE_PROFILE: profile ? '1' : '0',
+  REACT_HUGE_COMPARE_PROGRESS: progressEnabled ? '1' : '0',
   REACT_HUGE_COMPARE_READY_ONLY: readyOnly ? '1' : '0',
   REACT_HUGE_COMPARE_SURFACES: process.env.REACT_HUGE_COMPARE_SURFACES || '',
   REACT_HUGE_COMPARE_TYPE_OPS: String(typeOps),
@@ -2238,6 +2555,9 @@ const current =
         const surfaceEntries = []
 
         for (const surfaceName of currentSurfaceNamesToRun) {
+          logProgress(
+            `current surface ${surfaceName} start (${surfaceEntries.length + 1}/${currentSurfaceNamesToRun.length})`
+          )
           const result = await benchmarkRepo({
             benchmarkSource: currentBenchmarkSource,
             env: {
@@ -2247,6 +2567,7 @@ const current =
             packageManager: currentPackageManager,
             repo: currentRepo,
           })
+          logProgress(`current surface ${surfaceName} done`)
 
           surfaceEntries.push([surfaceName, result.surfaces[surfaceName]])
         }
@@ -2260,6 +2581,7 @@ const current =
             includeSyntheticBeforeInput,
             isolateCurrentSurfaces,
             iterations,
+            measureNativeSurfaceCompletion,
             profileEnabled: profile,
             readyOnly,
             rootGroupSize,
@@ -2269,12 +2591,22 @@ const current =
           surfaces: Object.fromEntries(surfaceEntries),
         }
       })()
-    : await benchmarkRepo({
-        benchmarkSource: currentBenchmarkSource,
-        env,
-        packageManager: currentPackageManager,
-        repo: currentRepo,
-      })
+    : await (async () => {
+        logProgress(
+          `current surfaces ${currentSurfaceNamesToRun.join(',')} start`
+        )
+        const result = await benchmarkRepo({
+          benchmarkSource: currentBenchmarkSource,
+          env,
+          packageManager: currentPackageManager,
+          repo: currentRepo,
+        })
+        logProgress(
+          `current surfaces ${currentSurfaceNamesToRun.join(',')} done`
+        )
+
+        return result
+      })()
 
 if (compareMode === 'current-only') {
   const summary = {
@@ -2289,6 +2621,7 @@ if (compareMode === 'current-only') {
       includeSyntheticBeforeInput,
       isolateCurrentSurfaces,
       iterations,
+      measureNativeSurfaceCompletion,
       profile,
       readyOnly,
       rootGroupSize,
@@ -2296,6 +2629,7 @@ if (compareMode === 'current-only') {
       typeOps,
     },
     surfaces: current.surfaces,
+    resourceSummaryBySurface: createResourceSummaryBySurface(current.surfaces),
   }
 
   await writeHugeDocumentArtifact({
@@ -2310,15 +2644,19 @@ if (compareMode === 'current-only') {
 const legacyPackageManager = await parsePackageManager(legacyRepo)
 
 if (!skipBuild) {
+  logProgress('legacy build start')
   await buildRepo(legacyRepo, legacyPackageManager, './packages/slate-react')
+  logProgress('legacy build done')
 }
 
+logProgress('legacy benchmark start')
 const legacy = await benchmarkRepo({
   benchmarkSource: legacyBenchmarkSource,
   env,
   packageManager: legacyPackageManager,
   repo: legacyRepo,
 })
+logProgress('legacy benchmark done')
 
 const legacyChunkOn = legacy.surfaces.legacyChunkOn
 
@@ -2346,7 +2684,9 @@ const comparableProductLaneNames = readyOnly
       'replaceFullDocumentWithTextMs',
       'insertFragmentFullDocumentMs',
     ]
-const v2OnlyProductLaneNames = readyOnly ? [] : ['middleBlockPromoteThenTypeMs']
+const v2OnlyProductLaneNames = readyOnly
+  ? []
+  : ['middleBlockPromoteMs', 'middleBlockPromoteThenTypeMs']
 const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
   const surface = current.surfaces[surfaceName]
 
@@ -2421,6 +2761,7 @@ const summary = {
     includeSyntheticBeforeInput,
     isolateCurrentSurfaces,
     iterations,
+    measureNativeSurfaceCompletion,
     profile,
     readyOnly,
     rootGroupSize,
@@ -2432,6 +2773,10 @@ const summary = {
     legacyChunkOn,
     ...current.surfaces,
   },
+  resourceSummaryBySurface: createResourceSummaryBySurface({
+    legacyChunkOn,
+    ...current.surfaces,
+  }),
   deltaMeanMsBySurface,
   v2OnlyLaneNames: v2OnlyProductLaneNames,
   v2OnlyP95Rows,
@@ -2465,11 +2810,24 @@ const defaultAutoPromotionRow = v2OnlyP95Rows.find(
     row.surfaceName === 'v2DefaultRenderAuto' &&
     row.laneName === 'middleBlockPromoteThenTypeMs'
 )
+const defaultAutoPromotionOnlyRow = v2OnlyP95Rows.find(
+  (row) =>
+    row.surfaceName === 'v2DefaultRenderAuto' &&
+    row.laneName === 'middleBlockPromoteMs'
+)
 
 if (defaultAutoPromotionRow) {
   console.log(
     `METRIC react_huge_doc_legacy_compare_partial_dom_promotion_then_type_p95_ms=${round(
       defaultAutoPromotionRow.currentP95Ms
+    )}`
+  )
+}
+
+if (defaultAutoPromotionOnlyRow) {
+  console.log(
+    `METRIC react_huge_doc_legacy_compare_partial_dom_promotion_p95_ms=${round(
+      defaultAutoPromotionOnlyRow.currentP95Ms
     )}`
   )
 }

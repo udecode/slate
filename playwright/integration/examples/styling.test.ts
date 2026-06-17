@@ -5,7 +5,7 @@ test.describe('styling example', () => {
   test.beforeEach(async ({ page }) => await page.goto('/examples/styling'))
 
   test('applies styles to editor from style prop', async ({ page }) => {
-    page.waitForLoadState('domcontentloaded')
+    await page.waitForLoadState('domcontentloaded')
 
     const editor = page.locator('[data-slate-editor=true]').nth(0)
     const styles = await editor.evaluate((el) => {
@@ -45,7 +45,7 @@ test.describe('styling example', () => {
   })
 
   test('applies styles to editor from className prop', async ({ page }) => {
-    page.waitForLoadState('domcontentloaded')
+    await page.waitForLoadState('domcontentloaded')
 
     const editor = page.locator('[data-slate-editor=true]').nth(1)
     const styles = await editor.evaluate((el) => {
@@ -112,7 +112,7 @@ test.describe('styling example', () => {
   test('mouse drag undo restores typed selected text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'styling', {
       ready: {

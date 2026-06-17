@@ -136,6 +136,52 @@ describe('slate operations contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
   })
 
+  it('applies and inverts huge replace_children ranges without argument spreading', () => {
+    const editor = createEditor()
+    const childCount = 200_000
+    const children: Descendant[] = Array.from(
+      { length: childCount },
+      (_, index) => ({
+        type: 'element',
+        children: [{ text: String(index) }],
+      })
+    )
+    const newChildren: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ text: 'replacement' }],
+      },
+    ]
+    const operation: SlateOperation = {
+      children,
+      index: 0,
+      newChildren,
+      newSelection: null,
+      path: [],
+      selection: null,
+      type: 'replace_children',
+    }
+
+    Editor.replace(editor, {
+      children,
+      selection: null,
+      marks: null,
+    })
+
+    applyOperation(editor, operation)
+
+    assert.equal(Editor.getSnapshot(editor).children.length, 1)
+    assert.deepEqual(Editor.getSnapshot(editor).children[0], newChildren[0])
+
+    applyOperation(editor, OperationApi.inverse(operation))
+
+    const snapshotChildren = Editor.getSnapshot(editor).children
+
+    assert.equal(snapshotChildren.length, childCount)
+    assert.deepEqual(snapshotChildren[0], children[0])
+    assert.deepEqual(snapshotChildren.at(-1), children.at(-1))
+  })
+
   it('rejects unknown operation-like records during replay', () => {
     const editor = createEditor()
 

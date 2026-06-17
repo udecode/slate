@@ -70,6 +70,22 @@ const annotationStore = useSlateAnnotationStore(editor, [
 ])
 ```
 
+When annotations come from React state, use the projector form so the store
+refreshes from explicit dependencies.
+
+```tsx
+const annotationStore = useSlateAnnotationStore(editor, {
+  deps: [comments],
+  project: () =>
+    comments.map((comment) => ({
+      anchor: comment.anchor,
+      data: comment,
+      id: comment.id,
+      projection: { tone: comment.tone },
+    })),
+})
+```
+
 Pass the store to `Slate` when editor-local annotation UI lives under that
 provider. `useSlateAnnotations()` and `useSlateAnnotation(id)` read that store
 by default.
@@ -91,7 +107,7 @@ function CommentsSidebar() {
 }
 ```
 
-Release bookmarks when the app removes the annotation.
+Dispose bookmarks when the app removes the annotation.
 
 ```tsx
 anchor.unref()
@@ -170,6 +186,43 @@ The `comment-mode` example renders this as two panes:
 
 The comment-mode controls do not call `editor.update` or mutate the
 document.
+
+## Widgets
+
+Widgets are app-owned UI descriptors anchored to a node, selection, or
+annotation. Use them for floating buttons, comment popovers, review toolbars,
+or side-panel rows that need resolved visibility.
+
+```ts
+type SlateWidgetAnchor =
+  | { annotationId: string; type: 'annotation' }
+  | { runtimeId: RuntimeId; type: 'node' }
+  | { type: 'selection' }
+
+type SlateWidget<TData> = {
+  anchor: SlateWidgetAnchor
+  data?: TData
+  id: string
+}
+```
+
+Create widget stores with the same explicit-dependency projector shape.
+
+```tsx
+const widgetStore = useSlateWidgetStore(editor, {
+  annotationStore,
+  deps: [comments],
+  project: () =>
+    comments.map((comment) => ({
+      anchor: { annotationId: comment.id, type: 'annotation' },
+      data: { label: comment.label },
+      id: `comment-widget:${comment.id}`,
+    })),
+})
+```
+
+Use `useSlateWidgets(store)` for panels that render every widget. Use
+`useSlateWidget(store, id)` when one component watches one widget.
 
 ## Yjs-Style Adapter
 

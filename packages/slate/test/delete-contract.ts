@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
@@ -43,6 +44,63 @@ const table = (): Descendant => ({
 })
 
 describe('slate delete contract', () => {
+  it('profiles whole-block range delete phases for huge-document attribution', () => {
+    const source = readFileSync(
+      new URL('../src/transforms-text/delete-text.ts', import.meta.url),
+      'utf8'
+    )
+    const publicStateSource = readFileSync(
+      new URL('../src/core/public-state.ts', import.meta.url),
+      'utf8'
+    )
+
+    assert.match(source, /delete-whole-range-edge-check/)
+    assert.match(source, /delete-whole-range-block-scan/)
+    assert.match(source, /delete-whole-range-children-slice/)
+    assert.match(source, /delete-whole-range-apply/)
+    assert.match(publicStateSource, /operation-replay-clone:replace_children/)
+    assert.match(publicStateSource, /markInternalOwnedReplayOperation/)
+    assert.match(publicStateSource, /INTERNAL_OWNED_REPLAY_OPERATIONS/)
+    assert.match(
+      publicStateSource,
+      /INTERNAL_OWNED_REPLAY_OPERATIONS\.delete\(operation\)/
+    )
+    assert.match(publicStateSource, /build-snapshot-change:node-impact/)
+    assert.match(publicStateSource, /build-snapshot-change:complete-commit/)
+  })
+
+  it('keeps replayed replace_children payloads isolated by default', () => {
+    const editor = createEditor()
+    const inserted = paragraph('inserted')
+
+    Editor.replace(editor, {
+      children: [paragraph('original')],
+      marks: null,
+      selection: null,
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: [paragraph('original')],
+          index: 0,
+          newChildren: [inserted],
+          newSelection: null,
+          path: [],
+          selection: null,
+          type: 'replace_children',
+        },
+      ])
+    })
+
+    inserted.children[0]!.text = 'mutated'
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('inserted'),
+    ])
+    assert.equal(Editor.getLastCommit(editor)?.nodeImpactRuntimeIds, null)
+  })
+
   it('deletes forward over Unicode whitespace before the next word', () => {
     const whitespaceCases = [
       ['space', ' '],
@@ -897,6 +955,83 @@ describe('slate delete contract', () => {
         .slice(operationsBefore)
         .map((operation) => operation.type),
       ['replace_children']
+    )
+  })
+
+  it('deletes a selected full-document block range with one structural operation', () => {
+    const editor = createEditor()
+    const children = Array.from({ length: 20 }, (_, index) =>
+      paragraph(`block-${index}`)
+    )
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [19, 0], offset: 'block-19'.length },
+    }
+
+    Editor.replace(editor, {
+      children,
+      marks: null,
+      selection,
+    })
+
+    const operationsBefore = Editor.getOperations(editor).length
+
+    editor.update((tx) => {
+      tx.fragment.delete({ direction: 'backward' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('')])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    assert.deepEqual(
+      Editor.getOperations(editor)
+        .slice(operationsBefore)
+        .map((operation) => operation.type),
+      ['replace_children']
+    )
+  })
+
+  it('does not use the full-document structural fast path for structured first blocks', () => {
+    const editor = createEditor()
+    const children = [table(), paragraph('tail')]
+    const selection = {
+      anchor: { path: [0, 0, 0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 'tail'.length },
+    }
+
+    Editor.replace(editor, {
+      children,
+      marks: null,
+      selection,
+    })
+
+    const operationsBefore = Editor.getOperations(editor).length
+
+    editor.update((tx) => {
+      tx.fragment.delete({ direction: 'backward' })
+    })
+
+    const operations = Editor.getOperations(editor).slice(operationsBefore)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'table',
+        children: [
+          {
+            type: 'table-row',
+            children: [{ type: 'paragraph', children: [{ text: '' }] }],
+          },
+        ],
+      },
+    ])
+    assert.equal(
+      operations.some(
+        (operation) =>
+          operation.type === 'replace_children' && operation.path.length === 0
+      ),
+      false
     )
   })
 

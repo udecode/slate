@@ -78,17 +78,7 @@ const escapeHatchPatterns: Record<EscapeHatchKind, RegExp> = {
 
 const inventoryRules: InventoryRule[] = [
   {
-    expected: { stale: 21 },
-    gate: 'source inventory must classify generated package output separately',
-    id: 'generated-package-output',
-    next: 'generated-output',
-    owner: 'generated-output',
-    path: /^packages\/[^/]+\/lib\//,
-    rationale:
-      'Generated lib output is not hand-edited, but it remains visible to package consumers until rebuilt.',
-  },
-  {
-    expected: { primitive: 6, stale: 40 },
+    expected: { stale: 37 },
     gate: 'historical docs are not the current API contract',
     id: 'historical-changelog',
     next: 'historical-only',
@@ -98,7 +88,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 55, stale: 301 },
+    expected: { primitive: 133, stale: 625 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -108,7 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Playwright rows use semantic handles and explicit selection control for proof setup.',
   },
   {
-    expected: { stale: 4 },
+    expected: { stale: 8 },
     gate: 'slate-browser docs describe proof handles, not app runtime API',
     id: 'slate-browser-proof-docs',
     next: 'explicit-proof-bridge',
@@ -116,6 +106,16 @@ const inventoryRules: InventoryRule[] = [
     path: /^packages\/slate-browser\/README\.md$/,
     rationale:
       'The slate-browser README documents the proof harness selection API.',
+  },
+  {
+    expected: { stale: 1 },
+    gate: 'slate-browser proof audit fixtures must stay classified as test-only transport',
+    id: 'slate-browser-proof-audit-tests',
+    next: 'explicit-proof-bridge',
+    owner: 'browser-proof',
+    path: /^packages\/slate-browser\/test\/core\/keyboard-oracle-audit\.test\.ts$/,
+    rationale:
+      'The keyboard oracle audit stores low-level fixture text for proof classification.',
   },
   {
     expected: { stale: 1 },
@@ -128,7 +128,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate DOM owns DOM bridge compatibility and selection import/export helpers.',
   },
   {
-    expected: { bridge: 29, stale: 1 },
+    expected: { bridge: 30, stale: 1 },
     gate: 'React runtime escape hatches must stay under kernel/runtime owners',
     id: 'react-runtime',
     next: 'central-owner',
@@ -138,7 +138,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate React owns editable input, IME, repair, and bridge workers behind the kernel.',
   },
   {
-    expected: { primitive: 102, stale: 65 },
+    expected: { primitive: 120, stale: 65 },
     gate: 'core contract tests may exercise compatibility, but only as tests',
     id: 'slate-core-contract-tests',
     next: 'keep-as-contract',
@@ -157,7 +157,7 @@ const inventoryRules: InventoryRule[] = [
     rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 19, primitive: 11, stale: 1 },
+    expected: { bridge: 51, primitive: 22 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',

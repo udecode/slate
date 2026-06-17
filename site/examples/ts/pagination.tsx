@@ -1635,7 +1635,7 @@ const PaginationSurface = ({
   const applyTableRows = useCallback(
     (nextTableRows: number) => {
       editor.update((tx) => {
-        const root = tx.value.get().roots.main ?? []
+        const root = tx.value.root()
         const tableIndex = root.findIndex(
           (node: Value[number]) =>
             NodeApi.isElement(node) && node.type === 'table'
@@ -1666,7 +1666,7 @@ const PaginationSurface = ({
             tx.nodes.remove({ at: [tableIndex, index] })
           }
         } else {
-          tx.nodes.insertMany(
+          tx.nodes.insert(
             createPaginationTableRows(nextTableRows).slice(
               table.children.length
             ),
@@ -1680,7 +1680,7 @@ const PaginationSurface = ({
   const applyStressPages = useCallback(
     (nextStressPages: number) => {
       editor.update((tx) => {
-        const root = (tx.value.get().roots.main ?? []) as Value
+        const root = tx.value.root() as Value
         const stressIndexes: number[] = []
 
         root.forEach((node, index) => {
@@ -1711,7 +1711,7 @@ const PaginationSurface = ({
         ).flat()
 
         if (nextStressBlocks.length > 0) {
-          tx.nodes.insertMany(nextStressBlocks, { at: [nonStressCount] })
+          tx.nodes.insert(nextStressBlocks, { at: [nonStressCount] })
         }
       })
     },
@@ -1808,7 +1808,6 @@ const PaginationSurface = ({
     engine: layoutEngine,
     nodeLayout,
     page: pageSettings,
-    root: 'main',
     textChangeRefresh,
     typography,
   })

@@ -198,7 +198,7 @@ describe('slate-dom hotkeys', () => {
     ).toBe(true)
   })
 
-  test('supports aliases and multi-hotkey specs from the old dependency contract', () => {
+  test('supports canonical key names and multi-hotkey specs', () => {
     expect(isHotkey('cmd+s', event({ key: 's', metaKey: true }))).toBe(true)
     expect(isHotkey('command+s', event({ key: 's', metaKey: true }))).toBe(true)
     expect(isHotkey('win+s', event({ key: 's', metaKey: true }))).toBe(true)

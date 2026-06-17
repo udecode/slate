@@ -1,8 +1,8 @@
 # Roots
 
-Slate stores document content in named roots. The default root is `main`; extra
-roots let one editor own headers, footers, synced blocks, captions, side panels,
-and other editable regions without creating separate editor instances.
+Slate stores the primary document as a normal block array. Extra roots let one
+editor own headers, footers, synced blocks, captions, side panels, and other
+editable regions without creating separate editor instances.
 
 Use roots when the content should share editor state, history, collaboration,
 schema, and commands. Use separate editors when the documents should be fully
@@ -11,7 +11,7 @@ independent.
 ## Value Shape
 
 The shortest editor value is still an array of blocks. Slate treats it as the
-`main` root.
+primary document.
 
 ```tsx
 const editor = createEditor({
@@ -19,14 +19,15 @@ const editor = createEditor({
 })
 ```
 
-Pass `initialValue.roots` when the editor owns more than one root.
+Pass `initialValue.children` plus `initialValue.roots` when the editor owns
+extra roots.
 
 ```tsx
 const editor = createEditor({
   initialValue: {
+    children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
     roots: {
       header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
-      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
       footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
     },
   },
@@ -34,22 +35,22 @@ const editor = createEditor({
 ```
 
 Each root is a normal Slate block array. Rootless operations, points, and
-selections resolve against the current editor or view root. The base editor's
-current root defaults to `main`; a root-bound view resolves rootless locations
-against its own root.
+selections resolve against the current editor or view root. A root-bound view
+resolves rootless locations against its own root.
 
 Persist roots through the full [Document State](14-document-state.md) value
-instead of saving only `editor.children`.
+instead of saving only the provider root.
 
 ## Reading And Writing Roots
 
-Read all roots from `state.value.get().roots`.
+Read the primary document with `state.value.root()`. Read an extra root by key.
 
 ```tsx
-const header = editor.read((state) => state.value.get().roots.header)
+const body = editor.read((state) => state.value.root())
+const header = editor.read((state) => state.value.root('header'))
 ```
 
-Create, replace, or delete non-main roots inside `editor.update`.
+Create, replace, or delete extra roots inside `editor.update`.
 
 ```tsx
 editor.update((tx) => {
@@ -59,8 +60,8 @@ editor.update((tx) => {
 })
 ```
 
-`main` is the stable document root. Mutate its children with normal node and
-text transforms instead of `tx.roots`.
+Mutate the primary document with normal node and text transforms instead of
+`tx.roots`.
 
 ## Rendering Roots
 
@@ -88,14 +89,15 @@ return (
 ```
 
 Use `useSlateRootState(root, selector)` for UI that reads one root without
-subscribing to every editor change.
+subscribing to every editor change. Use `useSlateRootEditor(root)` for commands
+that must run against a specific root.
 
 ## Content Roots
 
 Content roots attach an editable child root to an element in another root. The
 element keeps an empty text child as its model anchor. `element.childRoots[slot]`
 stores the root key, and the editable content lives in
-`state.value.get().roots[rootKey]`.
+`state.value.root(rootKey)`.
 
 ```tsx
 const syncedBlocks = defineEditorExtension({

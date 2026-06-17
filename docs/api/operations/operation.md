@@ -4,14 +4,14 @@
 
 Node, text, selection, fragment, and `replace_children` operations may include
 `root`. When `root` is omitted, Slate resolves the operation against the
-active operation/view root, then falls back to `main` for the base editor.
-Serialized non-main operations should preserve `root`.
+active operation/view root, then falls back to the primary document for the
+base editor. Serialized extra-root operations should preserve `root`.
 
 Root lifecycle updates from `tx.roots.create`, `tx.roots.replace`, and
 `tx.roots.delete` are represented as `replace_children` operations at `path:
 []`. Those operations carry `root`, `rootWasPresent`, and `rootIsPresent` so
 history and collaboration replay can create, replace, or delete the named root
-instead of applying the change to `main`.
+instead of applying the change to the primary document.
 
 - [Static methods](operation.md#static-methods)
   - [Manipulation methods](operation.md#manipulation-methods)
@@ -27,22 +27,66 @@ Invert an operation, returning a new operation that will exactly undo the origin
 
 ### Check methods
 
-#### `OperationApi.isNodeOperation(value: any) => boolean`
+#### `OperationApi.isInsertNodeOperation(value: unknown) => boolean`
+
+Check if a value is an `InsertNodeOperation` object. Returns the value as an `InsertNodeOperation` if it is one.
+
+#### `OperationApi.isInsertTextOperation(value: unknown) => boolean`
+
+Check if a value is an `InsertTextOperation` object. Returns the value as an `InsertTextOperation` if it is one.
+
+#### `OperationApi.isMergeNodeOperation(value: unknown) => boolean`
+
+Check if a value is a `MergeNodeOperation` object. Returns the value as a `MergeNodeOperation` if it is one.
+
+#### `OperationApi.isMoveNodeOperation(value: unknown) => boolean`
+
+Check if a value is a `MoveNodeOperation` object. Returns the value as a `MoveNodeOperation` if it is one.
+
+#### `OperationApi.isNodeOperation(value: unknown) => boolean`
 
 Check if a value is a `NodeOperation` object. Returns the value as a `NodeOperation` if it is one.
 
-#### `OperationApi.isOperation(value: any) => boolean`
+#### `OperationApi.isRemoveNodeOperation(value: unknown) => boolean`
+
+Check if a value is a `RemoveNodeOperation` object. Returns the value as a `RemoveNodeOperation` if it is one.
+
+#### `OperationApi.isRemoveTextOperation(value: unknown) => boolean`
+
+Check if a value is a `RemoveTextOperation` object. Returns the value as a `RemoveTextOperation` if it is one.
+
+#### `OperationApi.isReplaceChildrenOperation(value: unknown) => boolean`
+
+Check if a value is a `ReplaceChildrenOperation` object. Returns the value as a `ReplaceChildrenOperation` if it is one.
+
+#### `OperationApi.isReplaceFragmentOperation(value: unknown) => boolean`
+
+Check if a value is a `ReplaceFragmentOperation` object. Returns the value as a `ReplaceFragmentOperation` if it is one.
+
+#### `OperationApi.isOperation(value: unknown) => boolean`
 
 Check if a value is an `Operation` object. Returns the value as an `Operation` if it is one.
 
-#### `OperationApi.isOperationList(value: any) => boolean`
+#### `OperationApi.isOperationList(value: unknown) => boolean`
 
 Check if a value is a list of `Operation` objects. Returns the value as an `Operation[]` if it is one.
 
-#### `OperationApi.isSelectionOperation(value: any) => boolean`
+#### `OperationApi.isSelectionOperation(value: unknown) => boolean`
 
 Check if a value is a `SelectionOperation` object. Returns the value as a `SelectionOperation` if it is one.
 
-#### `OperationApi.isTextOperation(value: any) => boolean`
+#### `OperationApi.isSetNodeOperation(value: unknown) => boolean`
+
+Check if a value is a `SetNodeOperation` object. Returns the value as a `SetNodeOperation` if it is one.
+
+#### `OperationApi.isSetSelectionOperation(value: unknown) => boolean`
+
+Check if a value is a `SetSelectionOperation` object. Returns the value as a `SetSelectionOperation` if it is one.
+
+#### `OperationApi.isSplitNodeOperation(value: unknown) => boolean`
+
+Check if a value is a `SplitNodeOperation` object. Returns the value as a `SplitNodeOperation` if it is one.
+
+#### `OperationApi.isTextOperation(value: unknown) => boolean`
 
 Check if a value is a `TextOperation` object. Returns the value as a `TextOperation` if it is one.

@@ -16,18 +16,26 @@ editor.update(tx => {
 })
 ```
 
-The public transform groups are:
+The core transaction groups are:
 
 - `tx.nodes` for inserting, removing, moving, wrapping, unwrapping, and setting
   nodes
+- `tx.fragment` for reading, inserting, and deleting fragments
 - `tx.text` for inserting and deleting text
+- `tx.break` for inserting block and soft breaks
 - `tx.selection` for changing the model selection
 - `tx.marks` for changing text marks
+- `tx.value` and `tx.roots` for whole-root or whole-document replacement
+- `tx.setField` and `tx.statePatches` for persistent state fields
+- `tx.normalize` and `tx.withoutNormalizing` for explicit normalization control
 - `tx.operations` for replaying operation batches
 
 Commands should stay inside one update when the changes belong to one user
 action. Slate records the operations and publishes one commit when the update
 finishes.
+
+See [Transforms API](../api/transforms.md) for method options and the complete
+transaction reference.
 
 ## Selection
 

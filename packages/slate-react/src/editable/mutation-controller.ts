@@ -16,6 +16,7 @@ import { getDOMClipboardFormatKey } from 'slate-dom/internal'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import {
+  createMainRootSlateViewSelection,
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
   readSlateViewSelectionHistoryEntry,
@@ -38,6 +39,7 @@ import {
   Editor,
   getEditorCurrentMarks,
   getEditorExtensionRegistry,
+  markInternalOwnedReplayOperation,
   type Editor as RuntimeEditor,
   withOperationRootChildren,
 } from './runtime-editor-api'
@@ -45,12 +47,14 @@ import { readRuntimeSelection } from './runtime-selection-state'
 import {
   armModelOwnedTextInputGuard,
   setEditableModelSelectionPreference,
+  shouldUseModelBackedSelectAllSelection,
 } from './selection-controller'
 import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 const MAIN_ROOT_KEY: RootKey = 'main'
 const DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+const MULTILINE_TEXT_PATTERN = /[\n\r]/
 const EDITOR_TO_HISTORY_FOCUS_ROOT = new WeakMap<Editor, RootKey | null>()
 
 type ClipboardInsertDataHandler = (
@@ -106,25 +110,35 @@ export const applyModelOwnedHistoryIntent = ({
     return false
   }
 
-  editor.update((tx) => {
-    const history = (
-      tx as {
-        history?: {
-          redo?: () => void
-          undo?: () => void
-        }
-      }
-    ).history
-    const fn = history?.[direction]
+  const previousViewSelection = readSlateViewSelection(editor)
 
-    if (typeof fn !== 'function') {
-      throw new Error(`Editor history API does not expose ${direction}.`)
-    }
-
-    fn()
-  })
-  EDITOR_TO_HISTORY_FOCUS_ROOT.set(editor, focusRoot)
   writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
+  try {
+    editor.update(
+      (tx) => {
+        const history = (
+          tx as {
+            history?: {
+              redo?: () => void
+              undo?: () => void
+            }
+          }
+        ).history
+        const fn = history?.[direction]
+
+        if (typeof fn !== 'function') {
+          throw new Error(`Editor history API does not expose ${direction}.`)
+        }
+
+        fn()
+      },
+      { skipNormalize: true }
+    )
+  } catch (error) {
+    writeSlateViewSelection(editor, previousViewSelection)
+    throw error
+  }
+  EDITOR_TO_HISTORY_FOCUS_ROOT.set(editor, focusRoot)
   return true
 }
 
@@ -482,6 +496,11 @@ const getConsistentTextMarksInBlocks = (
           sawText = true
           firstMarks = marks
           firstMarksKey = marksKey
+
+          if (marksKey === '') {
+            return null
+          }
+
           continue
         }
 
@@ -657,6 +676,31 @@ const applyProjectedViewSelectionTextCommand = ({
   }
 
   const runtimeEditor = getCanonicalRuntimeEditor(editor)
+  const modelSelection = readRuntimeSelection(runtimeEditor)
+
+  if (
+    text &&
+    applyFullBlockTextReplacement(runtimeEditor, modelSelection, text)
+  ) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
+
+    return true
+  }
+
+  if (!text && applyFullBlockDeleteFragment(runtimeEditor, modelSelection)) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
+
+    return true
+  }
+
   const resolution = resolveProjectedSelectionTarget(
     runtimeEditor,
     viewSelection
@@ -728,6 +772,7 @@ const applyProjectedViewSelectionDataCommand = ({
   const { target } = resolution
   const fragment = decodeProjectedClipboardFragment(runtimeEditor, data)
   const text = data.getData('text/plain')
+  const modelSelection = readRuntimeSelection(runtimeEditor)
   const hasFragmentPayload = !!fragment && fragment.length > 0
   const hasFallbackPayload = !!text || hasFragmentPayload
   const hasInsertDataHandlers =
@@ -775,6 +820,21 @@ const applyProjectedViewSelectionDataCommand = ({
       })
       writeSlateViewSelection(editor, null)
     }
+
+    return true
+  }
+
+  if (
+    text &&
+    !hasFragmentPayload &&
+    !hasInsertDataHandlers &&
+    applyFullBlockTextReplacement(runtimeEditor, modelSelection, text)
+  ) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
 
     return true
   }
@@ -927,6 +987,17 @@ const applyRootLocalSelectionMoveCommand = ({
 
   writeSlateViewSelection(editor, null)
   editor.update((tx) => {
+    if (command.axis === 'document') {
+      const point = command.reverse ? tx.points.start([]) : tx.points.end([])
+
+      tx.selection.set(
+        command.extend
+          ? createRange(selection.anchor, point)
+          : createRange(point, point)
+      )
+      return
+    }
+
     if (command.extend) {
       tx.selection.move({
         edge: 'focus',
@@ -1429,28 +1500,36 @@ const applyFullBlockDeleteFragment = (
   editor: RuntimeEditor,
   selection: Range | null
 ) => {
-  const blockPaths = getFullySelectedBlockPaths(editor, selection)
-
-  if (blockPaths) {
-    editor.update((tx) => {
-      for (const blockPath of [...blockPaths].reverse()) {
-        tx.nodes.remove({ at: blockPath })
-      }
-    })
-
-    return true
-  }
-
-  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
-    editor,
-    selection
+  const topLevelBlockPaths = profileEditableMutationDuration(
+    'delete-fragment.full-top-level-paths',
+    () => getFullySelectedTopLevelBlockPaths(editor, selection)
   )
 
   if (!topLevelBlockPaths) {
+    const blockPaths = profileEditableMutationDuration(
+      'delete-fragment.full-block-paths',
+      () => getFullySelectedBlockPaths(editor, selection)
+    )
+
+    if (blockPaths) {
+      profileEditableMutationDuration('delete-fragment.remove-blocks', () => {
+        editor.update((tx) => {
+          for (const blockPath of [...blockPaths].reverse()) {
+            tx.nodes.remove({ at: blockPath })
+          }
+        })
+      })
+
+      return true
+    }
+
     return false
   }
 
-  const marks = getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  const marks = profileEditableMutationDuration(
+    'delete-fragment.consistent-marks',
+    () => getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  )
   const selectionPoint = getPointWithRoot(
     { path: [0, 0], offset: 0 },
     selection?.anchor.root
@@ -1459,18 +1538,37 @@ const applyFullBlockDeleteFragment = (
     ...createDefaultParagraph(),
     children: [marks ? { ...marks, text: '' } : { text: '' }],
   } as Descendant
+  const root = selection?.anchor.root
+  const selectedChildren = profileEditableMutationDuration(
+    'delete-fragment.selected-children',
+    () =>
+      withProjectedMutationRoot(editor, root, () =>
+        editor.read((state) => [...state.nodes.children()])
+      )
+  )
+  const nextSelection = { anchor: selectionPoint, focus: selectionPoint }
 
-  editor.update((tx) => {
-    for (const blockPath of [...topLevelBlockPaths].reverse()) {
-      tx.nodes.remove({ at: blockPath })
-    }
-    tx.nodes.insert(paragraph, { at: [0] })
-    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
-    if (marks) {
-      for (const [key, value] of Object.entries(marks)) {
-        tx.marks.add(key, value)
+  profileEditableMutationDuration('delete-fragment.replay-replace', () => {
+    editor.update((tx) => {
+      tx.operations.replay([
+        markInternalOwnedReplayOperation({
+          children: selectedChildren,
+          index: 0,
+          newChildren: [paragraph],
+          newSelection: nextSelection,
+          path: [],
+          ...(root ? { root } : {}),
+          selection,
+          type: 'replace_children',
+        } as Operation),
+      ])
+
+      if (marks) {
+        for (const [key, value] of Object.entries(marks)) {
+          tx.marks.add(key, value)
+        }
       }
-    }
+    })
   })
 
   return true
@@ -1481,11 +1579,57 @@ const applyFullBlockTextReplacement = (
   selection: Range | null,
   text: string
 ) => {
-  const blockPaths =
-    getFullySelectedBlockPaths(editor, selection, {
-      includeAllSiblings: true,
-      includeOnlyChild: true,
-    }) ?? getFullySelectedTopLevelBlockPaths(editor, selection)
+  if (MULTILINE_TEXT_PATTERN.test(text)) {
+    return false
+  }
+
+  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
+    editor,
+    selection
+  )
+
+  if (topLevelBlockPaths?.length) {
+    const marks =
+      getEditorCurrentMarks(editor) ??
+      getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+    const replacement = createTextReplacementNode(
+      editor,
+      topLevelBlockPaths,
+      marks,
+      text
+    )
+    const root = selection?.anchor.root
+    const selectedChildren = withProjectedMutationRoot(editor, root, () =>
+      editor.read((state) => [...state.nodes.children()])
+    )
+    const nextPoint = getPointWithRoot(
+      { path: [0, 0], offset: text.length },
+      root
+    )
+    const nextSelection = { anchor: nextPoint, focus: nextPoint }
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: selectedChildren,
+          index: 0,
+          newChildren: [replacement],
+          newSelection: nextSelection,
+          path: [],
+          ...(root ? { root } : {}),
+          selection,
+          type: 'replace_children',
+        } as Operation,
+      ])
+    })
+
+    return true
+  }
+
+  const blockPaths = getFullySelectedBlockPaths(editor, selection, {
+    includeAllSiblings: true,
+    includeOnlyChild: true,
+  })
 
   if (!blockPaths?.length) {
     return false
@@ -1565,10 +1709,7 @@ export const applyEditableCommand = ({
 
         editor.update((tx) => {
           if (selection && RangeApi.isExpanded(selection)) {
-            tx.fragment.delete({
-              at: selection,
-              ...(command.direction ? { direction: command.direction } : {}),
-            })
+            tx.fragment.delete({ at: selection })
             return
           }
 
@@ -1642,19 +1783,34 @@ export const applyEditableCommand = ({
       })
 
     case 'select':
-    case 'select-all':
-      writeSlateViewSelection(editor, null)
+    case 'select-all': {
+      let nextSelection: Range | null = null
       editor.update((tx) => {
-        tx.selection.set(
+        nextSelection =
           command.kind === 'select'
             ? command.selection
             : {
                 anchor: tx.points.start([]),
                 focus: tx.points.end([]),
               }
-        )
+        tx.selection.set(nextSelection)
       })
+      writeSlateViewSelection(
+        editor,
+        command.kind === 'select-all' &&
+          nextSelection &&
+          shouldUseModelBackedSelectAllSelection({
+            editor: editor as ReactRuntimeEditor,
+            selection: nextSelection,
+          })
+          ? createMainRootSlateViewSelection(
+              nextSelection,
+              editor.read((state) => state.view.root())
+            )
+          : null
+      )
       return true
+    }
 
     case 'move-selection':
       if (
@@ -1693,6 +1849,7 @@ export type EditableRepairRequest =
       forceRender?: boolean
       kind: 'force-render' | 'sync-selection'
       selectionSourceTransition?: EditableSelectionSourceTransition
+      syncDOMSelection?: boolean
     }
   | {
       focus?: boolean
@@ -1830,23 +1987,35 @@ export const applyEditableRepairRequest = ({
         'selectionSourceTransition' in request &&
         request.selectionSourceTransition
       ) {
-        setEditableModelSelectionPreference({
-          inputController,
-          preferModelSelection:
-            request.selectionSourceTransition.preferModelSelection,
-          reason:
-            request.selectionSourceTransition.reason === 'native-selection-move'
-              ? 'native-selection'
-              : request.selectionSourceTransition.reason === 'unknown-selection'
-                ? 'unknown'
-                : request.selectionSourceTransition.reason,
-          selectionSource: request.selectionSourceTransition.selectionSource,
-        })
+        const { selectionSourceTransition } = request
+
+        profileEditableMutationDuration(
+          'repair.selection-source-transition',
+          () => {
+            setEditableModelSelectionPreference({
+              inputController,
+              preferModelSelection:
+                selectionSourceTransition.preferModelSelection,
+              reason:
+                selectionSourceTransition.reason === 'native-selection-move'
+                  ? 'native-selection'
+                  : selectionSourceTransition.reason === 'unknown-selection'
+                    ? 'unknown'
+                    : selectionSourceTransition.reason,
+              selectionSource: selectionSourceTransition.selectionSource,
+            })
+          }
+        )
         if (
-          request.selectionSourceTransition.preferModelSelection &&
-          request.selectionSourceTransition.reason === 'model-command'
+          selectionSourceTransition.preferModelSelection &&
+          selectionSourceTransition.reason === 'model-command'
         ) {
-          armModelOwnedTextInputGuard({ inputController })
+          profileEditableMutationDuration(
+            'repair.model-owned-text-guard',
+            () => {
+              armModelOwnedTextInputGuard({ inputController })
+            }
+          )
         }
       }
 
@@ -1855,26 +2024,73 @@ export const applyEditableRepairRequest = ({
         request.focus &&
         !shouldSkipSelectionFocus(editor)
       ) {
-        ReactEditor.focus(editor)
+        profileEditableMutationDuration('repair.focus-editor', () => {
+          ReactEditor.focus(editor)
+        })
       }
 
       if ('forceRender' in request && request.forceRender) {
-        forceRender()
+        profileEditableMutationDuration('repair.force-render', forceRender)
       }
 
       if (request.kind === 'sync-selection') {
-        inputController.state.selectionChangeOrigin = 'programmatic-export'
-        syncDOMSelectionToEditor()
+        const markProgrammaticSelectionUpdate = () => {
+          inputController.state.isUpdatingSelection = true
+          inputController.state.selectionChangeOrigin = 'programmatic-export'
+        }
+
+        if (request.syncDOMSelection === false) {
+          markProgrammaticSelectionUpdate()
+          globalThis.setTimeout?.(() => {
+            if (
+              inputController.state.selectionChangeOrigin ===
+              'programmatic-export'
+            ) {
+              inputController.state.isUpdatingSelection = false
+            }
+          }, 160)
+          return
+        }
+
+        const syncProgrammaticDOMSelection = () => {
+          const selection = readRuntimeSelection(editor)
+
+          if (selection) {
+            editor.update((tx) => {
+              tx.selection.set(selection)
+            })
+          }
+
+          markProgrammaticSelectionUpdate()
+          syncDOMSelectionToEditor()
+        }
+
+        syncProgrammaticDOMSelection()
+        globalThis.queueMicrotask?.(syncProgrammaticDOMSelection)
+        globalThis.setTimeout?.(syncProgrammaticDOMSelection)
+        globalThis.setTimeout?.(syncProgrammaticDOMSelection, 80)
+        globalThis.setTimeout?.(() => {
+          if (
+            inputController.state.selectionChangeOrigin ===
+            'programmatic-export'
+          ) {
+            inputController.state.isUpdatingSelection = false
+          }
+        }, 160)
         return
       }
 
       if (request.kind === 'repair-caret') {
-        domRepairQueue.repair(repairPolicy)
+        profileEditableMutationDuration('repair.dom-repair-queue', () => {
+          domRepairQueue.repair(repairPolicy)
+        })
         return
       }
 
       if (request.kind === 'repair-caret-after-text-insert') {
-        domRepairQueue.repair(repairPolicy)
+        profileEditableMutationDuration('repair.dom-repair-queue', () => {
+          domRepairQueue.repair(repairPolicy)
+        })
       }
     },
     repairPolicy,

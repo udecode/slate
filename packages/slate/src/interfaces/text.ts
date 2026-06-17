@@ -1,5 +1,6 @@
-import { isObject, type Range, RangeApi } from '..'
+import { type Range, RangeApi } from '..'
 import { isDeepEqual } from '../utils/deep-equal'
+import { isObject } from '../utils/is-object'
 import type { BaseEditor } from './editor'
 import type { TElement } from './element'
 
@@ -97,17 +98,17 @@ export interface TextInterface {
   /**
    * Check if a value implements the `Text` interface.
    */
-  isText: <N extends Text = Text>(value: any) => value is N
+  isText: <N extends Text = Text>(value: unknown) => value is N
 
   /**
    * Check if a value is a list of `Text` objects.
    */
-  isTextList: <N extends Text = Text>(value: any) => value is N[]
+  isTextList: <N extends Text = Text>(value: unknown) => value is N[]
 
   /**
    * Check if some props are a partial of Text.
    */
-  isTextProps: <N extends Text = Text>(props: any) => props is Partial<N>
+  isTextProps: <N extends Text = Text>(props: unknown) => props is Partial<N>
 
   /**
    * Check if an text matches set of properties.
@@ -143,15 +144,15 @@ export const TextApi: TextInterface = {
     )
   },
 
-  isText<N extends Text = Text>(value: any): value is N {
+  isText<N extends Text = Text>(value: unknown): value is N {
     return isObject(value) && typeof value.text === 'string'
   },
 
-  isTextList<N extends Text = Text>(value: any): value is N[] {
+  isTextList<N extends Text = Text>(value: unknown): value is N[] {
     return Array.isArray(value) && value.every((val) => TextApi.isText(val))
   },
 
-  isTextProps<N extends Text = Text>(props: any): props is Partial<N> {
+  isTextProps<N extends Text = Text>(props: unknown): props is Partial<N> {
     return isObject(props) && Object.hasOwn(props, 'text')
   },
 

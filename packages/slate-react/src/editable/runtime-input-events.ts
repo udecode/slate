@@ -19,8 +19,26 @@ import {
 } from './model-input-strategy'
 import type { EditableEventRuntime } from './runtime-event-engine'
 import { readRuntimeSelection } from './runtime-selection-state'
+import { armModelOwnedTextInputGuard } from './selection-controller'
 
 type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
+
+const syncModelOwnedTextInputSelectionToDOM = ({
+  rootElement,
+  syncDOMSelectionToEditor,
+}: {
+  rootElement: HTMLDivElement
+  syncDOMSelectionToEditor: () => void
+}) => {
+  const sync = () => {
+    syncDOMSelectionToEditor()
+  }
+  const window = rootElement.ownerDocument.defaultView
+
+  sync()
+  window?.queueMicrotask(sync)
+  window?.requestAnimationFrame(sync)
+}
 
 export const useRuntimeInputEvents = ({
   androidInputManagerRef,
@@ -33,6 +51,7 @@ export const useRuntimeInputEvents = ({
   readOnly,
   repair,
   rootRef,
+  syncDOMSelectionToEditor,
   trace,
 }: {
   androidInputManagerRef: EditableEventRuntime['android']['managerRef']
@@ -45,6 +64,7 @@ export const useRuntimeInputEvents = ({
   readOnly: boolean
   repair: EditableEventRuntime['repair']
   rootRef: RefObject<HTMLDivElement | null>
+  syncDOMSelectionToEditor: () => void
   trace: EditableEventRuntime['trace']
 }) => {
   const handledDOMInputEventsRef = useRef<WeakSet<Event>>(new WeakSet())
@@ -103,6 +123,17 @@ export const useRuntimeInputEvents = ({
         readOnly,
         skipNativeTextInputRepair,
       })
+      if (
+        decision.intent === 'composition' &&
+        (decision.ownership === 'model-owned' ||
+          inputController.state.selectionSource === 'model-owned')
+      ) {
+        armModelOwnedTextInputGuard({ inputController })
+        syncModelOwnedTextInputSelectionToDOM({
+          rootElement: event.currentTarget,
+          syncDOMSelectionToEditor,
+        })
+      }
       for (const request of inputResult.repairs) {
         repair.requestEditableRepair(request)
       }
@@ -117,6 +148,7 @@ export const useRuntimeInputEvents = ({
       readOnly,
       repair,
       trace,
+      syncDOMSelectionToEditor,
     ]
   )
   const onRuntimeInput = useEditableInputHandler({ handleInput })
@@ -168,7 +200,17 @@ export const useRuntimeInputEvents = ({
 
       const target =
         inputType === 'insertText'
-          ? getDOMInputRepairTarget(editor, rootElement, { data, inputType })
+          ? getDOMInputRepairTarget(
+              editor,
+              rootElement,
+              { data, inputType },
+              {
+                preferRuntimeSelection:
+                  (inputController.state.modelOwnedTextInputGuard ?? 0) > 0 ||
+                  (inputController.preferModelSelectionForInputRef.current &&
+                    inputController.state.selectionSource === 'model-owned'),
+              }
+            )
           : null
 
       markHandledDOMInput(event.nativeEvent)

@@ -1,11 +1,17 @@
 import { faker } from '@faker-js/faker'
-import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
+import {
+  parseAsBoolean,
+  parseAsString,
+  parseAsStringLiteral,
+  useQueryStates,
+} from 'nuqs'
 import React, {
   type CSSProperties,
   StrictMode,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import type { Editor, Value } from 'slate'
@@ -41,6 +47,7 @@ const SUPPORTS_LOAF_TIMING =
 interface Config {
   blocks: number
   contentVisibilityMode: 'none' | 'element'
+  documentSeed: string
   editorHeight: number
   domStrategyMode: 'auto' | 'full' | 'staged' | 'virtualized'
   domStrategyOverscan: number
@@ -57,6 +64,16 @@ type RenderConfig = {
 
 type SetConfig = (partialConfig: Partial<Config>) => void
 
+type EventTimingEntry = PerformanceEntry & {
+  processingEnd: number
+  processingStart: number
+}
+
+type EventTimingObserverInit = PerformanceObserverInit & {
+  durationThreshold: number
+  type: 'event'
+}
+
 const RenderConfigContext = React.createContext<RenderConfig>({
   contentVisibility: false,
   showSelectedHeadings: false,
@@ -66,6 +83,9 @@ const blocksOptions = [
   2, 1000, 2500, 5000, 7500, 10_000, 15_000, 20_000, 25_000, 30_000, 40_000,
   50_000, 100_000, 200_000,
 ]
+
+const formatBlocksOption = (blocks: number) =>
+  new Intl.NumberFormat('en-US').format(blocks)
 
 const contentVisibilityModeOptions = ['none', 'element'] as const
 const domStrategyModeOptions = [
@@ -83,7 +103,8 @@ const hugeDocumentQueryParsers = {
   blocks: parseAsBoundedInteger(1, 200_000).withDefault(10_000),
   contentVisibilityMode: parseAsStringLiteral(
     contentVisibilityModeOptions
-  ).withDefault('element'),
+  ).withDefault('none'),
+  documentSeed: parseAsString.withDefault('default'),
   domStrategyMode: parseAsStringLiteral(domStrategyModeOptions)
     .withDefault('virtualized')
     .withOptions({ clearOnDefault: false }),
@@ -97,6 +118,7 @@ const hugeDocumentQueryParsers = {
 
 const hugeDocumentUrlKeys = {
   contentVisibilityMode: 'content_visibility',
+  documentSeed: 'seed',
   domStrategyMode: 'strategy',
   domStrategyOverscan: 'overscan',
   domStrategyThreshold: 'threshold',
@@ -106,30 +128,55 @@ const hugeDocumentUrlKeys = {
   virtualizedEstimatedBlockSize: 'estimated_block_size',
 }
 
-const cachedInitialValue: Value = []
+const cachedInitialValueBySeed = new Map<string, Value>()
+const maxCachedInitialValueBlocks = 50_000
 
-const getInitialValue = (blocks: number) => {
-  if (cachedInitialValue.length >= blocks) {
-    return cachedInitialValue.slice(0, blocks)
-  }
+const getNumericDocumentSeed = (seed: string) =>
+  seed === 'default'
+    ? 1
+    : Array.from(seed).reduce(
+        (value, character) =>
+          (Math.imul(value, 31) + character.charCodeAt(0)) >>> 0,
+        0
+      )
 
-  faker.seed(1)
+const generateInitialValue = (blocks: number, seed: string) => {
+  const initialValue: Value = []
+  faker.seed(getNumericDocumentSeed(seed))
 
-  for (let i = cachedInitialValue.length; i < blocks; i++) {
+  for (let i = 0; i < blocks; i++) {
     if (i % 100 === 0) {
-      cachedInitialValue.push({
+      initialValue.push({
         type: 'heading-one',
         children: [{ text: faker.lorem.sentence() }],
       })
     } else {
-      cachedInitialValue.push({
+      initialValue.push({
         type: 'paragraph',
         children: [{ text: faker.lorem.paragraph() }],
       })
     }
   }
 
-  return cachedInitialValue.slice()
+  return initialValue
+}
+
+const getInitialValue = (blocks: number, seed: string) => {
+  if (blocks > maxCachedInitialValueBlocks) {
+    return generateInitialValue(blocks, seed)
+  }
+
+  const cachedInitialValue = cachedInitialValueBySeed.get(seed)
+
+  if (cachedInitialValue && cachedInitialValue.length >= blocks) {
+    return cachedInitialValue.slice(0, blocks)
+  }
+
+  const initialValue = generateInitialValue(blocks, seed)
+
+  cachedInitialValueBySeed.set(seed, initialValue)
+
+  return initialValue.slice()
 }
 
 const fallbackInitialValue: Value = [
@@ -139,6 +186,8 @@ const fallbackInitialValue: Value = [
   },
 ]
 
+// The huge-document bench remounts editors from URL/config controls. Normal
+// React-owned examples should use `useSlateEditor`.
 const createEditor = (_config: Config, initialValue: Value) =>
   createReactEditor({ initialValue })
 
@@ -158,15 +207,17 @@ const toDOMStrategy = (config: Config): EditableProps['domStrategy'] => {
   }
 }
 
-const toVirtualizedEditableStyle = (
-  config: Config
-): CSSProperties | undefined =>
+const hasBoundedEditableScroller = (config: Config) =>
+  config.domStrategyMode === 'staged' ||
   config.domStrategyMode === 'virtualized'
+
+const toBoundedEditableStyle = (config: Config): CSSProperties | undefined =>
+  hasBoundedEditableScroller(config)
     ? {
-        border: '1px solid #ddd',
         height: config.editorHeight,
+        outline: '1px solid #ddd',
+        scrollbarGutter: 'stable',
         overflowY: 'auto',
-        padding: 12,
       }
     : undefined
 
@@ -184,8 +235,11 @@ const HugeDocumentExample = () => {
       config,
       typeof window === 'undefined'
         ? fallbackInitialValue
-        : getInitialValue(config.blocks)
+        : getInitialValue(config.blocks, config.documentSeed)
     )
+  )
+  const editorInitialValueKeyRef = useRef(
+    `${config.documentSeed}:${config.blocks}`
   )
   const [editorVersion, setEditorVersion] = useState(0)
   const [domStrategyMetrics, setDOMStrategyMetrics] =
@@ -197,10 +251,14 @@ const HugeDocumentExample = () => {
 
       setIsRendering(true)
       setDOMStrategyMetrics(null)
+      editorInitialValueKeyRef.current = `${newConfig.documentSeed}:${newConfig.blocks}`
       void setQueryConfig(newConfig)
 
       setTimeout(() => {
-        const nextInitialValue = getInitialValue(newConfig.blocks)
+        const nextInitialValue = getInitialValue(
+          newConfig.blocks,
+          newConfig.documentSeed
+        )
 
         setIsRendering(false)
         setEditor(createEditor(newConfig, nextInitialValue))
@@ -210,12 +268,44 @@ const HugeDocumentExample = () => {
     [config, setQueryConfig]
   )
 
+  useEffect(() => {
+    const initialValueKey = `${config.documentSeed}:${config.blocks}`
+
+    if (editorInitialValueKeyRef.current === initialValueKey) {
+      return
+    }
+
+    let replaceTimeout: ReturnType<typeof setTimeout> | undefined
+
+    const renderTimeout = setTimeout(() => {
+      setIsRendering(true)
+      setDOMStrategyMetrics(null)
+
+      replaceTimeout = setTimeout(() => {
+        const nextInitialValue = getInitialValue(
+          config.blocks,
+          config.documentSeed
+        )
+
+        editorInitialValueKeyRef.current = initialValueKey
+        setIsRendering(false)
+        setEditor(createEditor(config, nextInitialValue))
+        setEditorVersion((n) => n + 1)
+      })
+    })
+
+    return () => {
+      clearTimeout(renderTimeout)
+
+      if (replaceTimeout) {
+        clearTimeout(replaceTimeout)
+      }
+    }
+  }, [config])
+
   const domStrategy = useMemo(() => toDOMStrategy(config), [config])
 
-  const editableStyle = useMemo(
-    () => toVirtualizedEditableStyle(config),
-    [config]
-  )
+  const editableStyle = useMemo(() => toBoundedEditableStyle(config), [config])
 
   const renderConfig = useMemo(
     () => ({
@@ -273,9 +363,21 @@ const Heading = ({
   showSelectedHeadings: boolean
   ref?: React.Ref<HTMLHeadingElement>
 }) => {
-  // Fine since the editor is remounted if the config changes
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const selected = showSelectedHeadings ? useElementSelected() : false
+  if (showSelectedHeadings) {
+    return <SelectedHeading ref={ref} style={styleProp} {...props} />
+  }
+
+  return <h1 ref={ref} {...props} aria-selected={false} style={styleProp} />
+}
+
+const SelectedHeading = ({
+  style: styleProp,
+  ref,
+  ...props
+}: React.ComponentProps<'h1'> & {
+  ref?: React.Ref<HTMLHeadingElement>
+}) => {
+  const selected = useElementSelected()
   const style = { ...styleProp, color: selected ? 'green' : undefined }
   return <h1 ref={ref} {...props} aria-selected={selected} style={style} />
 }
@@ -286,6 +388,7 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
   const { contentVisibility, showSelectedHeadings } =
     React.useContext(RenderConfigContext)
   const style = {
+    containIntrinsicSize: contentVisibility ? 'auto 64px' : undefined,
     contentVisibility: contentVisibility ? 'auto' : undefined,
   } satisfies CSSProperties
 
@@ -331,6 +434,13 @@ const PerformanceControls = ({
     keyPressDurations.length === 10
       ? Math.round(keyPressDurations.reduce((total, d) => total + d) / 10)
       : null
+  const visibleBlocksOptions = useMemo(
+    () =>
+      Array.from(new Set([...blocksOptions, config.blocks])).sort(
+        (left, right) => left - right
+      ),
+    [config.blocks]
+  )
 
   useEffect(() => {
     if (!SUPPORTS_EVENT_TIMING) return
@@ -338,9 +448,9 @@ const PerformanceControls = ({
     const observer = new PerformanceObserver((list) => {
       list.getEntries().forEach((entry) => {
         if (entry.name === 'keypress') {
+          const eventEntry = entry as EventTimingEntry
           const duration = Math.round(
-            // @ts-expect-error Entry type is missing processingStart and processingEnd
-            entry.processingEnd - entry.processingStart
+            eventEntry.processingEnd - eventEntry.processingStart
           )
           setKeyPressDurations((durations) => [
             duration,
@@ -350,8 +460,10 @@ const PerformanceControls = ({
       })
     })
 
-    // @ts-expect-error Options type is missing durationThreshold
-    observer.observe({ type: 'event', durationThreshold: 16 })
+    observer.observe({
+      durationThreshold: 16,
+      type: 'event',
+    } as EventTimingObserverInit)
 
     return () => observer.disconnect()
   }, [])
@@ -360,8 +472,8 @@ const PerformanceControls = ({
     if (!SUPPORTS_LOAF_TIMING) return
 
     let afterOperation = false
-    const unsubscribe = editor.subscribe((_snapshot, change) => {
-      if (change?.operations.length) {
+    const unsubscribe = editor.subscribeCommit((change) => {
+      if (change.operations.length) {
         afterOperation = true
       }
     })
@@ -397,9 +509,9 @@ const PerformanceControls = ({
           }
           value={config.blocks}
         >
-          {blocksOptions.map((blocks) => (
+          {visibleBlocksOptions.map((blocks) => (
             <NativeSelectOption key={blocks} value={blocks}>
-              {blocks.toString().replace(/(\d{3})$/, ',$1')}
+              {formatBlocksOption(blocks)}
             </NativeSelectOption>
           ))}
         </NativeSelect>
@@ -494,27 +606,29 @@ const PerformanceControls = ({
             </>
           )}
 
-          {config.domStrategyMode === 'virtualized' && (
+          {hasBoundedEditableScroller(config) && (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Label htmlFor="huge-document-estimated-block-size">
-                  Estimated block size:
-                </Label>
-                <Input
-                  id="huge-document-estimated-block-size"
-                  min={1}
-                  onChange={(event) =>
-                    setConfig({
-                      virtualizedEstimatedBlockSize: Number.parseInt(
-                        event.target.value,
-                        10
-                      ),
-                    })
-                  }
-                  type="number"
-                  value={config.virtualizedEstimatedBlockSize}
-                />
-              </div>
+              {config.domStrategyMode === 'virtualized' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="huge-document-estimated-block-size">
+                    Estimated block size:
+                  </Label>
+                  <Input
+                    id="huge-document-estimated-block-size"
+                    min={1}
+                    onChange={(event) =>
+                      setConfig({
+                        virtualizedEstimatedBlockSize: Number.parseInt(
+                          event.target.value,
+                          10
+                        ),
+                      })
+                    }
+                    type="number"
+                    value={config.virtualizedEstimatedBlockSize}
+                  />
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2">
                 <Label htmlFor="huge-document-editor-height">

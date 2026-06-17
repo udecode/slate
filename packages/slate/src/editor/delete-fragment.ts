@@ -5,7 +5,7 @@ import type { EditorStaticApi } from '../interfaces/editor'
 import { RangeApi } from '../interfaces/range'
 
 type DeleteFragmentCommand = {
-  at: NonNullable<Parameters<EditorStaticApi['deleteFragment']>[1]>['at']
+  at?: NonNullable<Parameters<EditorStaticApi['deleteFragment']>[1]>['at']
   direction: NonNullable<
     Parameters<EditorStaticApi['deleteFragment']>[1]
   >['direction']
@@ -36,15 +36,16 @@ export const deleteFragment: EditorStaticApi['deleteFragment'] = (
   editor,
   { at, direction = 'forward' } = {}
 ) => {
-  executeCommand<DeleteFragmentCommand>(
-    editor,
-    { at, direction, type: 'delete_fragment' },
-    (command) => {
-      applyDeleteFragment(editor, {
-        at: command.at,
-        direction: command.direction,
-      })
-      return true
-    }
-  )
+  const command: DeleteFragmentCommand =
+    at === undefined
+      ? { direction, type: 'delete_fragment' }
+      : { at, direction, type: 'delete_fragment' }
+
+  executeCommand<DeleteFragmentCommand>(editor, command, (command) => {
+    applyDeleteFragment(editor, {
+      at: command.at,
+      direction: command.direction,
+    })
+    return true
+  })
 }

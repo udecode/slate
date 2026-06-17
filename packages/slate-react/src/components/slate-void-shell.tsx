@@ -36,7 +36,7 @@ export const SlateVoidShell = ({
   recordSlateReactRender({ kind: 'void' })
 
   return (
-    <SlateElement isVoid style={{ position: 'relative' }}>
+    <SlateElement draggable isVoid style={{ position: 'relative' }}>
       <div contentEditable={false}>{content}</div>
       <SlateSpacer>{children}</SlateSpacer>
     </SlateElement>

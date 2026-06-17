@@ -20,13 +20,16 @@ export {
 export {
   applyOperation,
   applyStatePatches,
+  getCachedFullRootReplaceTopLevelRuntimeIds,
   getCurrentMarks as getEditorCurrentMarks,
   getCurrentSelectionRoot as getEditorSelectionRoot,
   getEditorOperationRoot,
   getLiveNode as getEditorLiveNode,
   getLiveSelection as getEditorLiveSelection,
   getLiveText as getEditorLiveText,
+  getOperationCount,
   getSnapshotVersion,
+  markInternalOwnedReplayOperation,
   setChildren as setEditorChildren,
   setCurrentMarks as setEditorMarks,
   setCurrentSelection as setEditorSelection,
@@ -39,7 +42,9 @@ export {
   getEditorTransformRegistry,
   setEditorTransformRegistry,
 } from '../core/transform-registry'
+export { projectRangeInSnapshot } from '../range-projection'
 export { formatDebugValue } from '../utils/format-debug-value'
+export { isObject } from '../utils/is-object'
 export {
   getOperationRoot,
   getRangeRoot,

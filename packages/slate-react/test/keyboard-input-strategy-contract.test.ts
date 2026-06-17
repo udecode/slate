@@ -3,6 +3,7 @@ import {
   createEditorRuntime,
   createEditorView,
   type Descendant,
+  defineEditorExtension,
 } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
@@ -12,12 +13,16 @@ import { isSelectAllHotkey } from '../src/dom-strategy/dom-strategy-commands'
 import { resolveHistoryFocusEditor } from '../src/editable/history-focus'
 import {
   applyEditableKeyDown,
+  getTextDirection,
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
+import { applyEditableCommand } from '../src/editable/mutation-controller'
+import { isNativeVerticalKeyFastPathFullyMounted } from '../src/editable/runtime-keyboard-events'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createSlateProjectionGraph } from '../src/projection-graph'
 import {
   createSlateViewSelection,
+  readSlateViewSelection,
   writeSlateViewSelection,
 } from '../src/view-selection'
 
@@ -38,10 +43,15 @@ const keyEvent = (
 
 const reactKeyEvent = (nativeEvent: KeyboardEvent) =>
   ({
+    altKey: nativeEvent.altKey,
+    ctrlKey: nativeEvent.ctrlKey,
     isDefaultPrevented: () => false,
     isPropagationStopped: () => false,
+    key: nativeEvent.key,
+    metaKey: nativeEvent.metaKey,
     nativeEvent,
     preventDefault: vi.fn(),
+    shiftKey: nativeEvent.shiftKey,
     stopPropagation: vi.fn(),
     target: null,
   }) as any
@@ -51,6 +61,57 @@ const paragraph = (text: string) =>
     type: 'paragraph',
     children: [{ text }],
   }) satisfies Descendant
+
+const contentRootExtension = defineEditorExtension({
+  name: 'keyboard-content-root-test',
+  elements: [
+    {
+      type: 'content-card',
+      contentRoot: { slot: 'body' },
+      void: 'editable-island',
+    },
+  ],
+})
+
+const contentCard = (bodyRoot = 'card:body') =>
+  ({
+    type: 'content-card',
+    childRoots: { body: bodyRoot },
+    children: [{ text: '' }],
+  }) satisfies Descendant
+
+it('detects first-strong keyboard text direction for modern RTL scripts', () => {
+  expect(getTextDirection(`123 ${String.fromCodePoint(0x08_a0)}`)).toBe('rtl')
+  expect(getTextDirection(`123 ${String.fromCodePoint(0x1_e9_00)}`)).toBe('rtl')
+  expect(getTextDirection('abc \u05d0')).toBe('ltr')
+  expect(getTextDirection('123 \u05d0')).toBe('rtl')
+  expect(getTextDirection('123 456')).toBe('neutral')
+  expect(getTextDirection('\u0661\u0662\u0663')).toBe('neutral')
+  expect(getTextDirection('\u06f1\u06f2\u06f3 abc')).toBe('ltr')
+})
+
+const domRect = ({
+  bottom,
+  left = 0,
+  right = 100,
+  top,
+}: {
+  bottom: number
+  left?: number
+  right?: number
+  top: number
+}) =>
+  ({
+    bottom,
+    height: bottom - top,
+    left,
+    right,
+    top,
+    width: right - left,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  }) as DOMRect
 
 describe('keyboard input strategy', () => {
   it('keeps macOS Control+A available for line-start movement', () => {
@@ -120,6 +181,366 @@ describe('keyboard input strategy', () => {
         nativeEvent: keyEvent('Delete'),
       })
     ).toBe(false)
+  })
+
+  it('allows native vertical key fast path only when top-level DOM coverage is complete', () => {
+    const editor = createEditor({
+      initialValue: [paragraph('one'), paragraph('two'), paragraph('three')],
+    }) as any
+
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: null,
+        editor,
+      })
+    ).toBe(true)
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(['a', 'b']),
+          mountedTopLevelRanges: [{ endIndex: 1, startIndex: 0 }],
+        },
+        editor,
+      })
+    ).toBe(false)
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(['a', 'b', 'c']),
+          mountedTopLevelRanges: [
+            { endIndex: 0, startIndex: 0 },
+            { endIndex: 2, startIndex: 1 },
+          ],
+        },
+        editor,
+      })
+    ).toBe(true)
+  })
+
+  it('model-owns plain vertical shift extension in large DOM-strategy documents', () => {
+    const initialValue = Array.from({ length: 1001 }, (_, index) =>
+      paragraph(`row-${index}`)
+    )
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      initialValue,
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('ArrowDown', { shiftKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'staged',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(result.repair).toMatchObject({
+        forceRender: false,
+        kind: 'sync-selection',
+        syncDOMSelection: false,
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).toEqual({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [1, 0] },
+      })
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('model-owns virtualized plain vertical shift through view selection', () => {
+    const initialValue = Array.from({ length: 1001 }, (_, index) =>
+      paragraph(`row-${index}`)
+    )
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      initialValue,
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('ArrowDown', { shiftKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRanges: [{ endIndex: 6, startIndex: 0 }],
+          mountedTopLevelRuntimeIds: new Set([
+            '0',
+            '1',
+            '2',
+            '3',
+            '4',
+            '5',
+            '6',
+          ]),
+          type: 'virtualized',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(result.repair).toMatchObject({
+        forceRender: false,
+        kind: 'sync-selection',
+        syncDOMSelection: false,
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).toEqual({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [1, 0] },
+      })
+      expect(readSlateViewSelection(editor)).not.toBe(null)
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('leaves plain vertical shift extension native in small DOM-strategy documents', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      initialValue: [paragraph('one'), paragraph('two'), paragraph('three')],
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('ArrowDown', { shiftKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'staged',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('model-owns rich multi-leaf vertical shift extension in large DOM-strategy documents', () => {
+    const initialValue = Array.from({ length: 1001 }, (_, index) =>
+      index === 0
+        ? {
+            type: 'paragraph',
+            children: [{ text: 'ro' }, { bold: true, text: 'w-0' }],
+          }
+        : paragraph(`row-${index}`)
+    )
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      initialValue,
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('ArrowDown', { shiftKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'staged',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).not.toEqual({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [0, 0] },
+      })
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('model-owns wrapped single-leaf vertical shift extension in large DOM-strategy documents', () => {
+    const initialValue = Array.from({ length: 1001 }, (_, index) =>
+      paragraph(index === 0 ? 'wrapped row 0' : `row-${index}`)
+    )
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      initialValue,
+    }) as ReactEditorType
+    const root = document.createElement('div')
+    const block = document.createElement('div')
+    const textHost = document.createElement('span')
+    const text = document.createTextNode('wrapped row 0')
+    const event = reactKeyEvent(keyEvent('ArrowDown', { shiftKey: true }))
+    const rangeClientRects = Object.getOwnPropertyDescriptor(
+      Range.prototype,
+      'getClientRects'
+    )
+    const rangeBoundingRect = Object.getOwnPropertyDescriptor(
+      Range.prototype,
+      'getBoundingClientRect'
+    )
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+    const resolveDOMPoint = vi.fn(() => [text, 2] as any)
+    ;(editor as any).api = {
+      ...(editor as any).api,
+      dom: {
+        ...(editor as any).api?.dom,
+        resolveDOMPoint,
+      },
+    }
+
+    root.setAttribute('data-slate-editor', 'true')
+    block.setAttribute('data-slate-node', 'element')
+    block.setAttribute('data-slate-path', '0')
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.setAttribute('data-slate-path', '0,0')
+    textHost.append(text)
+    block.append(textHost)
+    root.append(block)
+    document.body.append(root)
+
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        return this.startContainer.nodeType === Node.TEXT_NODE
+          ? [domRect({ bottom: 10, top: 0 })]
+          : [domRect({ bottom: 10, top: 0 }), domRect({ bottom: 30, top: 20 })]
+      },
+    })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: Range) {
+        return this.startContainer.nodeType === Node.TEXT_NODE
+          ? domRect({ bottom: 10, top: 0 })
+          : domRect({ bottom: 30, top: 0 })
+      },
+    })
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'staged',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).not.toEqual({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [0, 0] },
+      })
+    } finally {
+      root.remove()
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+
+      if (rangeClientRects) {
+        Object.defineProperty(
+          Range.prototype,
+          'getClientRects',
+          rangeClientRects
+        )
+      } else {
+        delete (Range.prototype as Partial<Range>).getClientRects
+      }
+
+      if (rangeBoundingRect) {
+        Object.defineProperty(
+          Range.prototype,
+          'getBoundingClientRect',
+          rangeBoundingRect
+        )
+      } else {
+        delete (Range.prototype as Partial<Range>).getBoundingClientRect
+      }
+    }
   })
 
   it('does not route undo hotkeys while read-only', () => {
@@ -246,13 +667,206 @@ describe('keyboard input strategy', () => {
       expect(result.handled).toBe(true)
       expect(event.preventDefault).not.toHaveBeenCalled()
       expect(event.stopPropagation).toHaveBeenCalled()
-      expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      expect(editor.read((state) => state.value.root())).toEqual([
         paragraph('test'),
       ])
     } finally {
       root.remove()
       assertDOMNode.mockRestore()
       hasEditableTarget.mockRestore()
+    }
+  })
+
+  it('uses the nested editable selection when promoting a child-root Shift+Arrow move', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        children: [paragraph('p1'), contentCard(), paragraph('p2')],
+        roots: { 'card:body': [paragraph('Shared mission statement')] },
+      },
+    })
+    const mainEditor = createEditorView(runtime) as ReactEditorType
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as ReactEditorType
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    }
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const event = reactKeyEvent(keyEvent('ArrowLeft', { shiftKey: true }))
+    const assertDOMNode = vi
+      .spyOn(ReactEditor, 'assertDOMNode')
+      .mockReturnValue(root)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(false)
+    const getMountedViewEditor = vi.fn((root: string) =>
+      root === 'card:body' ? bodyEditor : null
+    )
+
+    root.dataset.slateEditor = 'true'
+    root.dataset.slateRoot = 'main'
+    nested.dataset.slateEditor = 'true'
+    nested.dataset.slateRoot = 'card:body'
+    root.append(nested)
+    document.body.append(root)
+    event.target = nested
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1, root: 'card:body' },
+        focus: { path: [0, 0], offset: 1, root: 'card:body' },
+      })
+    })
+    bodyEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    })
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor: mainEditor,
+        event,
+        forceRender: vi.fn(),
+        getActiveContentRootOwner: (root) =>
+          root === 'card:body' ? owner : null,
+        getContentRootOwnerViewEditor: (candidate) =>
+          candidate.childRoot === 'card:body' ? bodyEditor : null,
+        getMountedViewEditor,
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(readSlateViewSelection(mainEditor)).toMatchObject({
+        anchor: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+    } finally {
+      root.remove()
+      assertDOMNode.mockRestore()
+      hasEditableTarget.mockRestore()
+    }
+  })
+
+  it('uses the nested DOM selection when child-root selection import is stale', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        children: [paragraph('p1'), contentCard(), paragraph('p2')],
+        roots: { 'card:body': [paragraph('Shared mission statement')] },
+      },
+    })
+    const mainEditor = createEditorView(runtime) as ReactEditorType
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as ReactEditorType
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    }
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const nativeText = document.createTextNode('Shared mission statement')
+    const event = reactKeyEvent(keyEvent('ArrowLeft', { shiftKey: true }))
+    const assertDOMNode = vi
+      .spyOn(ReactEditor, 'assertDOMNode')
+      .mockReturnValue(root)
+    const findDocumentOrShadowRoot = vi
+      .spyOn(ReactEditor, 'findDocumentOrShadowRoot')
+      .mockReturnValue(document)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(false)
+    const hasSelectableTarget = vi
+      .spyOn(ReactEditor, 'hasSelectableTarget')
+      .mockReturnValue(true)
+    const resolveSlateRange = vi
+      .spyOn(ReactEditor, 'resolveSlateRange')
+      .mockReturnValue({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    const getMountedViewEditor = vi.fn((root: string) =>
+      root === 'card:body' ? bodyEditor : null
+    )
+
+    root.dataset.slateEditor = 'true'
+    root.dataset.slateRoot = 'main'
+    nested.dataset.slateEditor = 'true'
+    nested.dataset.slateRoot = 'card:body'
+    nested.append(nativeText)
+    root.append(nested)
+    document.body.append(root)
+    event.target = nativeText
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1, root: 'card:body' },
+        focus: { path: [0, 0], offset: 1, root: 'card:body' },
+      })
+    })
+    bodyEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    })
+    document.getSelection()?.setBaseAndExtent(nativeText, 1, nativeText, 0)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor: mainEditor,
+        event,
+        forceRender: vi.fn(),
+        getActiveContentRootOwner: (root) =>
+          root === 'card:body' ? owner : null,
+        getContentRootOwnerViewEditor: (candidate) =>
+          candidate.childRoot === 'card:body' ? bodyEditor : null,
+        getMountedViewEditor,
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(readSlateViewSelection(mainEditor)).toMatchObject({
+        anchor: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+    } finally {
+      document.getSelection()?.removeAllRanges()
+      root.remove()
+      assertDOMNode.mockRestore()
+      findDocumentOrShadowRoot.mockRestore()
+      hasEditableTarget.mockRestore()
+      hasSelectableTarget.mockRestore()
+      resolveSlateRange.mockRestore()
     }
   })
 
@@ -288,18 +902,56 @@ describe('keyboard input strategy', () => {
     isComposing.mockRestore()
   })
 
+  it('keeps Enter during active composition browser-owned', () => {
+    const editor = createEditor({
+      initialValue: [{ children: [{ text: 'test' }] }],
+    }) as ReactEditorType
+    const event = reactKeyEvent({
+      ...keyEvent('Enter'),
+      isComposing: true,
+    } as KeyboardEvent)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(true)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(editor.read((state) => state.value.root())).toEqual([
+        { children: [{ text: 'test' }] },
+      ])
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
   it("repairs history focus to the preserved selection root when undoing another root's batch", () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
-    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const mainEditor = createEditorView(runtime)
     const getMountedViewEditor = vi.fn(() => null)
     const hasEditableTarget = vi
       .spyOn(ReactEditor, 'hasEditableTarget')
@@ -348,6 +1000,60 @@ describe('keyboard input strategy', () => {
         focus: { path: [0, 0], offset: 'body'.length },
       })
       expect(headerEditor.read((state) => state.selection.get())).toBe(null)
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('skips caret DOM repair when history restores an expanded view selection', () => {
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: [paragraph('Before'), paragraph('After')],
+    })
+    const editor = createEditorView(runtime) as ReactEditorType
+    const graph = createSlateProjectionGraph([
+      { path: [0], root: 'main' },
+      { path: [1], root: 'main' },
+    ])
+    const projectedSelection = createSlateViewSelection(graph, {
+      anchor: { point: { offset: 0, path: [0, 0] } },
+      focus: { point: { offset: 'After'.length, path: [1, 0] } },
+    })
+    const event = reactKeyEvent(keyEvent('z', { ctrlKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    writeSlateViewSelection(editor, projectedSelection)
+    expect(
+      applyEditableCommand({
+        command: { inputType: 'insertText', kind: 'insert-text', text: 'X' },
+        editor,
+      })
+    ).toBe(true)
+    expect(readSlateViewSelection(editor)).toBe(null)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(result.repair).toEqual({ forceRender: true, kind: 'force-render' })
+      expect(readSlateViewSelection(editor)).toEqual(projectedSelection)
     } finally {
       hasEditableTarget.mockRestore()
       isComposing.mockRestore()
@@ -1554,6 +2260,100 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(applyEditableCommand).toHaveBeenCalledWith({
         command: { inputType: 'insertText', kind: 'insert-text', text: 'a' },
+        editor,
+      })
+
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    } finally {
+      vi.doUnmock('slate-dom')
+      vi.doUnmock('../src/editable/mutation-controller')
+      vi.resetModules()
+    }
+  })
+
+  it('routes printable expanded inline-void replacement through the model with beforeinput support', async () => {
+    vi.resetModules()
+
+    const applyEditableCommand = vi.fn(() => true)
+
+    vi.doMock('slate-dom', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('slate-dom')>()
+
+      return {
+        ...actual,
+        HAS_BEFORE_INPUT_SUPPORT: true,
+      }
+    })
+    vi.doMock('../src/editable/mutation-controller', async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('../src/editable/mutation-controller')
+        >()
+
+      return {
+        ...actual,
+        applyEditableCommand,
+      }
+    })
+
+    try {
+      const [
+        { createEditor, defineEditorExtension },
+        { ReactEditor },
+        { applyEditableKeyDown },
+      ] = await Promise.all([
+        import('slate'),
+        import('../src/plugin/react-editor'),
+        import('../src/editable/keyboard-input-strategy'),
+      ])
+      const editor = createEditor({
+        extensions: [
+          defineEditorExtension({
+            elements: [{ type: 'mention', void: 'markable-inline' }],
+            name: 'keyboard-input-strategy-inline-void-test',
+          }),
+        ],
+        initialSelection: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 2], offset: 1 },
+        },
+        initialValue: [
+          {
+            type: 'paragraph',
+            children: [
+              { text: 'a' },
+              { character: 'R2-D2', type: 'mention', children: [{ text: '' }] },
+              { text: 'b' },
+            ],
+          },
+        ],
+      }) as ReactEditorType
+      const event = reactKeyEvent(keyEvent('Z'))
+      const hasEditableTarget = vi
+        .spyOn(ReactEditor, 'hasEditableTarget')
+        .mockReturnValue(true)
+      const isComposing = vi
+        .spyOn(ReactEditor, 'isComposing')
+        .mockReturnValue(false)
+
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(applyEditableCommand).toHaveBeenCalledWith({
+        command: { inputType: 'insertText', kind: 'insert-text', text: 'Z' },
         editor,
       })
 

@@ -48,7 +48,7 @@ const PasteHtmlExample = () => {
         type: 'paragraph',
         children: [
           {
-            text: "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved.",
+            text: 'Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and its formatting should be preserved.',
           },
         ],
       },

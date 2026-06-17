@@ -79,6 +79,12 @@ Get the first node entry in a root node from a `path`.
 
 Get the sliced fragment represented by the `range`.
 
+#### `NodeApi.findTextRanges(root: Node | NodeTextRangeRoot, query: NodeTextRangeQuery, options?) => Range[]`
+
+Find ranges for a text query inside text leaves or text-only ancestor children.
+String queries are literal. Use a regular expression or callback for custom
+matching.
+
 #### `NodeApi.get(root: Node, path: Path) => Node`
 
 Get the descendant node referred to by a specific `path`. If the path is an empty array, get the root node itself.
@@ -142,13 +148,29 @@ Methods used to check some attribute of a NodeApi.
 
 Check if a descendant node exists at a specific `path`.
 
-#### `NodeApi.isNode(value: any) => value is Node`
+#### `NodeApi.isAncestor(node: Node) => node is Ancestor`
+
+Check if a node is an `Editor` or `Element` object.
+
+#### `NodeApi.isEditor(node: Node) => node is Editor`
+
+Check if a node is an `Editor` object.
+
+#### `NodeApi.isElement(node: Node) => node is Element`
+
+Check if a node is an `Element` object.
+
+#### `NodeApi.isNode(value: unknown) => value is Node`
 
 Check if a `value` implements the `Node` interface.
 
-#### `NodeApi.isNodeList(value: any) => value is Node[]`
+#### `NodeApi.isNodeList(value: unknown) => value is Node[]`
 
 Check if a `value` is a list of `Node` objects.
+
+#### `NodeApi.isText(node: Node) => node is Text`
+
+Check if a node is a `Text` object.
 
 #### `NodeApi.matches(root: Node, props: Partial<Node>) => boolean`
 

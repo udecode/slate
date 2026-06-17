@@ -16,17 +16,19 @@ import {
 import {
   containsShadowAware,
   type DOMRange,
-  ELEMENT_TO_NODE,
   getSelection,
   IS_ANDROID,
-  IS_FOCUSED,
-  IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
   isDOMElement,
   isDOMNode,
   isDOMText,
 } from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+import {
+  DOMCoverage,
+  ELEMENT_TO_NODE,
+  IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
@@ -45,12 +47,14 @@ import type { EditableSelectionPolicy } from './editing-kernel'
 import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import type {
   EditableInputController,
+  InputIntent,
   ModelSelectionPreferenceReason,
   SelectionChangeOrigin,
   SelectionSource,
 } from './input-state'
 import { isEditableOutsideFocusBoundarySettling } from './input-state'
 import { readModelSelectionDOMPreference } from './model-selection-dom-preference'
+import { Editor } from './runtime-editor-api'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -326,7 +330,7 @@ const getRootEdgePoint = (
   { edge }: { edge: 'end' | 'start' }
 ): Point | null =>
   editor.read((state) => {
-    const children = state.value.get().roots[root] ?? []
+    const children = state.value.root(root === MAIN_ROOT_KEY ? undefined : root)
     const point = getDescendantEdgePoint(children, { edge })
 
     return point ? { ...point, root } : null
@@ -491,6 +495,34 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
   )
 }
 
+export const shouldUseModelBackedSelectAllSelection = ({
+  editor,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  selection: Range
+}) => {
+  if (!isFullDocumentSelection(editor, selection)) {
+    return false
+  }
+
+  if (DOMCoverage.getBoundariesForRange(editor, selection).length > 0) {
+    return true
+  }
+
+  try {
+    const editorElement = ReactEditor.assertDOMNode(editor, editor)
+
+    return shouldKeepFullDocumentSelectionModelBacked({
+      editor,
+      editorElement,
+      selection,
+    })
+  } catch {
+    return false
+  }
+}
+
 export type EditableDOMSelectionSyncOptions = {
   preserveScroll?: boolean
 }
@@ -552,47 +584,6 @@ const captureScrollOffsets = (startElement: HTMLElement) => {
   }
 }
 
-const collapseNativeSelectionForViewSelection = ({
-  domSelection,
-  editor,
-  selection,
-  state,
-}: {
-  domSelection: globalThis.Selection
-  editor: ReactRuntimeEditor
-  selection: Range
-  state: {
-    isUpdatingSelection: boolean
-    selectionChangeOrigin?: SelectionChangeOrigin | null
-  }
-}) => {
-  const point = RangeApi.start(selection)
-  const domRange = ReactEditor.resolveDOMRange(editor, {
-    anchor: point,
-    focus: point,
-  })
-
-  state.isUpdatingSelection = true
-  state.selectionChangeOrigin = 'programmatic-export'
-
-  try {
-    if (domRange) {
-      domSelection.setBaseAndExtent(
-        domRange.startContainer,
-        domRange.startOffset,
-        domRange.startContainer,
-        domRange.startOffset
-      )
-    } else {
-      domSelection.removeAllRanges()
-    }
-  } finally {
-    setTimeout(() => {
-      state.isUpdatingSelection = false
-    })
-  }
-}
-
 const restoreScrollOffsets = (
   restoreScroll: (() => void) | null,
   editorElement: HTMLElement
@@ -606,6 +597,49 @@ const restoreScrollOffsets = (
   editorElement.ownerDocument.defaultView?.requestAnimationFrame(() => {
     restoreScroll()
   })
+}
+
+export const isStaleModelOwnedTextInputDOMRange = ({
+  activeIntent,
+  modelOwnedTextInputGuard = 0,
+  modelSelection,
+  range,
+  recentTextInputRepairEcho,
+  selectionSource,
+}: {
+  activeIntent?: InputIntent | null
+  modelOwnedTextInputGuard?: number
+  modelSelection: Selection
+  range: Range
+  recentTextInputRepairEcho?: EditableInputController['state']['recentTextInputRepairEcho']
+  selectionSource?: SelectionSource
+}) => {
+  const modelOwnsTextInput =
+    activeIntent === 'composition' ||
+    activeIntent === 'text-insert' ||
+    selectionSource === 'model-owned'
+  const recentRepairEchoOwnsSelection =
+    activeIntent === 'text-insert' &&
+    !!recentTextInputRepairEcho &&
+    RangeApi.isRange(modelSelection) &&
+    RangeApi.isCollapsed(modelSelection) &&
+    recentTextInputRepairEcho.pathKey ===
+      modelSelection.anchor.path.join(',') &&
+    recentTextInputRepairEcho.selectionOffset === modelSelection.anchor.offset
+  const hasModelOwnedSelectionAuthority =
+    modelOwnedTextInputGuard > 0 ||
+    selectionSource === 'model-owned' ||
+    recentRepairEchoOwnsSelection
+
+  return (
+    modelOwnsTextInput &&
+    hasModelOwnedSelectionAuthority &&
+    RangeApi.isCollapsed(range) &&
+    RangeApi.isRange(modelSelection) &&
+    RangeApi.isCollapsed(modelSelection) &&
+    PathApi.equals(range.anchor.path, modelSelection.anchor.path) &&
+    range.anchor.offset < modelSelection.anchor.offset
+  )
 }
 
 export const syncEditorSelectionFromDOM = ({
@@ -657,7 +691,35 @@ export const syncEditorSelectionFromDOM = ({
   })
   const selection = readRuntimeSelection(editor)
 
+  if (
+    shouldSuppressCollapsedSelectionMoveDOMRange({
+      activeIntent: inputController.state.activeIntent,
+      currentSelection: selection,
+      nextSelection: range,
+    })
+  ) {
+    return
+  }
+
   if (range && (!selection || !RangeApi.equals(selection, range))) {
+    const modelSelection = Editor.getSelection(editor)
+
+    if (
+      modelSelection &&
+      isStaleModelOwnedTextInputDOMRange({
+        activeIntent: inputController.state.activeIntent,
+        modelSelection,
+        modelOwnedTextInputGuard:
+          inputController.state.modelOwnedTextInputGuard ?? 0,
+        range,
+        recentTextInputRepairEcho:
+          inputController.state.recentTextInputRepairEcho,
+        selectionSource: inputController.state.selectionSource,
+      })
+    ) {
+      return
+    }
+
     writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.set(range)
@@ -679,20 +741,25 @@ export const setEditableModelSelectionPreference = ({
   // Keep the input guard and the controller's selection provenance in lockstep.
   const nextSelectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
+  const nextReason =
+    reason ??
+    inferModelSelectionPreferenceReason({
+      preferModelSelection,
+      selectionSource: nextSelectionSource,
+    })
 
-  if (!preferModelSelection) {
+  if (
+    !preferModelSelection ||
+    nextReason === 'browser-handle' ||
+    nextReason === 'repair-induced'
+  ) {
     inputController.state.modelOwnedTextInputGuard = 0
   }
   inputController.preferModelSelectionForInputRef.current = preferModelSelection
   inputController.state.selectionSource = nextSelectionSource
   inputController.state.modelSelectionPreference = {
     preferModelSelection,
-    reason:
-      reason ??
-      inferModelSelectionPreferenceReason({
-        preferModelSelection,
-        selectionSource: nextSelectionSource,
-      }),
+    reason: nextReason,
     selectionSource: nextSelectionSource,
   }
 }
@@ -870,18 +937,76 @@ export const completeEditableSelectionChangeImport = ({
 }
 
 export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
+  activeIntent,
+  currentSelection,
+  domSelectionTextBacked = true,
   pendingNativeTextInputRepairDOMOffset,
   pendingNativeTextInputRepairOffset,
   pendingNativeTextInputRepairPathKey,
   range,
   selectionChangeOrigin,
 }: {
+  activeIntent?: InputIntent | null
+  currentSelection?: Range | null
+  domSelectionTextBacked?: boolean
   pendingNativeTextInputRepairDOMOffset?: number | null
   pendingNativeTextInputRepairOffset?: number | null
   pendingNativeTextInputRepairPathKey: string | null
   range: Range | null
   selectionChangeOrigin: SelectionChangeOrigin
 }): 'allow' | 'clear-and-allow' | 'suppress' => {
+  if (
+    selectionChangeOrigin === 'repair-induced' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    currentSelection &&
+    RangeApi.isCollapsed(currentSelection) &&
+    range.anchor.path.join(',') === currentSelection.anchor.path.join(',') &&
+    range.anchor.offset < currentSelection.anchor.offset
+  ) {
+    return 'suppress'
+  }
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    pendingNativeTextInputRepairPathKey &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    !domSelectionTextBacked
+  ) {
+    return 'suppress'
+  }
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    currentSelection &&
+    RangeApi.isCollapsed(currentSelection) &&
+    pendingNativeTextInputRepairPathKey &&
+    range.anchor.path.join(',') === currentSelection.anchor.path.join(',') &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    range.anchor.offset < currentSelection.anchor.offset
+  ) {
+    return 'suppress'
+  }
+
+  if (
+    pendingNativeTextInputRepairPathKey &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    pendingNativeTextInputRepairOffset != null &&
+    pendingNativeTextInputRepairDOMOffset != null &&
+    pendingNativeTextInputRepairDOMOffset === pendingNativeTextInputRepairOffset
+  ) {
+    return 'clear-and-allow'
+  }
+
   if (
     selectionChangeOrigin !== 'native-user' ||
     !pendingNativeTextInputRepairPathKey
@@ -911,6 +1036,29 @@ export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
   return 'allow'
 }
 
+export const shouldSuppressCollapsedSelectionMoveDOMRange = ({
+  activeIntent,
+  currentSelection,
+  nextSelection,
+}: {
+  activeIntent?: EditableInputController['state']['activeIntent']
+  currentSelection: Range | null | undefined
+  nextSelection: Range | null
+}) => {
+  if (
+    (activeIntent !== 'model-selection-move' &&
+      activeIntent !== 'native-selection-move') ||
+    !currentSelection ||
+    !RangeApi.isExpanded(currentSelection) ||
+    !RangeApi.isRange(nextSelection) ||
+    !RangeApi.isCollapsed(nextSelection)
+  ) {
+    return false
+  }
+
+  return !RangeApi.includes(currentSelection, nextSelection.focus)
+}
+
 export const resolveEditableImplicitTarget = ({
   editor,
   inputController,
@@ -925,7 +1073,7 @@ export const resolveEditableImplicitTarget = ({
   request: TargetFreshnessRequest
   scheduleSelectionSync?: (callback: () => void) => void
   syncDOMSelectionToEditor: () => void
-}) => {
+}): Selection => {
   const preferModelSelection =
     isEditableModelSelectionPreferred(inputController)
 
@@ -1023,6 +1171,8 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const state = inputController.state
+  state.pendingNativeTextInputRepairSuppressedDOMSelection = false
+
   if (
     (!IS_ANDROID && ReactEditor.isComposing(editor)) ||
     state.isDraggingInternally ||
@@ -1081,6 +1231,39 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
+
+  if (
+    readSlateViewSelection(editor) &&
+    selectionChangeOrigin !== 'native-user'
+  ) {
+    return
+  }
+
+  if (
+    selectionChangeOrigin !== 'native-user' &&
+    domSelection.isCollapsed &&
+    isEditableModelSelectionPreferred(inputController)
+  ) {
+    return
+  }
+
+  if (selectionChangeOrigin === 'repair-induced' && domSelection.isCollapsed) {
+    if (
+      state.activeIntent === 'text-insert' ||
+      state.recentTextInputRepairEcho
+    ) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      armModelOwnedTextInputGuard({ inputController })
+    }
+    return
+  }
+
   if (
     activeElement !== editorElement &&
     isDOMNode(activeElement) &&
@@ -1119,7 +1302,6 @@ export const applyEditableDOMSelectionChange = ({
     anchorElement
       ?.closest('[data-slate-node="text"]')
       ?.getAttribute('data-slate-dom-sync-reason') === 'projection'
-  const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
   const pendingNativeTextInputRepairPathKey =
     state.pendingNativeTextInputRepairPathKey ?? null
 
@@ -1148,8 +1330,31 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  const currentSelection = readLiveSelection(editor)
+
+  if (selectionChangeOrigin === 'native-user' && RangeApi.isRange(range)) {
+    const modelSelection = Editor.getSelection(editor)
+
+    if (
+      modelSelection &&
+      isStaleModelOwnedTextInputDOMRange({
+        activeIntent: state.activeIntent,
+        modelSelection,
+        modelOwnedTextInputGuard: state.modelOwnedTextInputGuard ?? 0,
+        range,
+        recentTextInputRepairEcho: state.recentTextInputRepairEcho,
+        selectionSource: state.selectionSource,
+      })
+    ) {
+      return
+    }
+  }
+
   const pendingRepairSelectionChangePolicy =
     getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: state.activeIntent,
+      currentSelection,
+      domSelectionTextBacked: isDOMText(anchorNode) && isDOMText(focusNode),
       pendingNativeTextInputRepairDOMOffset:
         domSelection.isCollapsed && isDOMText(anchorNode)
           ? domSelection.anchorOffset
@@ -1162,6 +1367,21 @@ export const applyEditableDOMSelectionChange = ({
     })
 
   if (pendingRepairSelectionChangePolicy === 'suppress') {
+    if (
+      selectionChangeOrigin === 'repair-induced' &&
+      state.activeIntent === 'text-insert'
+    ) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      armModelOwnedTextInputGuard({ inputController })
+    }
+    if (pendingNativeTextInputRepairPathKey) {
+      state.pendingNativeTextInputRepairSuppressedDOMSelection = true
+    }
     return
   }
 
@@ -1170,14 +1390,29 @@ export const applyEditableDOMSelectionChange = ({
     state.pendingNativeTextInputRepairPathKey = null
   }
 
-  const currentSelection = readLiveSelection(editor)
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    shouldSuppressCollapsedSelectionMoveDOMRange({
+      activeIntent: state.activeIntent,
+      currentSelection,
+      nextSelection: range,
+    })
+  ) {
+    return
+  }
+
   const modelSelectionHasDOMCoverage =
     selectionChangeOrigin === 'programmatic-export' &&
     currentSelection &&
     DOMCoverage.getBoundariesForRange(editor, currentSelection).length > 0
+  const modelSelectionIsFullDocument =
+    selectionChangeOrigin === 'programmatic-export' &&
+    currentSelection &&
+    isFullDocumentSelection(editor, currentSelection)
   const shouldImportChangedExpandedSelection =
     domSelectionBelongsToEditor &&
     !modelSelectionHasDOMCoverage &&
+    !modelSelectionIsFullDocument &&
     !(
       state.isUpdatingSelection &&
       selectionChangeOrigin === 'programmatic-export'
@@ -1187,13 +1422,6 @@ export const applyEditableDOMSelectionChange = ({
       nextSelection: range,
       selectionChangeOrigin,
     })
-
-  if (
-    readSlateViewSelection(editor) &&
-    selectionChangeOrigin !== 'native-user'
-  ) {
-    return
-  }
 
   if (
     !shouldApplyDOMSelectionChange({
@@ -1275,9 +1503,12 @@ export const syncEditableDOMSelectionToEditor = ({
   }
 }) => {
   const selection = readRuntimeSelection(editor)
+  const selectionHasDOMCoverage =
+    !!selection &&
+    DOMCoverage.getBoundariesForRange(editor, selection).length > 0
 
   if (
-    partialDOMBackedSelection ||
+    (partialDOMBackedSelection && selectionHasDOMCoverage) ||
     !selection ||
     !isSelectionInEditorView(editor, selection) ||
     shouldSkipDOMSelection(editor)
@@ -1313,19 +1544,22 @@ export const syncEditableDOMSelectionToEditor = ({
 
     const preserveScroll =
       options?.preserveScroll || shouldSkipSelectionScroll(editor)
+    const viewSelection = readSlateViewSelection(editor)
 
-    if (readSlateViewSelection(editor)) {
-      const restoreScroll = preserveScroll
-        ? captureScrollOffsets(editorElement)
-        : null
+    if (viewSelection) {
+      state.isUpdatingSelection = true
+      state.selectionChangeOrigin = 'programmatic-export'
+      domSelection.removeAllRanges()
+      const rootWindow =
+        'defaultView' in root
+          ? root.defaultView
+          : root.ownerDocument.defaultView
 
-      collapseNativeSelectionForViewSelection({
-        domSelection,
-        editor,
-        selection,
-        state,
+      rootWindow?.queueMicrotask(() => domSelection.removeAllRanges())
+      rootWindow?.requestAnimationFrame(() => domSelection.removeAllRanges())
+      setTimeout(() => {
+        state.isUpdatingSelection = false
       })
-      restoreScrollOffsets(restoreScroll, editorElement)
       return
     }
 
@@ -1340,6 +1574,7 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     if (
+      selectionHasDOMCoverage &&
       applyDOMCoverageSelectionPolicy({
         domSelection,
         editor,
@@ -1371,6 +1606,10 @@ export const syncEditableDOMSelectionToEditor = ({
 
     if (!domRange) {
       return
+    }
+
+    if (viewSelection) {
+      writeSlateViewSelection(editor, null)
     }
 
     state.isUpdatingSelection = true
@@ -1405,7 +1644,7 @@ export const syncEditableDOMSelectionToEditor = ({
     } finally {
       setTimeout(() => {
         state.isUpdatingSelection = false
-      })
+      }, 80)
     }
   } catch {
     // Leave browser selection unchanged if the DOM bridge is between commits.

@@ -20,7 +20,7 @@ import {
   composeProjectionSources,
   type SlateDecorationSource,
 } from '../decoration-source'
-import { Editor } from '../editable/runtime-editor-api'
+import { Editor, getOperationCount } from '../editable/runtime-editor-api'
 import {
   createRootSelectionCache,
   getSelectionRoot,
@@ -55,10 +55,6 @@ import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 import { setSlateViewSelectionStoreKey } from '../view-selection'
-import {
-  useSlateViewSelectionDecorationSource,
-  useSlateViewSelectionPresence,
-} from '../view-selection-decoration'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -125,6 +121,7 @@ const isRootMarksChanged = (root: RootKey, commit: EditorCommit) =>
   (getSelectionRoot(commit.selectionBefore) === root ||
     getSelectionRoot(commit.selectionAfter) === root)
 
+/** Snapshot payload passed to Slate React change callbacks. */
 export type SlateChange<V extends Value = Value> = {
   commit: EditorCommit<V>
   marksChanged: boolean
@@ -137,6 +134,7 @@ export type SlateChange<V extends Value = Value> = {
   valueChanged: boolean
 }
 
+/** Props for the Slate React provider around editable roots and callbacks. */
 export type SlateProps<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly unknown[],
@@ -175,7 +173,7 @@ export const Slate = <
   if (!props.editor) {
     if (!runtimeContext) {
       if (props.root) {
-        throw new Error('[Slate] Slate root views require <SlateRuntime>.')
+        throw new Error('[Slate] Slate roots require <SlateRuntime>.')
       }
 
       throw new Error('[Slate] editor is invalid!')
@@ -229,31 +227,22 @@ const SlateRuntimeView = <
     [reactEditor, registerViewEditor, viewRoot]
   )
   useSlateChangeCallbacks({
-    editor: editor as unknown as ReactRuntimeEditor<V>,
+    editor: reactEditor,
     onChange,
     onSelectionChange,
     onValueChange,
     root: viewRoot,
   })
-  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
-  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
-    reactEditor,
-    hasViewSelection
-  )
   const projectionContextValue = useMemo(() => {
-    const sources = viewSelectionDecorationSource
-      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
-      : decorationSources
-
     if (!annotationStore) {
-      return composeDecorationSources(sources)
+      return composeDecorationSources(decorationSources)
     }
 
     return composeProjectionSources([
-      ...(sources ?? []),
+      ...(decorationSources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
+  }, [annotationStore, decorationSources])
 
   return (
     <EditorSelectorContext.Provider value={runtimeContext.selectorContext}>
@@ -288,10 +277,7 @@ const useSlateChangeCallbacks = <V extends Value>({
   onValueChange,
   root,
 }: {
-  editor: {
-    api: ReactRuntimeEditor<V>['api']
-    subscribe: (listener: (...args: any[]) => void) => () => void
-  }
+  editor: ReactRuntimeEditor<V>
   onChange?: (value: V, change: SlateChange<V>) => void
   onSelectionChange?: (
     selection: EditorSnapshot<V>['selection'],
@@ -305,14 +291,14 @@ const useSlateChangeCallbacks = <V extends Value>({
   const onValueChangeRef = useRef(onValueChange)
   const editorBaseline = useMemo(
     () => ({
-      commitVersion: Editor.getLastCommit(editor as any)?.version ?? 0,
-      snapshot: Editor.getSnapshot(editor as any),
+      commitVersion: Editor.getLastCommit(editor)?.version ?? 0,
+      snapshot: Editor.getSnapshot(editor),
     }),
     [editor]
   )
-  const lastSnapshotRef = useRef(Editor.getSnapshot(editor as any))
+  const lastSnapshotRef = useRef(Editor.getSnapshot(editor))
   const lastCommitVersionRef = useRef(
-    Editor.getLastCommit(editor as any)?.version ?? 0
+    Editor.getLastCommit(editor)?.version ?? 0
   )
   const hasCallbacks = !!(onChange || onSelectionChange || onValueChange)
 
@@ -330,14 +316,10 @@ const useSlateChangeCallbacks = <V extends Value>({
       return
     }
 
-    const onContextChange = (
-      ...[_snapshot, commit]: [EditorSnapshot<V>, EditorCommit<V> | undefined]
-    ) => {
-      if (!commit) {
-        return
-      }
-
-      const snapshot = Editor.getSnapshot(editor as any) as EditorSnapshot<V>
+    const onContextChange: Parameters<
+      ReactRuntimeEditor<V>['subscribeCommit']
+    >[0] = (commit) => {
+      const snapshot = Editor.getSnapshot(editor)
       const previousSnapshot = lastSnapshotRef.current as EditorSnapshot<V>
       const valueChanged =
         isRootValueChanged(root, commit) &&
@@ -378,14 +360,11 @@ const useSlateChangeCallbacks = <V extends Value>({
       }
     }
 
-    const unsubscribe = editor.subscribe(onContextChange)
-    const latestCommit = Editor.getLastCommit(editor as any)
+    const unsubscribe = editor.subscribeCommit(onContextChange)
+    const latestCommit = Editor.getLastCommit(editor)
 
     if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
-      onContextChange(
-        Editor.getSnapshot(editor as any),
-        latestCommit as EditorCommit<V>
-      )
+      onContextChange(latestCommit)
     }
 
     return unsubscribe
@@ -419,9 +398,7 @@ const SlateSingleEditor = <
   const onChangeRef = useRef(onChange)
   const onSelectionChangeRef = useRef(onSelectionChange)
   const onValueChangeRef = useRef(onValueChange)
-  const lastOperationCountRef = useRef(
-    editor.read((state) => state.value.operations().length)
-  )
+  const lastOperationCountRef = useRef(getOperationCount(editor))
   const lastCommitVersionRef = useRef(
     Editor.getLastCommit(editor)?.version ?? 0
   )
@@ -446,9 +423,7 @@ const SlateSingleEditor = <
 
   if (lastEditorRef.current !== editor) {
     lastEditorRef.current = editor
-    lastOperationCountRef.current = editor.read(
-      (state) => state.value.operations().length
-    )
+    lastOperationCountRef.current = getOperationCount(editor)
     lastCommitVersionRef.current = Editor.getLastCommit(editor)?.version ?? 0
   }
 
@@ -755,25 +730,16 @@ const SlateSingleEditor = <
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const [focusVersion, setFocusVersion] = useState(0)
-  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
-  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
-    reactEditor,
-    hasViewSelection
-  )
   const projectionContextValue = useMemo(() => {
-    const sources = viewSelectionDecorationSource
-      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
-      : decorationSources
-
     if (!annotationStore) {
-      return composeDecorationSources(sources)
+      return composeDecorationSources(decorationSources)
     }
 
     return composeProjectionSources([
-      ...(sources ?? []),
+      ...(decorationSources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
+  }, [annotationStore, decorationSources])
 
   useEffect(() => {
     setIsFocused(ReactEditor.isFocused(reactEditor))

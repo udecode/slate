@@ -20,7 +20,6 @@
       "@slate/yjs/core": ["../packages/slate-yjs/src/core/index.ts"],
       "@slate/yjs/react": ["../packages/slate-yjs/src/react/index.ts"],
       "slate": ["../packages/slate/src/index.ts"],
-      "slate-browser": ["../packages/slate-browser/src/index.ts"],
       "slate-browser/*": ["../packages/slate-browser/src/*"],
       "slate-dom": ["../packages/slate-dom/src/index.ts"],
       "slate-dom/internal": ["../packages/slate-dom/src/internal/index.ts"],

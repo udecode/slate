@@ -117,33 +117,31 @@ editor.update(
 
 ## Subscribe to commits
 
-Use `editor.subscribe` when an adapter needs to observe committed state. The
-listener receives the snapshot and the commit that produced it.
+Use `editor.subscribeCommit` when an adapter needs to observe committed state.
+The listener receives the change summary for each commit.
 
 ```tsx
 const sharedStateKeys = new Set(['document.title', 'page.settings'])
 
-const unsubscribe = editor.subscribe((_snapshot, commit) => {
-  if (!commit) return
-
+const unsubscribe = editor.subscribeCommit((change) => {
   const documentValue = editor.read((state) => state.value.get())
-  const statePatches = commit.statePatches.filter((patch) =>
+  const statePatches = change.statePatches.filter((patch) =>
     sharedStateKeys.has(patch.key)
   )
 
   saveDocument(documentValue)
 
-  if (commit.metadata.collab?.origin === 'remote') return
+  if (change.metadata.collab?.origin === 'remote') return
 
-  if (commit.operations.length === 0 && statePatches.length === 0) {
+  if (change.operations.length === 0 && statePatches.length === 0) {
     return
   }
 
   sendToPeers({
-    operations: commit.operations,
+    operations: change.operations,
     statePatches,
-    tags: commit.tags,
-    dirty: commit.dirty,
+    tags: change.tags,
+    dirty: change.dirty,
   })
 })
 ```
@@ -325,5 +323,5 @@ provider, draw remote cursors, or define a CRDT merge policy. Those belong in
 adapter packages that can prove their behavior against Slate's operation and
 browser contracts.
 
-You now have the contract those adapters build on: commits for observation,
-operations for replay, tags for routing, and local runtime ids for projection.
+Collaboration adapters build on commits for observation, operations for replay,
+tags for routing, and local runtime ids for projection.

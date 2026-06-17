@@ -54,6 +54,7 @@ import {
   insertDOMData,
   insertDOMFragmentData,
   insertDOMTextData,
+  readDOMFragmentData,
   writeDOMSelectionData,
 } from './dom-clipboard-runtime'
 import { DOMCoverage } from './dom-coverage'
@@ -64,13 +65,85 @@ import { DOMCoverage } from './dom-coverage'
 
 const CSS_BREAK_WHITESPACE_PATTERN = /^[\t\n\f\r ]+$/
 
+const eventCarriesBlockFragment = <V extends Value>(
+  editor: DOMEditor<V>,
+  event: DragEvent | ClipboardEvent
+) => {
+  const data =
+    'dataTransfer' in event ? event.dataTransfer : event.clipboardData
+
+  if (!data) {
+    return false
+  }
+
+  const fragment = readDOMFragmentData(editor, data)
+
+  return (
+    fragment?.some(
+      (node) => NodeApi.isElement(node) && !Editor.isInline(editor, node)
+    ) ?? false
+  )
+}
+
+const resolveBlockFragmentDropRange = <V extends Value>(
+  editor: DOMEditor<V>,
+  {
+    path,
+    target,
+    y,
+  }: {
+    path: Path | null
+    target: EventTarget | null
+    y: number
+  }
+) => {
+  if (!path || !isDOMNode(target)) {
+    return null
+  }
+
+  const targetNode = NodeApi.get(editor, path)
+  const blockMatch =
+    NodeApi.isElement(targetNode) && Editor.isBlock(editor, targetNode)
+      ? ([targetNode, path] as const)
+      : Editor.above(editor, {
+          at: path,
+          match: (node) =>
+            NodeApi.isElement(node) && Editor.isBlock(editor, node),
+        })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (!NodeApi.isElement(block) || Editor.isVoid(editor, block)) {
+    return null
+  }
+
+  const blockElement = DOMEditor.resolveDOMNode(editor, block)
+
+  if (!blockElement) {
+    return null
+  }
+
+  const rect = blockElement.getBoundingClientRect()
+  const isBefore = y - rect.top < rect.bottom - y
+  const edge = Editor.point(editor, blockPath, {
+    edge: isBefore ? 'start' : 'end',
+  })
+  const point = isBefore
+    ? (Editor.before(editor, edge) ?? edge)
+    : (Editor.after(editor, edge) ?? edge)
+
+  return Editor.range(editor, point)
+}
+
 export interface DOMEditor<V extends Value = Value> extends SlateEditor<V> {
   dom: DOMEditorCapability
 }
 
 export interface DOMEditorCapability {
-  androidPendingDiffs: () => TextDiff[] | undefined
-  androidScheduleFlush: () => void
   blur: () => void
   deselect: () => void
   findDocumentOrShadowRoot: () => Document | ShadowRoot
@@ -150,10 +223,11 @@ export interface DOMEditorClipboardCapability {
   writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) => void
 }
 
-export type DOMApi = Omit<DOMEditorCapability, 'clipboard'>
+export interface DOMApi extends Omit<DOMEditorCapability, 'clipboard'> {}
 
-export type DOMClipboardApi = DOMEditorClipboardCapability
+export interface DOMClipboardApi extends DOMEditorClipboardCapability {}
 
+/** Error thrown when Slate cannot resolve a DOM node, point, or range. */
 export class SlateDOMResolutionError extends Error {
   readonly code: string
   readonly details: unknown
@@ -207,12 +281,12 @@ export interface DOMEditorClipboardInterface {
 
 export interface DOMEditorInterface {
   /**
-   * Experimental and android specific: Get pending diffs
+   * Android text-repair internal: return pending text diffs.
    */
   androidPendingDiffs: (editor: SlateEditor<any>) => TextDiff[] | undefined
 
   /**
-   * Experimental and android specific: Flush all pending diffs and cancel composition at the next possible time.
+   * Android text-repair internal: flush pending diffs and end composition.
    */
   androidScheduleFlush: (editor: SlateEditor<any>) => void
 
@@ -242,7 +316,7 @@ export interface DOMEditorInterface {
   findKey: (editor: DOMEditor<any>, node: Node) => Key
 
   /**
-   * Find the path of Slate node.
+   * Find the path of a Slate node.
    */
   assertPath: (editor: DOMEditor<any>, node: Node) => Path
 
@@ -274,12 +348,12 @@ export interface DOMEditorInterface {
   ) => target is DOMNode
 
   /**
-   *
+   * Check if every point in a Slate range maps to mounted DOM.
    */
   hasRange: (editor: DOMEditor<any>, range: Range) => boolean
 
   /**
-   * Check if the target can be selectable
+   * Check if the target can be selected.
    */
   hasSelectableTarget: (
     editor: DOMEditor<any>,
@@ -312,7 +386,7 @@ export interface DOMEditorInterface {
   isReadOnly: (editor: DOMEditor<any>) => boolean
 
   /**
-   * Check if the target is inside void and in an non-readonly editor.
+   * Check if the target is inside a void in a writable editor.
    */
   isTargetInsideNonReadonlyVoid: (
     editor: DOMEditor<any>,
@@ -1516,6 +1590,23 @@ export const DOMEditor: DOMEditorInterface = {
       }
     }
 
+    if (
+      eventCarriesBlockFragment(
+        editor,
+        resolvedEvent as DragEvent | ClipboardEvent
+      )
+    ) {
+      const blockFragmentRange = resolveBlockFragmentDropRange(editor, {
+        path,
+        target,
+        y,
+      })
+
+      if (blockFragmentRange) {
+        return blockFragmentRange
+      }
+    }
+
     // Else resolve a range from the caret position where the drop occured.
     let domRange: globalThis.Range | null = null
     const { document } = DOMEditor.getWindow(editor)
@@ -2580,8 +2671,6 @@ export const createDOMEditorCapability = (
   editor: DOMEditor<any>
 ): DOMEditorCapability => {
   const capability: DOMEditorCapability = {
-    androidPendingDiffs: () => DOMEditor.androidPendingDiffs(editor),
-    androidScheduleFlush: () => DOMEditor.androidScheduleFlush(editor),
     blur: () => DOMEditor.blur(editor),
     deselect: () => DOMEditor.deselect(editor),
     findDocumentOrShadowRoot: () => DOMEditor.findDocumentOrShadowRoot(editor),

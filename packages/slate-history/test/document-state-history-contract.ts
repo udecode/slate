@@ -156,6 +156,88 @@ describe('document state history contract', () => {
     )
   })
 
+  it('keeps controlled preview state out of history until accepted', () => {
+    const previewReplacement = defineStateField<string | null>({
+      key: 'local.preview.replacement',
+      history: 'skip',
+      initial: () => null,
+      persist: false,
+    })
+    const editor = createEditor({
+      extensions: [history(), previewReplacement],
+      initialValue: [paragraph('Original body')],
+    })
+    const readPreview = () =>
+      editor.read((state) => state.getField(previewReplacement))
+    const readText = () => Editor.string(editor, [0])
+
+    editor.update((tx) => {
+      tx.setField(previewReplacement, 'Draft body')
+    })
+
+    assert.equal(readPreview(), 'Draft body')
+    assert.equal(readText(), 'Original body')
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      { children: [paragraph('Original body')] }
+    )
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
+
+    editor.update((tx) => {
+      tx.setField(previewReplacement, null)
+    })
+
+    assert.equal(readPreview(), null)
+    assert.equal(readText(), 'Original body')
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
+
+    editor.update((tx) => {
+      tx.setField(previewReplacement, 'Accepted body')
+    })
+    editor.update(
+      (tx) => {
+        tx.setField(previewReplacement, null)
+        tx.text.delete({
+          at: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 'Original body'.length },
+          },
+        })
+        tx.text.insert('Accepted body')
+      },
+      { metadata: { history: { mode: 'push' } }, tag: 'preview-accept' }
+    )
+
+    assert.equal(readPreview(), null)
+    assert.equal(readText(), 'Accepted body')
+    assert.deepEqual(
+      editor.read((state) =>
+        state.history.undos()[0]?.operations.map((operation) => operation.type)
+      ),
+      ['remove_text', 'set_selection', 'insert_text']
+    )
+    assert.deepEqual(
+      editor.read((state) => state.history.undos()[0]?.statePatches),
+      []
+    )
+
+    undo(editor)
+
+    assert.equal(readPreview(), null)
+    assert.equal(readText(), 'Original body')
+
+    redo(editor)
+
+    assert.equal(readPreview(), null)
+    assert.equal(readText(), 'Accepted body')
+  })
+
   it('removes absent state field keys when undoing a field introduction', () => {
     const optionalSubtitle = defineStateField<string | undefined>({
       key: 'document.subtitle',
@@ -174,7 +256,7 @@ describe('document state history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [optionalSubtitle.key]: 'Draft subtitle' },
       }
     )
@@ -187,9 +269,7 @@ describe('document state history contract', () => {
     )
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
 
     redo(editor)
@@ -197,7 +277,7 @@ describe('document state history contract', () => {
     assert.deepEqual(
       editor.read((state) => state.value.get()),
       {
-        roots: { main: [paragraph('body')] },
+        children: [paragraph('body')],
         state: { [optionalSubtitle.key]: 'Draft subtitle' },
       }
     )
@@ -221,9 +301,7 @@ describe('document state history contract', () => {
 
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
     assert.equal(
       editor.read((state) => state.history.undos().length),
@@ -234,9 +312,7 @@ describe('document state history contract', () => {
 
     assert.deepEqual(
       editor.read((state) => state.value.get()),
-      {
-        roots: { main: [paragraph('body')] },
-      }
+      { children: [paragraph('body')] }
     )
   })
 
@@ -358,10 +434,8 @@ describe('document state history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -389,10 +463,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       }
     )
     assert.deepEqual(
@@ -412,10 +484,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header!')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header!')] },
       }
     )
     assert.deepEqual(ref!.current, {
@@ -428,10 +498,8 @@ describe('document state history contract', () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
       initialValue: {
-        roots: {
-          header: [paragraph('header')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
       },
     })
     const headerEditor = createEditorView(runtime, { root: 'header' })
@@ -454,10 +522,8 @@ describe('document state history contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get()),
       {
-        roots: {
-          header: [paragraph('header'), paragraph('new')],
-          main: [paragraph('body')],
-        },
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header'), paragraph('new')] },
       }
     )
     assert.deepEqual(

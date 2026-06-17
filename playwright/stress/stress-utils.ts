@@ -4,11 +4,16 @@ import { dirname, resolve } from 'node:path'
 import type {
   EditorSurfaceOptions,
   SlateBrowserRenderStateSnapshot,
+  SlateBrowserScenarioReductionCandidateSummary,
   SlateBrowserScenarioReplay,
   SlateBrowserScenarioResult,
   SlateBrowserScenarioStep,
 } from 'slate-browser/playwright'
-import { createScenarioReplay } from 'slate-browser/playwright'
+import {
+  createScenarioReductionCandidates,
+  createScenarioReplay,
+  summarizeScenarioReductionCandidate,
+} from 'slate-browser/playwright'
 
 export type StressArtifactStatus = 'failed' | 'passed' | 'running'
 
@@ -21,7 +26,7 @@ export type StressArtifact = {
   finalSnapshot?: StressFinalSnapshot
   id: string
   projectName: string
-  reductionCandidates?: unknown[]
+  reductionCandidates?: StressReductionCandidate[]
   replay: SlateBrowserScenarioReplay
   replayCommand: string
   resultPath?: string
@@ -33,6 +38,11 @@ export type StressArtifact = {
   traceSummary?: StressTraceSummary
   version: 1
 }
+
+export type StressReductionCandidate =
+  SlateBrowserScenarioReductionCandidateSummary & {
+    replayCommand: string
+  }
 
 export type StressFamilyContract = {
   assertions: readonly string[]
@@ -80,8 +90,71 @@ export const stressArtifactPath = (
     `${sanitizePathPart(stressCase.id)}.json`
   )
 
-export const stressResultPath = (artifactPath: string) =>
-  artifactPath.replace(/\.json$/u, '.result.json')
+export const stressResultPath = (
+  artifactPath: string,
+  reductionLabel?: string
+) =>
+  artifactPath.replace(
+    /\.json$/u,
+    reductionLabel
+      ? `.reduction-${sanitizePathPart(reductionLabel)}.result.json`
+      : '.result.json'
+  )
+
+const stressReplayScript = (projectName: string) => {
+  if (projectName === 'chromium') {
+    return 'test:stress:replay'
+  }
+  if (projectName === 'firefox' || projectName === 'webkit') {
+    return `test:stress:replay:${projectName}`
+  }
+
+  return 'test:stress:replay:desktop'
+}
+
+const stressReplayCommand = ({
+  artifactPath,
+  projectName,
+  reductionLabel,
+}: {
+  artifactPath: string
+  projectName: string
+  reductionLabel?: string
+}) =>
+  [
+    `STRESS_REPLAY=${artifactPath}`,
+    reductionLabel ? `STRESS_REDUCTION=${reductionLabel}` : null,
+    'bun',
+    stressReplayScript(projectName),
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+const createStressReductionCandidates = (
+  stressCase: StressCase,
+  {
+    artifactPath,
+    projectName,
+    reductionCandidates,
+  }: {
+    artifactPath: string
+    projectName: string
+    reductionCandidates?: SlateBrowserScenarioReductionCandidateSummary[]
+  }
+): StressReductionCandidate[] =>
+  (
+    reductionCandidates ??
+    createScenarioReductionCandidates(stressCase.steps).map(
+      summarizeScenarioReductionCandidate
+    )
+  ).map((candidate) => ({
+    ...candidate,
+    replayCommand: stressReplayCommand({
+      artifactPath,
+      projectName,
+      reductionLabel: candidate.label,
+    }),
+  }))
 
 const serializeError = (error: unknown) => {
   if (error instanceof Error) {
@@ -106,13 +179,21 @@ export const createStressArtifact = ({
   error?: unknown
   finalSnapshot?: StressFinalSnapshot
   projectName: string
-  reductionCandidates?: unknown[]
+  reductionCandidates?: SlateBrowserScenarioReductionCandidateSummary[]
   result?: SlateBrowserScenarioResult
   resultPath?: string
   status: StressArtifactStatus
   stressCase: StressCase
 }): StressArtifact => {
   const replay = createScenarioReplay(stressCase.steps)
+  const artifactReductionCandidates = createStressReductionCandidates(
+    stressCase,
+    {
+      artifactPath,
+      projectName,
+      reductionCandidates,
+    }
+  )
   const lastTraceEntry = result?.trace.at(-1) ?? null
 
   return {
@@ -124,9 +205,9 @@ export const createStressArtifact = ({
     finalSnapshot,
     id: stressCase.id,
     projectName,
-    reductionCandidates,
+    reductionCandidates: artifactReductionCandidates,
     replay,
-    replayCommand: `STRESS_REPLAY=${artifactPath} bun test:stress:replay`,
+    replayCommand: stressReplayCommand({ artifactPath, projectName }),
     resultPath,
     route: stressCase.route,
     seed: stressCase.seed,
@@ -175,5 +256,34 @@ export const readStressArtifact = (artifactPath: string): StressArtifact => {
 }
 
 export const artifactStepsToScenarioSteps = (
-  artifact: StressArtifact
-): SlateBrowserScenarioStep[] => artifact.steps as SlateBrowserScenarioStep[]
+  artifact: StressArtifact,
+  { reductionLabel }: { reductionLabel?: string } = {}
+): SlateBrowserScenarioStep[] => {
+  if (!reductionLabel) {
+    return artifact.steps as SlateBrowserScenarioStep[]
+  }
+
+  const candidate = artifact.reductionCandidates?.find(
+    ({ label }) => label === reductionLabel
+  )
+
+  if (!candidate) {
+    const availableLabels =
+      artifact.reductionCandidates?.map(({ label }) => label).join(', ') ??
+      'none'
+
+    throw new Error(
+      `Stress replay artifact does not contain reduction candidate "${reductionLabel}". Available candidates: ${availableLabels}`
+    )
+  }
+
+  if (!candidate.replay.replayable) {
+    throw new Error(
+      `Stress reduction candidate "${reductionLabel}" is not replayable.`
+    )
+  }
+
+  return candidate.replay.steps.map(
+    (step) => step.value
+  ) as SlateBrowserScenarioStep[]
+}

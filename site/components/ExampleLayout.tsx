@@ -27,9 +27,7 @@ const Pill = (props: React.ComponentProps<'span'>) => (
 )
 
 const ExampleBadgeLabel = ({ badge }: { badge: ExampleBadge }) => (
-  <span className={cn('example-badge', `example-badge-${badge}`)}>
-    {badge === 'alpha' ? 'Alpha' : 'New'}
-  </span>
+  <span className={cn('example-badge', `example-badge-${badge}`)}>Alpha</span>
 )
 
 const TabList = ({

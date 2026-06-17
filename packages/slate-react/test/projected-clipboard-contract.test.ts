@@ -11,8 +11,8 @@ import {
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { setDOMClipboardFormatKey } from 'slate-dom/internal'
+  setDOMClipboardFormatKey,
+} from 'slate-dom/internal'
 import { describe, expect, it, vi } from 'vitest'
 
 import { applyEditableCut } from '../src/editable/clipboard-input-strategy'
@@ -81,15 +81,11 @@ const createFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')],
-        main: [paragraph('Before'), contentCard(), paragraph('After')],
-      },
+      children: [paragraph('Before'), contentCard(), paragraph('After')],
+      roots: { [SHARED_ROOT]: [paragraph('Inside'), paragraph('More')] },
     },
   })
-  const editor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const graph = createSlateProjectionGraph([
     { path: [0], root: 'main' },
     { owner: sharedOwner, path: [0], root: SHARED_ROOT },
@@ -113,21 +109,17 @@ const createRepeatedFixture = () => {
   const runtime = createEditorRuntime({
     extensions: [contentRootExtension],
     initialValue: {
-      roots: {
-        [SHARED_ROOT]: [paragraph('Inside')],
-        main: [
-          paragraph('First'),
-          contentCard(),
-          paragraph('Between'),
-          contentCard(),
-          paragraph('Last'),
-        ],
-      },
+      children: [
+        paragraph('First'),
+        contentCard(),
+        paragraph('Between'),
+        contentCard(),
+        paragraph('Last'),
+      ],
+      roots: { [SHARED_ROOT]: [paragraph('Inside')] },
     },
   })
-  const editor = createEditorView(runtime, {
-    root: 'main',
-  }) as unknown as ReactRuntimeEditor
+  const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
   const graph = createSlateProjectionGraph([
     { path: [0], root: 'main' },
     { owner: sharedOwner, path: [0], root: SHARED_ROOT },
