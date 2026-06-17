@@ -1,106 +1,72 @@
-import { Editor, Location, type Node, Range, Transforms } from '../../index'
+import type { DescendantIn, Editor, Location, Value } from '../../index'
 import type { TextUnit } from '../../types/types'
-import { getDefaultInsertLocation } from '../../utils'
 
 export interface TextDeleteOptions {
+  /** Location to delete from. Defaults to the transaction target. */
   at?: Location
+  /** Number of units to delete. Defaults to one unit. */
   distance?: number
+  /** Unit used for collapsed deletion. Defaults to a single character. */
   unit?: TextUnit
+  /** Delete before the target instead of after it. */
   reverse?: boolean
+  /** Keep hanging range edges instead of un-hanging before deletion. */
   hanging?: boolean
+  /** Allow deletion inside void elements. */
   voids?: boolean
 }
 
 export interface TextInsertFragmentOptions {
+  /** Location to insert at. Defaults to the transaction target. */
   at?: Location
+  /** Keep hanging range edges instead of un-hanging before insertion. */
   hanging?: boolean
+  /** Allow insertion into void elements. */
   voids?: boolean
   batchDirty?: boolean
 }
 
 export interface TextInsertTextOptions {
+  /** Location to insert at. Defaults to the transaction target. */
   at?: Location
+  /** Allow insertion into void elements. */
   voids?: boolean
 }
 
-export interface TextTransforms {
+export interface TextRemoveTextOptions {
+  at?: { path: number[]; offset: number }
+}
+
+export interface TextMutationMethods<V extends Value = Value> {
   /**
-   * Delete content in the editor.
+   * Delete content at a location, or at the transaction target when omitted.
    */
-  delete: (editor: Editor, options?: TextDeleteOptions) => void
+  delete: (editor: Editor<V>, options?: TextDeleteOptions) => void
 
   /**
-   * Insert a fragment in the editor
-   * at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
+   * Insert a fragment at a location, or at the transaction target when omitted.
    */
   insertFragment: (
-    editor: Editor,
-    fragment: Node[],
+    editor: Editor<V>,
+    fragment: DescendantIn<V>[],
     options?: TextInsertFragmentOptions
   ) => void
 
   /**
-   * Insert a string of text in the editor
-   * at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
+   * Insert text at a location, or at the transaction target when omitted.
    */
   insertText: (
-    editor: Editor,
+    editor: Editor<V>,
     text: string,
     options?: TextInsertTextOptions
   ) => void
-}
 
-// eslint-disable-next-line no-redeclare
-export const TextTransforms: TextTransforms = {
-  delete(editor, options) {
-    editor.delete(options)
-  },
-  insertFragment(editor, fragment, options) {
-    editor.insertFragment(fragment, options)
-  },
-  insertText(
-    editor: Editor,
+  /**
+   * Remove a string of text at a point or the current selection anchor.
+   */
+  removeText: (
+    editor: Editor<V>,
     text: string,
-    options: TextInsertTextOptions = {}
-  ): void {
-    Editor.withoutNormalizing(editor, () => {
-      const { voids = false } = options
-      let { at = getDefaultInsertLocation(editor) } = options
-
-      if (Location.isPath(at)) {
-        at = Editor.range(editor, at)
-      }
-
-      if (Location.isRange(at)) {
-        if (Range.isCollapsed(at)) {
-          at = at.anchor
-        } else {
-          const end = Range.end(at)
-          if (!voids && Editor.void(editor, { at: end })) {
-            return
-          }
-          const start = Range.start(at)
-          const startRef = Editor.pointRef(editor, start)
-          const endRef = Editor.pointRef(editor, end)
-          Transforms.delete(editor, { at, voids })
-          const startPoint = startRef.unref()
-          const endPoint = endRef.unref()
-
-          at = startPoint || endPoint!
-          Transforms.setSelection(editor, { anchor: at, focus: at })
-        }
-      }
-
-      if (
-        (!voids && Editor.void(editor, { at })) ||
-        Editor.elementReadOnly(editor, { at })
-      ) {
-        return
-      }
-
-      const { path, offset } = at
-      if (text.length > 0)
-        editor.apply({ type: 'insert_text', path, offset, text })
-    })
-  },
+    options?: TextRemoveTextOptions
+  ) => void
 }

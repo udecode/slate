@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useState, useSyncExternalStore } from 'react'
 
 /**
  * Create a selector that updates when an `update` function is called, and
@@ -19,70 +19,119 @@ import { useCallback, useReducer, useRef } from 'react'
  * return state
  */
 
+type GenericSelectorSnapshot = {
+  version: number
+}
+
+type GenericSelectorCell<T> = {
+  equalityFn: (a: T | null, b: T) => boolean
+  listeners: Set<() => void>
+  selector: (() => T) | null
+  selectedState: T | null
+  snapshot: GenericSelectorSnapshot
+  subscriptionCallbackError: Error | undefined
+  version: number
+}
+
+const createGenericSelectorCell = <T,>(
+  equalityFn: (a: T | null, b: T) => boolean
+): GenericSelectorCell<T> => ({
+  equalityFn,
+  listeners: new Set<() => void>(),
+  selector: null,
+  selectedState: null,
+  snapshot: { version: 0 },
+  subscriptionCallbackError: undefined,
+  version: 0,
+})
+
 export function useGenericSelector<T>(
   selector: () => T,
   equalityFn: (a: T | null, b: T) => boolean
 ): [state: T, update: () => void] {
-  const [, forceRender] = useReducer((s) => s + 1, 0)
+  const [cell] = useState(() => createGenericSelectorCell(equalityFn))
 
-  const latestSubscriptionCallbackError = useRef<Error | undefined>(undefined)
-  const latestSelector = useRef<() => T>(() => null as any)
-  const latestSelectedState = useRef<T | null>(null)
-  let selectedState: T
+  cell.equalityFn = equalityFn
 
-  try {
-    if (
-      selector !== latestSelector.current ||
-      latestSubscriptionCallbackError.current
-    ) {
-      const selectorResult = selector()
+  const notify = useCallback(() => {
+    cell.version += 1
+    cell.snapshot = { version: cell.version }
+    cell.listeners.forEach((listener) => {
+      listener()
+    })
+  }, [cell])
 
-      if (equalityFn(latestSelectedState.current, selectorResult)) {
-        selectedState = latestSelectedState.current as T
-      } else {
-        selectedState = selectorResult
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      cell.listeners.add(listener)
+
+      return () => {
+        cell.listeners.delete(listener)
       }
-    } else {
-      selectedState = latestSelectedState.current as T
-    }
-  } catch (err) {
-    if (latestSubscriptionCallbackError.current && isError(err)) {
-      err.message += `\nThe error may be correlated with this previous error:\n${latestSubscriptionCallbackError.current.stack}\n\n`
-    }
+    },
+    [cell]
+  )
 
-    throw err
-  }
-
-  latestSelector.current = selector
-  latestSelectedState.current = selectedState
-  latestSubscriptionCallbackError.current = undefined
+  const getSnapshot = useCallback(() => cell.snapshot, [cell])
 
   const update = useCallback(() => {
-    try {
-      const newSelectedState = latestSelector.current()
+    const currentSelector = cell.selector
 
-      if (equalityFn(latestSelectedState.current, newSelectedState)) {
+    if (!currentSelector) {
+      return
+    }
+
+    try {
+      const newSelectedState = currentSelector()
+
+      if (cell.equalityFn(cell.selectedState, newSelectedState)) {
         return
       }
 
-      latestSelectedState.current = newSelectedState
+      cell.selectedState = newSelectedState
+      cell.subscriptionCallbackError = undefined
     } catch (err) {
       // we ignore all errors here, since when the component
       // is re-rendered, the selectors are called again, and
       // will throw again, if neither props nor store state
       // changed
       if (err instanceof Error) {
-        latestSubscriptionCallbackError.current = err
+        cell.subscriptionCallbackError = err
       } else {
-        latestSubscriptionCallbackError.current = new Error(String(err))
+        cell.subscriptionCallbackError = new Error(String(err))
       }
     }
 
-    forceRender()
+    notify()
+  }, [cell, notify])
 
-    // don't rerender on equalityFn change since we want to be able to define it inline
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+
+  let selectedState: T
+
+  try {
+    if (selector !== cell.selector || cell.subscriptionCallbackError) {
+      const selectorResult = selector()
+
+      if (cell.equalityFn(cell.selectedState, selectorResult)) {
+        selectedState = cell.selectedState as T
+      } else {
+        selectedState = selectorResult
+      }
+    } else {
+      selectedState = cell.selectedState as T
+    }
+  } catch (err) {
+    if (cell.subscriptionCallbackError && isError(err)) {
+      err.message += `\nThe error may be correlated with this previous error:\n${cell.subscriptionCallbackError.stack}\n\n`
+    }
+
+    throw err
+  }
+
+  cell.selector = selector
+  cell.selectedState = selectedState
+  cell.subscriptionCallbackError = undefined
 
   return [selectedState, update]
 }

@@ -1,4 +1,6 @@
-import { Point } from 'slate'
+/** @jsx jsx */
+
+import { PointApi } from 'slate'
 
 export const input = {
   path: [0, 0],
@@ -6,7 +8,7 @@ export const input = {
 }
 
 export const test = (value) => {
-  return Point.transform(
+  return PointApi.transform(
     value,
     {
       type: 'insert_text',

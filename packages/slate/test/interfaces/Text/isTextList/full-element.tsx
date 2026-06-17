@@ -1,4 +1,6 @@
-import { Text } from 'slate'
+/** @jsx jsx */
+
+import { TextApi } from 'slate'
 
 export const input = [
   {
@@ -6,6 +8,6 @@ export const input = [
   },
 ]
 export const test = (value) => {
-  return Text.isTextList(value)
+  return TextApi.isTextList(value)
 }
 export const output = false

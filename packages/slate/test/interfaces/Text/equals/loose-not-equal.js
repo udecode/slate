@@ -1,4 +1,4 @@
-import { Text } from 'slate'
+import { TextApi } from 'slate'
 
 export const input = {
   textNodeA: { text: 'same text', bold: true },
@@ -6,7 +6,7 @@ export const input = {
 }
 
 export const test = ({ textNodeA, textNodeB }) => {
-  return Text.equals(textNodeA, textNodeB, { loose: true })
+  return TextApi.equals(textNodeA, textNodeB, { loose: true })
 }
 
 export const output = false

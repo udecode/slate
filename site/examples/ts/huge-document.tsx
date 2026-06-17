@@ -1,27 +1,41 @@
 import { faker } from '@faker-js/faker'
+import {
+  parseAsBoolean,
+  parseAsString,
+  parseAsStringLiteral,
+  useQueryStates,
+} from 'nuqs'
 import React, {
   type CSSProperties,
-  type Dispatch,
   StrictMode,
   useCallback,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from 'react'
+import type { Editor, Value } from 'slate'
 import {
-  type Descendant,
-  type Editor,
-  createEditor as slateCreateEditor,
-} from 'slate'
-import {
+  createReactEditor,
   Editable,
-  type RenderChunkProps,
+  type EditableDOMStrategyMetrics,
+  type EditableProps,
   type RenderElementProps,
   Slate,
-  useSelected,
-  withReact,
+  useElementSelected,
 } from 'slate-react'
 
-import type { HeadingElement, ParagraphElement } from './custom-types.d'
+import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
+import { parseAsBoundedInteger, replaceQueryOptions } from './query-controls'
 
 const SUPPORTS_EVENT_TIMING =
   typeof window !== 'undefined' && 'PerformanceEventTiming' in window
@@ -32,177 +46,292 @@ const SUPPORTS_LOAF_TIMING =
 
 interface Config {
   blocks: number
-  chunking: boolean
-  chunkSize: number
-  chunkDivs: boolean
-  chunkOutlines: boolean
-  contentVisibilityMode: 'none' | 'element' | 'chunk'
+  contentVisibilityMode: 'none' | 'element'
+  documentSeed: string
+  editorHeight: number
+  domStrategyMode: 'auto' | 'full' | 'staged' | 'virtualized'
+  domStrategyOverscan: number
+  domStrategyThreshold: number
   showSelectedHeadings: boolean
   strictMode: boolean
+  virtualizedEstimatedBlockSize: number
 }
+
+type RenderConfig = {
+  contentVisibility: boolean
+  showSelectedHeadings: boolean
+}
+
+type SetConfig = (partialConfig: Partial<Config>) => void
+
+type EventTimingEntry = PerformanceEntry & {
+  processingEnd: number
+  processingStart: number
+}
+
+type EventTimingObserverInit = PerformanceObserverInit & {
+  durationThreshold: number
+  type: 'event'
+}
+
+const RenderConfigContext = React.createContext<RenderConfig>({
+  contentVisibility: false,
+  showSelectedHeadings: false,
+})
 
 const blocksOptions = [
   2, 1000, 2500, 5000, 7500, 10_000, 15_000, 20_000, 25_000, 30_000, 40_000,
   50_000, 100_000, 200_000,
 ]
 
-const chunkSizeOptions = [3, 10, 100, 1000]
+const formatBlocksOption = (blocks: number) =>
+  new Intl.NumberFormat('en-US').format(blocks)
 
-const searchParams =
-  typeof document === 'undefined'
-    ? null
-    : new URLSearchParams(document.location.search)
+const contentVisibilityModeOptions = ['none', 'element'] as const
+const domStrategyModeOptions = [
+  'auto',
+  'full',
+  'staged',
+  'virtualized',
+] as const
 
-const parseNumber = (key: string, defaultValue: number) =>
-  Number.parseInt(searchParams?.get(key) ?? '', 10) || defaultValue
+const toContentVisibilityMode = (
+  value: string
+): Config['contentVisibilityMode'] => (value === 'element' ? 'element' : 'none')
 
-const parseBoolean = (key: string, defaultValue: boolean) => {
-  const value = searchParams?.get(key)
-  if (value) return value === 'true'
-  return defaultValue
+const hugeDocumentQueryParsers = {
+  blocks: parseAsBoundedInteger(1, 200_000).withDefault(10_000),
+  contentVisibilityMode: parseAsStringLiteral(
+    contentVisibilityModeOptions
+  ).withDefault('none'),
+  documentSeed: parseAsString.withDefault('default'),
+  domStrategyMode: parseAsStringLiteral(domStrategyModeOptions)
+    .withDefault('virtualized')
+    .withOptions({ clearOnDefault: false }),
+  domStrategyOverscan: parseAsBoundedInteger(0, 1000).withDefault(0),
+  domStrategyThreshold: parseAsBoundedInteger(1, 200_000).withDefault(2000),
+  editorHeight: parseAsBoundedInteger(120, 2000).withDefault(420),
+  showSelectedHeadings: parseAsBoolean.withDefault(false),
+  strictMode: parseAsBoolean.withDefault(false),
+  virtualizedEstimatedBlockSize: parseAsBoundedInteger(1, 1000).withDefault(48),
 }
 
-const parseEnum = <T extends string>(
-  key: string,
-  options: T[],
-  defaultValue: T
-): T => {
-  const value = searchParams?.get(key) as T | null | undefined
-  if (value && options.includes(value)) return value
-  return defaultValue
+const hugeDocumentUrlKeys = {
+  contentVisibilityMode: 'content_visibility',
+  documentSeed: 'seed',
+  domStrategyMode: 'strategy',
+  domStrategyOverscan: 'overscan',
+  domStrategyThreshold: 'threshold',
+  editorHeight: 'editor_height',
+  showSelectedHeadings: 'selected_headings',
+  strictMode: 'strict',
+  virtualizedEstimatedBlockSize: 'estimated_block_size',
 }
 
-const initialConfig: Config = {
-  blocks: parseNumber('blocks', 10_000),
-  chunking: parseBoolean('chunking', true),
-  chunkSize: parseNumber('chunk_size', 1000),
-  chunkDivs: parseBoolean('chunk_divs', true),
-  chunkOutlines: parseBoolean('chunk_outlines', false),
-  contentVisibilityMode: parseEnum(
-    'content_visibility',
-    ['none', 'element', 'chunk'],
-    'chunk'
-  ),
-  showSelectedHeadings: parseBoolean('selected_headings', false),
-  strictMode: parseBoolean('strict', false),
-}
+const cachedInitialValueBySeed = new Map<string, Value>()
+const maxCachedInitialValueBlocks = 50_000
 
-const setSearchParams = (config: Config) => {
-  if (searchParams) {
-    searchParams.set('blocks', config.blocks.toString())
-    searchParams.set('chunking', config.chunking ? 'true' : 'false')
-    searchParams.set('chunk_size', config.chunkSize.toString())
-    searchParams.set('chunk_divs', config.chunkDivs ? 'true' : 'false')
-    searchParams.set('chunk_outlines', config.chunkOutlines ? 'true' : 'false')
-    searchParams.set('content_visibility', config.contentVisibilityMode)
-    searchParams.set(
-      'selected_headings',
-      config.showSelectedHeadings ? 'true' : 'false'
-    )
-    searchParams.set('strict', config.strictMode ? 'true' : 'false')
-    history.replaceState({}, '', `?${searchParams.toString()}`)
-  }
-}
+const getNumericDocumentSeed = (seed: string) =>
+  seed === 'default'
+    ? 1
+    : Array.from(seed).reduce(
+        (value, character) =>
+          (Math.imul(value, 31) + character.charCodeAt(0)) >>> 0,
+        0
+      )
 
-const cachedInitialValue: Descendant[] = []
+const generateInitialValue = (blocks: number, seed: string) => {
+  const initialValue: Value = []
+  faker.seed(getNumericDocumentSeed(seed))
 
-const getInitialValue = (blocks: number) => {
-  if (cachedInitialValue.length >= blocks) {
-    return cachedInitialValue.slice(0, blocks)
-  }
-
-  faker.seed(1)
-
-  for (let i = cachedInitialValue.length; i < blocks; i++) {
+  for (let i = 0; i < blocks; i++) {
     if (i % 100 === 0) {
-      const heading: HeadingElement = {
+      initialValue.push({
         type: 'heading-one',
         children: [{ text: faker.lorem.sentence() }],
-      }
-      cachedInitialValue.push(heading)
+      })
     } else {
-      const paragraph: ParagraphElement = {
+      initialValue.push({
         type: 'paragraph',
         children: [{ text: faker.lorem.paragraph() }],
-      }
-      cachedInitialValue.push(paragraph)
+      })
     }
   }
 
-  return cachedInitialValue.slice()
+  return initialValue
 }
 
-const initialInitialValue =
-  typeof window === 'undefined' ? [] : getInitialValue(initialConfig.blocks)
+const getInitialValue = (blocks: number, seed: string) => {
+  if (blocks > maxCachedInitialValueBlocks) {
+    return generateInitialValue(blocks, seed)
+  }
 
-const createEditor = (config: Config) => {
-  const editor = withReact(slateCreateEditor())
+  const cachedInitialValue = cachedInitialValueBySeed.get(seed)
 
-  editor.getChunkSize = (node) =>
-    config.chunking && node === editor ? config.chunkSize : null
+  if (cachedInitialValue && cachedInitialValue.length >= blocks) {
+    return cachedInitialValue.slice(0, blocks)
+  }
 
-  return editor
+  const initialValue = generateInitialValue(blocks, seed)
+
+  cachedInitialValueBySeed.set(seed, initialValue)
+
+  return initialValue.slice()
 }
+
+const fallbackInitialValue: Value = [
+  {
+    type: 'paragraph',
+    children: [{ text: '' }],
+  },
+]
+
+// The huge-document bench remounts editors from URL/config controls. Normal
+// React-owned examples should use `useSlateEditor`.
+const createEditor = (_config: Config, initialValue: Value) =>
+  createReactEditor({ initialValue })
+
+const toDOMStrategy = (config: Config): EditableProps['domStrategy'] => {
+  switch (config.domStrategyMode) {
+    case 'full':
+    case 'staged':
+    case 'auto':
+      return config.domStrategyMode
+    case 'virtualized':
+      return {
+        estimatedBlockSize: config.virtualizedEstimatedBlockSize,
+        overscan: config.domStrategyOverscan,
+        threshold: config.domStrategyThreshold,
+        type: 'virtualized',
+      }
+  }
+}
+
+const hasBoundedEditableScroller = (config: Config) =>
+  config.domStrategyMode === 'staged' ||
+  config.domStrategyMode === 'virtualized'
+
+const toBoundedEditableStyle = (config: Config): CSSProperties | undefined =>
+  hasBoundedEditableScroller(config)
+    ? {
+        height: config.editorHeight,
+        outline: '1px solid #ddd',
+        scrollbarGutter: 'stable',
+        overflowY: 'auto',
+      }
+    : undefined
+
+const formatMetric = (value: boolean | number | string | null | undefined) =>
+  value ?? '-'
 
 const HugeDocumentExample = () => {
-  const [rendering, setRendering] = useState(false)
-  const [config, baseSetConfig] = useState<Config>(initialConfig)
-  const [initialValue, setInitialValue] = useState(initialInitialValue)
-  const [editor, setEditor] = useState(() => createEditor(config))
+  const [config, setQueryConfig] = useQueryStates(hugeDocumentQueryParsers, {
+    ...replaceQueryOptions,
+    urlKeys: hugeDocumentUrlKeys,
+  })
+  const [isRendering, setIsRendering] = useState(false)
+  const [editor, setEditor] = useState(() =>
+    createEditor(
+      config,
+      typeof window === 'undefined'
+        ? fallbackInitialValue
+        : getInitialValue(config.blocks, config.documentSeed)
+    )
+  )
+  const editorInitialValueKeyRef = useRef(
+    `${config.documentSeed}:${config.blocks}`
+  )
   const [editorVersion, setEditorVersion] = useState(0)
+  const [domStrategyMetrics, setDOMStrategyMetrics] =
+    useState<EditableDOMStrategyMetrics | null>(null)
 
   const setConfig = useCallback(
     (partialConfig: Partial<Config>) => {
       const newConfig = { ...config, ...partialConfig }
 
-      setRendering(true)
-      baseSetConfig(newConfig)
-      setSearchParams(newConfig)
+      setIsRendering(true)
+      setDOMStrategyMetrics(null)
+      editorInitialValueKeyRef.current = `${newConfig.documentSeed}:${newConfig.blocks}`
+      void setQueryConfig(newConfig)
 
       setTimeout(() => {
-        setRendering(false)
-        setInitialValue(getInitialValue(newConfig.blocks))
-        setEditor(createEditor(newConfig))
+        const nextInitialValue = getInitialValue(
+          newConfig.blocks,
+          newConfig.documentSeed
+        )
+
+        setIsRendering(false)
+        setEditor(createEditor(newConfig, nextInitialValue))
         setEditorVersion((n) => n + 1)
       })
     },
-    [config]
+    [config, setQueryConfig]
   )
 
-  const renderElement = useCallback(
-    (props: RenderElementProps) => (
-      <Element
-        {...props}
-        contentVisibility={config.contentVisibilityMode === 'element'}
-        showSelectedHeadings={config.showSelectedHeadings}
-      />
-    ),
+  useEffect(() => {
+    const initialValueKey = `${config.documentSeed}:${config.blocks}`
+
+    if (editorInitialValueKeyRef.current === initialValueKey) {
+      return
+    }
+
+    let replaceTimeout: ReturnType<typeof setTimeout> | undefined
+
+    const renderTimeout = setTimeout(() => {
+      setIsRendering(true)
+      setDOMStrategyMetrics(null)
+
+      replaceTimeout = setTimeout(() => {
+        const nextInitialValue = getInitialValue(
+          config.blocks,
+          config.documentSeed
+        )
+
+        editorInitialValueKeyRef.current = initialValueKey
+        setIsRendering(false)
+        setEditor(createEditor(config, nextInitialValue))
+        setEditorVersion((n) => n + 1)
+      })
+    })
+
+    return () => {
+      clearTimeout(renderTimeout)
+
+      if (replaceTimeout) {
+        clearTimeout(replaceTimeout)
+      }
+    }
+  }, [config])
+
+  const domStrategy = useMemo(() => toDOMStrategy(config), [config])
+
+  const editableStyle = useMemo(() => toBoundedEditableStyle(config), [config])
+
+  const renderConfig = useMemo(
+    () => ({
+      contentVisibility: config.contentVisibilityMode === 'element',
+      showSelectedHeadings: config.showSelectedHeadings,
+    }),
     [config.contentVisibilityMode, config.showSelectedHeadings]
   )
 
-  const renderChunk = useCallback(
-    (props: RenderChunkProps) => (
-      <Chunk
-        {...props}
-        contentVisibilityLowest={config.contentVisibilityMode === 'chunk'}
-        outline={config.chunkOutlines}
-      />
-    ),
-    [config.contentVisibilityMode, config.chunkOutlines]
-  )
-
-  const editable = rendering ? (
+  const editable = isRendering ? (
     <div>Rendering&hellip;</div>
   ) : (
-    <Slate editor={editor} initialValue={initialValue} key={editorVersion}>
-      <Editable
-        autoFocus
-        placeholder="Enter some text…"
-        renderChunk={config.chunkDivs ? renderChunk : undefined}
-        renderElement={renderElement}
-        spellCheck
-      />
-    </Slate>
+    <RenderConfigContext.Provider value={renderConfig}>
+      <Slate editor={editor} key={editorVersion}>
+        <Editable
+          autoFocus
+          domStrategy={domStrategy}
+          id="huge-document-editor"
+          onDOMStrategyMetrics={setDOMStrategyMetrics}
+          placeholder="Enter some text…"
+          renderElement={Element}
+          spellCheck
+          style={editableStyle}
+        />
+      </Slate>
+    </RenderConfigContext.Provider>
   )
 
   const editableWithStrictMode = config.strictMode ? (
@@ -215,36 +344,13 @@ const HugeDocumentExample = () => {
     <>
       <PerformanceControls
         config={config}
+        domStrategyMetrics={domStrategyMetrics}
         editor={editor}
         setConfig={setConfig}
       />
 
       {editableWithStrictMode}
     </>
-  )
-}
-
-const Chunk = ({
-  attributes,
-  children,
-  lowest,
-  contentVisibilityLowest,
-  outline,
-}: RenderChunkProps & {
-  contentVisibilityLowest: boolean
-  outline: boolean
-}) => {
-  const style: CSSProperties = {
-    contentVisibility: contentVisibilityLowest && lowest ? 'auto' : undefined,
-    border: outline ? '1px solid red' : undefined,
-    padding: outline ? 20 : undefined,
-    marginBottom: outline ? 20 : undefined,
-  }
-
-  return (
-    <div {...attributes} style={style}>
-      {children}
-    </div>
   )
 }
 
@@ -257,28 +363,34 @@ const Heading = ({
   showSelectedHeadings: boolean
   ref?: React.Ref<HTMLHeadingElement>
 }) => {
-  // Fine since the editor is remounted if the config changes
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const selected = showSelectedHeadings ? useSelected() : false
+  if (showSelectedHeadings) {
+    return <SelectedHeading ref={ref} style={styleProp} {...props} />
+  }
+
+  return <h1 ref={ref} {...props} aria-selected={false} style={styleProp} />
+}
+
+const SelectedHeading = ({
+  style: styleProp,
+  ref,
+  ...props
+}: React.ComponentProps<'h1'> & {
+  ref?: React.Ref<HTMLHeadingElement>
+}) => {
+  const selected = useElementSelected()
   const style = { ...styleProp, color: selected ? 'green' : undefined }
   return <h1 ref={ref} {...props} aria-selected={selected} style={style} />
 }
 
 const Paragraph = 'p'
 
-const Element = ({
-  attributes,
-  children,
-  element,
-  contentVisibility,
-  showSelectedHeadings,
-}: RenderElementProps & {
-  contentVisibility: boolean
-  showSelectedHeadings: boolean
-}) => {
-  const style: CSSProperties = {
+const Element = ({ attributes, children, element }: RenderElementProps) => {
+  const { contentVisibility, showSelectedHeadings } =
+    React.useContext(RenderConfigContext)
+  const style = {
+    containIntrinsicSize: contentVisibility ? 'auto 64px' : undefined,
     contentVisibility: contentVisibility ? 'auto' : undefined,
-  }
+  } satisfies CSSProperties
 
   switch (element.type) {
     case 'heading-one':
@@ -303,11 +415,13 @@ const Element = ({
 const PerformanceControls = ({
   editor,
   config,
+  domStrategyMetrics,
   setConfig,
 }: {
   editor: Editor
   config: Config
-  setConfig: Dispatch<Partial<Config>>
+  domStrategyMetrics: EditableDOMStrategyMetrics | null
+  setConfig: SetConfig
 }) => {
   const [configurationOpen, setConfigurationOpen] = useState(true)
   const [keyPressDurations, setKeyPressDurations] = useState<number[]>([])
@@ -320,6 +434,13 @@ const PerformanceControls = ({
     keyPressDurations.length === 10
       ? Math.round(keyPressDurations.reduce((total, d) => total + d) / 10)
       : null
+  const visibleBlocksOptions = useMemo(
+    () =>
+      Array.from(new Set([...blocksOptions, config.blocks])).sort(
+        (left, right) => left - right
+      ),
+    [config.blocks]
+  )
 
   useEffect(() => {
     if (!SUPPORTS_EVENT_TIMING) return
@@ -327,9 +448,9 @@ const PerformanceControls = ({
     const observer = new PerformanceObserver((list) => {
       list.getEntries().forEach((entry) => {
         if (entry.name === 'keypress') {
+          const eventEntry = entry as EventTimingEntry
           const duration = Math.round(
-            // @ts-expect-error Entry type is missing processingStart and processingEnd
-            entry.processingEnd - entry.processingStart
+            eventEntry.processingEnd - eventEntry.processingStart
           )
           setKeyPressDurations((durations) => [
             duration,
@@ -339,8 +460,10 @@ const PerformanceControls = ({
       })
     })
 
-    // @ts-expect-error Options type is missing durationThreshold
-    observer.observe({ type: 'event', durationThreshold: 16 })
+    observer.observe({
+      durationThreshold: 16,
+      type: 'event',
+    } as EventTimingObserverInit)
 
     return () => observer.disconnect()
   }, [])
@@ -348,13 +471,12 @@ const PerformanceControls = ({
   useEffect(() => {
     if (!SUPPORTS_LOAF_TIMING) return
 
-    const { apply } = editor
     let afterOperation = false
-
-    editor.apply = (operation) => {
-      apply(operation)
-      afterOperation = true
-    }
+    const unsubscribe = editor.subscribeCommit((change) => {
+      if (change.operations.length) {
+        afterOperation = true
+      }
+    })
 
     const observer = new PerformanceObserver((list) => {
       list.getEntries().forEach((entry) => {
@@ -368,187 +490,282 @@ const PerformanceControls = ({
     // Register the observer for events
     observer.observe({ type: 'long-animation-frame' })
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      unsubscribe()
+    }
   }, [editor])
 
   return (
     <div className="performance-controls">
-      <p>
-        <label>
-          Blocks:{' '}
-          <select
-            onChange={(event) =>
-              setConfig({
-                blocks: Number.parseInt(event.target.value, 10),
-              })
-            }
-            value={config.blocks}
-          >
-            {blocksOptions.map((blocks) => (
-              <option key={blocks} value={blocks}>
-                {blocks.toString().replace(/(\d{3})$/, ',$1')}
-              </option>
-            ))}
-          </select>
-        </label>
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor="huge-document-blocks">Blocks:</Label>
+        <NativeSelect
+          id="huge-document-blocks"
+          onChange={(event) =>
+            setConfig({
+              blocks: Number.parseInt(event.target.value, 10),
+            })
+          }
+          value={config.blocks}
+        >
+          {visibleBlocksOptions.map((blocks) => (
+            <NativeSelectOption key={blocks} value={blocks}>
+              {formatBlocksOption(blocks)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
 
-      <details
-        onToggle={(event) => setConfigurationOpen(event.currentTarget.open)}
-        open={configurationOpen}
-      >
-        <summary>Configuration</summary>
+      <Collapsible onOpenChange={setConfigurationOpen} open={configurationOpen}>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">
+            Configuration
+          </Button>
+        </CollapsibleTrigger>
 
-        <p>
-          <label>
-            <input
-              checked={config.chunking}
+        <CollapsibleContent>
+          <div className="flex flex-wrap items-center gap-2">
+            <Label htmlFor="huge-document-content-visibility">
+              Set <code>content-visibility: auto</code> on:
+            </Label>
+            <NativeSelect
+              id="huge-document-content-visibility"
               onChange={(event) =>
                 setConfig({
-                  chunking: event.target.checked,
-                })
-              }
-              type="checkbox"
-            />{' '}
-            Chunking enabled
-          </label>
-        </p>
-
-        {config.chunking && (
-          <>
-            <p>
-              <label>
-                <input
-                  checked={config.chunkDivs}
-                  onChange={(event) =>
-                    setConfig({
-                      chunkDivs: event.target.checked,
-                    })
-                  }
-                  type="checkbox"
-                />{' '}
-                Render each chunk as a separate <code>&lt;div&gt;</code>
-              </label>
-            </p>
-
-            {config.chunkDivs && (
-              <p>
-                <label>
-                  <input
-                    checked={config.chunkOutlines}
-                    onChange={(event) =>
-                      setConfig({
-                        chunkOutlines: event.target.checked,
-                      })
-                    }
-                    type="checkbox"
-                  />{' '}
-                  Outline each chunk
-                </label>
-              </p>
-            )}
-
-            <p>
-              <label>
-                Chunk size:{' '}
-                <select
-                  onChange={(event) =>
-                    setConfig({
-                      chunkSize: Number.parseInt(event.target.value, 10),
-                    })
-                  }
-                  value={config.chunkSize}
-                >
-                  {chunkSizeOptions.map((chunkSize) => (
-                    <option key={chunkSize} value={chunkSize}>
-                      {chunkSize}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </p>
-          </>
-        )}
-
-        <p>
-          <label>
-            Set <code>content-visibility: auto</code> on:{' '}
-            <select
-              onChange={(event) =>
-                setConfig({
-                  contentVisibilityMode: event.target.value as any,
+                  contentVisibilityMode: toContentVisibilityMode(
+                    event.target.value
+                  ),
                 })
               }
               value={config.contentVisibilityMode}
             >
-              <option value="none">None</option>
-              <option value="element">Elements</option>
-              {config.chunking && config.chunkDivs && (
-                <option value="chunk">Lowest chunks</option>
+              <NativeSelectOption value="none">None</NativeSelectOption>
+              <NativeSelectOption value="element">Elements</NativeSelectOption>
+            </NativeSelect>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Label htmlFor="huge-document-dom-strategy">DOM strategy:</Label>
+            <NativeSelect
+              id="huge-document-dom-strategy"
+              onChange={(event) =>
+                setConfig({
+                  domStrategyMode: event.target
+                    .value as Config['domStrategyMode'],
+                })
+              }
+              value={config.domStrategyMode}
+            >
+              <NativeSelectOption value="auto">Auto</NativeSelectOption>
+              <NativeSelectOption value="full">Full</NativeSelectOption>
+              <NativeSelectOption value="staged">Staged</NativeSelectOption>
+              <NativeSelectOption value="virtualized">
+                Virtualized
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
+
+          {config.domStrategyMode === 'virtualized' && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-overscan">Overscan:</Label>
+                <Input
+                  id="huge-document-overscan"
+                  min={0}
+                  onChange={(event) =>
+                    setConfig({
+                      domStrategyOverscan: Number.parseInt(
+                        event.target.value,
+                        10
+                      ),
+                    })
+                  }
+                  type="number"
+                  value={config.domStrategyOverscan}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-threshold">Threshold:</Label>
+                <Input
+                  id="huge-document-threshold"
+                  min={1}
+                  onChange={(event) =>
+                    setConfig({
+                      domStrategyThreshold: Number.parseInt(
+                        event.target.value,
+                        10
+                      ),
+                    })
+                  }
+                  type="number"
+                  value={config.domStrategyThreshold}
+                />
+              </div>
+            </>
+          )}
+
+          {hasBoundedEditableScroller(config) && (
+            <>
+              {config.domStrategyMode === 'virtualized' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="huge-document-estimated-block-size">
+                    Estimated block size:
+                  </Label>
+                  <Input
+                    id="huge-document-estimated-block-size"
+                    min={1}
+                    onChange={(event) =>
+                      setConfig({
+                        virtualizedEstimatedBlockSize: Number.parseInt(
+                          event.target.value,
+                          10
+                        ),
+                      })
+                    }
+                    type="number"
+                    value={config.virtualizedEstimatedBlockSize}
+                  />
+                </div>
               )}
-            </select>
-          </label>
-        </p>
 
-        <p>
-          <label>
-            <input
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-editor-height">
+                  Editor height:
+                </Label>
+                <Input
+                  id="huge-document-editor-height"
+                  min={120}
+                  onChange={(event) =>
+                    setConfig({
+                      editorHeight: Number.parseInt(event.target.value, 10),
+                    })
+                  }
+                  type="number"
+                  value={config.editorHeight}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch
               checked={config.showSelectedHeadings}
-              onChange={(event) =>
+              id="huge-document-show-selected-headings"
+              onCheckedChange={(checked) =>
                 setConfig({
-                  showSelectedHeadings: event.target.checked,
+                  showSelectedHeadings: checked,
                 })
               }
-              type="checkbox"
-            />{' '}
-            Call <code>useSelected</code> in each heading
-          </label>
-        </p>
+            />
+            <Label htmlFor="huge-document-show-selected-headings">
+              Call <code>useElementSelected</code> in each heading
+            </Label>
+          </div>
 
-        <p>
-          <label>
-            <input
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch
               checked={config.strictMode}
-              onChange={(event) =>
+              id="huge-document-strict-mode"
+              onCheckedChange={(checked) =>
                 setConfig({
-                  strictMode: event.target.checked,
+                  strictMode: checked,
                 })
               }
-              type="checkbox"
-            />{' '}
-            React strict mode (only works in localhost)
-          </label>
-        </p>
-      </details>
+            />
+            <Label htmlFor="huge-document-strict-mode">
+              React strict mode (only works in localhost)
+            </Label>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-      <details>
-        <summary>Statistics</summary>
+      <Collapsible defaultOpen>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">
+            Statistics
+          </Button>
+        </CollapsibleTrigger>
 
-        <p>
-          Last keypress (ms):{' '}
-          {SUPPORTS_EVENT_TIMING
-            ? (lastKeyPressDuration ?? '-')
-            : 'Not supported'}
-        </p>
+        <CollapsibleContent>
+          <p>
+            Last keypress (ms):{' '}
+            {SUPPORTS_EVENT_TIMING
+              ? (lastKeyPressDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        <p>
-          Average of last 10 keypresses (ms):{' '}
-          {SUPPORTS_EVENT_TIMING
-            ? (averageKeyPressDuration ?? '-')
-            : 'Not supported'}
-        </p>
+          <p>
+            Average of last 10 keypresses (ms):{' '}
+            {SUPPORTS_EVENT_TIMING
+              ? (averageKeyPressDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        <p>
-          Last long animation frame (ms):{' '}
-          {SUPPORTS_LOAF_TIMING
-            ? (lastLongAnimationFrameDuration ?? '-')
-            : 'Not supported'}
-        </p>
+          <p>
+            Last long animation frame (ms):{' '}
+            {SUPPORTS_LOAF_TIMING
+              ? (lastLongAnimationFrameDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        {SUPPORTS_EVENT_TIMING && lastKeyPressDuration === null && (
-          <p>Events shorter than 16ms may not be detected.</p>
-        )}
-      </details>
+          <p>
+            Requested DOM strategy:{' '}
+            <output data-test-id="huge-document-requested-strategy">
+              {formatMetric(domStrategyMetrics?.requestedStrategy)}
+            </output>
+          </p>
+
+          <p>
+            Effective DOM strategy:{' '}
+            <output data-test-id="huge-document-effective-strategy">
+              {formatMetric(domStrategyMetrics?.effectiveStrategy)}
+            </output>
+          </p>
+
+          <p>
+            Mounted top-level blocks:{' '}
+            <output data-test-id="huge-document-mounted-top-level-count">
+              {formatMetric(domStrategyMetrics?.mountedTopLevelCount)}
+            </output>
+          </p>
+
+          <p>
+            Pending top-level blocks:{' '}
+            <output data-test-id="huge-document-pending-top-level-count">
+              {formatMetric(domStrategyMetrics?.pendingTopLevelCount)}
+            </output>
+          </p>
+
+          <p>
+            DOM coverage boundaries:{' '}
+            <output data-test-id="huge-document-dom-coverage-boundary-count">
+              {formatMetric(domStrategyMetrics?.domCoverageBoundaryCount)}
+            </output>
+          </p>
+
+          <p>
+            DOM nodes:{' '}
+            <output data-test-id="huge-document-dom-node-count">
+              {formatMetric(domStrategyMetrics?.domNodeCount)}
+            </output>
+          </p>
+
+          <p>
+            Virtualized viewport boundaries:{' '}
+            <output data-test-id="huge-document-viewport-boundary-count">
+              {formatMetric(
+                domStrategyMetrics?.viewportVirtualizationBoundaryCount
+              )}
+            </output>
+          </p>
+
+          {SUPPORTS_EVENT_TIMING && lastKeyPressDuration === null && (
+            <p>Events shorter than 16ms may not be detected.</p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   )
 }

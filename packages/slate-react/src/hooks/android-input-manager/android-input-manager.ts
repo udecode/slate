@@ -1,25 +1,19 @@
 import type { DebouncedFunc } from 'lodash'
+import type { RefObject } from 'react'
 import {
-  Editor,
-  Location,
-  Node,
-  Path,
+  LocationApi,
+  NodeApi,
+  type Path,
+  PathApi,
   type Point,
-  Range,
-  Transforms,
+  type Range,
+  RangeApi,
 } from 'slate'
 import {
   applyStringDiff,
-  EDITOR_TO_FORCE_RENDER,
-  EDITOR_TO_PENDING_ACTION,
-  EDITOR_TO_PENDING_DIFFS,
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_PENDING_SELECTION,
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  EDITOR_TO_USER_MARKS,
-  IS_COMPOSING,
-  IS_NODE_MAP_DIRTY,
+  isDOMElement,
   isDOMSelection,
+  isDOMText,
   isTrackedMutation,
   mergeStringDiffs,
   normalizePoint,
@@ -29,7 +23,35 @@ import {
   targetRange,
   verifyDiffState,
 } from 'slate-dom'
-import { ReactEditor } from '../../plugin/react-editor'
+import {
+  EDITOR_TO_FORCE_RENDER,
+  EDITOR_TO_PENDING_ACTION,
+  EDITOR_TO_PENDING_DIFFS,
+  EDITOR_TO_PENDING_INSERTION_MARKS,
+  EDITOR_TO_PENDING_SELECTION,
+  EDITOR_TO_PLACEHOLDER_ELEMENT,
+  EDITOR_TO_USER_MARKS,
+  IS_COMPOSING,
+  IS_NODE_MAP_DIRTY,
+} from 'slate-dom/internal'
+import {
+  getInputEventData,
+  getInputEventTargetRanges,
+} from '../../editable/dom-input-event'
+import {
+  type EditableCommand,
+  getEditableCommandFromBeforeInputType,
+} from '../../editable/editing-kernel'
+import type { EditableInputController } from '../../editable/input-state'
+import { applyEditableCommand } from '../../editable/mutation-controller'
+import {
+  Editor,
+  hasEditorTransformMiddleware,
+} from '../../editable/runtime-editor-api'
+import { writeRuntimeMarks } from '../../editable/runtime-mutation-state'
+import { readRuntimeSelection } from '../../editable/runtime-selection-state'
+import { ReactEditor, type ReactRuntimeEditor } from '../../plugin/react-editor'
+import { isDOMTextSyncMutation } from '../use-slate-node-ref'
 
 export type Action = { at?: Point | Range; run: () => void }
 
@@ -43,15 +65,32 @@ const RESOLVE_DELAY = 25
 // Time with no user interaction before the current user action is considered as done.
 const FLUSH_DELAY = 200
 
-// Replace with `const debug = console.log` to debug
-const debug = (..._: unknown[]) => {}
+const isDataTransfer = (value: unknown): value is DataTransfer =>
+  typeof value === 'object' &&
+  value !== null &&
+  'constructor' in value &&
+  (value as { constructor?: { name?: string } }).constructor?.name ===
+    'DataTransfer'
 
-// Type guard to check if a value is a DataTransfer
-const isDataTransfer = (value: any): value is DataTransfer =>
-  value?.constructor.name === 'DataTransfer'
+const clonePoint = (point: Point): Point => ({
+  path: [...point.path],
+  offset: point.offset,
+})
+
+const cloneRange = (range: Range): Range => ({
+  anchor: clonePoint(range.anchor),
+  focus: clonePoint(range.focus),
+})
+
+export const shouldFlushStoredTextDiffForTransformMiddleware = (
+  editor: ReactRuntimeEditor,
+  diff: StringDiff
+) => diff.text.length > 0 && hasEditorTransformMiddleware(editor, 'insertText')
 
 export type CreateAndroidInputManagerOptions = {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  receivedUserInput: RefObject<boolean>
 
   scheduleOnDOMSelectionChange: DebouncedFunc<() => void>
   onDOMSelectionChange: DebouncedFunc<() => void>
@@ -80,6 +119,8 @@ export type AndroidInputManager = {
 
 export function createAndroidInputManager({
   editor,
+  inputController,
+  receivedUserInput,
   scheduleOnDOMSelectionChange,
   onDOMSelectionChange,
 }: CreateAndroidInputManagerOptions): AndroidInputManager {
@@ -96,13 +137,16 @@ export function createAndroidInputManager({
     EDITOR_TO_PENDING_SELECTION.delete(editor)
 
     if (pendingSelection) {
-      const { selection } = editor
+      const selection = readRuntimeSelection(editor)
       const normalized = normalizeRange(editor, pendingSelection)
 
-      debug('apply pending selection', pendingSelection, normalized)
-
-      if (normalized && (!selection || !Range.equals(normalized, selection))) {
-        Transforms.select(editor, normalized)
+      if (
+        normalized &&
+        (!selection || !RangeApi.equals(normalized, selection))
+      ) {
+        editor.update((tx) => {
+          tx.selection.set(normalized)
+        })
       }
     }
   }
@@ -115,7 +159,7 @@ export function createAndroidInputManager({
     }
 
     if (action.at) {
-      const target = Location.isPoint(action.at)
+      const target = LocationApi.isPoint(action.at)
         ? normalizePoint(editor, action.at)
         : normalizeRange(editor, action.at)
 
@@ -124,8 +168,11 @@ export function createAndroidInputManager({
       }
 
       const targetRange = Editor.range(editor, target)
-      if (!editor.selection || !Range.equals(editor.selection, targetRange)) {
-        Transforms.select(editor, target)
+      const selection = readRuntimeSelection(editor)
+      if (!selection || !RangeApi.equals(selection, targetRange)) {
+        editor.update((tx) => {
+          tx.selection.set(target)
+        })
       }
     }
 
@@ -157,15 +204,13 @@ export function createAndroidInputManager({
       flushing = 'action'
     }
 
+    const liveSelection = readRuntimeSelection(editor)
     const selectionRef =
-      editor.selection &&
-      Editor.rangeRef(editor, editor.selection, { affinity: 'forward' })
-    EDITOR_TO_USER_MARKS.set(editor, editor.marks)
-
-    debug(
-      'flush',
-      EDITOR_TO_PENDING_ACTION.get(editor),
-      EDITOR_TO_PENDING_DIFFS.get(editor)
+      liveSelection &&
+      Editor.rangeRef(editor, liveSelection, { affinity: 'forward' })
+    EDITOR_TO_USER_MARKS.set(
+      editor,
+      editor.read((state) => state.marks.get())
     )
 
     let scheduleSelectionChange = hasPendingDiffs()
@@ -177,23 +222,62 @@ export function createAndroidInputManager({
 
       if (pendingMarks !== undefined) {
         EDITOR_TO_PENDING_INSERTION_MARKS.delete(editor)
-        editor.marks = pendingMarks
+        writeRuntimeMarks(editor, pendingMarks)
       }
 
       if (pendingMarks && insertPositionHint === false) {
         insertPositionHint = null
-        debug('insert after mark placeholder')
+      }
+
+      const recentEcho = inputController.state.recentTextInputRepairEcho
+      const slateText = NodeApi.leaf(editor, diff.path).text
+      const isDuplicateRecentEchoText =
+        !!recentEcho &&
+        diff.diff.start === diff.diff.end &&
+        diff.diff.text.length > 0 &&
+        diff.diff.start + diff.diff.text.length ===
+          recentEcho.selectionOffset &&
+        slateText.slice(
+          diff.diff.start,
+          diff.diff.start + diff.diff.text.length
+        ) === diff.diff.text
+
+      if (
+        recentEcho &&
+        performance.now() <= recentEcho.expiresAt &&
+        diff.path.join(',') === recentEcho.pathKey &&
+        slateText === recentEcho.text &&
+        !hasFreshNativeUserSelection() &&
+        isDuplicateRecentEchoText
+      ) {
+        inputController.state.recentTextInputRepairEcho = null
+        EDITOR_TO_PENDING_DIFFS.set(
+          editor,
+          EDITOR_TO_PENDING_DIFFS.get(editor)?.filter(
+            ({ id }) => id !== diff.id
+          ) ?? []
+        )
+        continue
       }
 
       const range = targetRange(diff)
-      if (!editor.selection || !Range.equals(editor.selection, range)) {
-        Transforms.select(editor, range)
+      const selection = readRuntimeSelection(editor)
+      if (!selection || !RangeApi.equals(selection, range)) {
+        editor.update((tx) => {
+          tx.selection.set(range)
+        })
       }
 
       if (diff.diff.text) {
-        Editor.insertText(editor, diff.diff.text)
+        applyEditableCommand({
+          command: { kind: 'insert-text', text: diff.diff.text },
+          editor,
+        })
       } else {
-        Editor.deleteFragment(editor)
+        applyEditableCommand({
+          command: { kind: 'delete-fragment' },
+          editor,
+        })
       }
 
       // Remove diff only after we have applied it to account for it when transforming
@@ -206,7 +290,6 @@ export function createAndroidInputManager({
       )
 
       if (!verifyDiffState(editor, diff)) {
-        debug('invalid diff state')
         scheduleSelectionChange = false
         EDITOR_TO_PENDING_ACTION.delete(editor)
         EDITOR_TO_USER_MARKS.delete(editor)
@@ -225,9 +308,12 @@ export function createAndroidInputManager({
     if (
       selection &&
       !EDITOR_TO_PENDING_SELECTION.get(editor) &&
-      (!editor.selection || !Range.equals(selection, editor.selection))
+      (!readRuntimeSelection(editor) ||
+        !RangeApi.equals(selection, readRuntimeSelection(editor)!))
     ) {
-      Transforms.select(editor, selection)
+      editor.update((tx) => {
+        tx.selection.set(selection)
+      })
     }
 
     if (hasPendingAction()) {
@@ -239,7 +325,6 @@ export function createAndroidInputManager({
     // so we have to manually schedule it to ensure we don't 'throw away' the selection
     // while rendering if we have pending changes.
     if (scheduleSelectionChange) {
-      debug('scheduleOnDOMSelectionChange pending changes')
       scheduleOnDOMSelectionChange()
     }
 
@@ -251,8 +336,9 @@ export function createAndroidInputManager({
     const userMarks = EDITOR_TO_USER_MARKS.get(editor)
     EDITOR_TO_USER_MARKS.delete(editor)
     if (userMarks !== undefined) {
-      editor.marks = userMarks
-      editor.onChange()
+      editor.update(() => {
+        writeRuntimeMarks(editor, userMarks)
+      })
     }
   }
 
@@ -272,8 +358,6 @@ export function createAndroidInputManager({
   const handleCompositionStart = (
     _event: React.CompositionEvent<HTMLDivElement>
   ) => {
-    debug('composition start')
-
     IS_COMPOSING.set(editor, true)
 
     if (compositionEndTimeoutId) {
@@ -296,27 +380,72 @@ export function createAndroidInputManager({
     placeholderElement.style.removeProperty('display')
   }
 
-  const storeDiff = (path: Path, diff: StringDiff) => {
-    debug('storeDiff', path, diff)
+  const hasFreshNativeUserSelection = () =>
+    inputController.state.selectionSource === 'dom-current' &&
+    inputController.state.selectionChangeOrigin === 'native-user'
 
+  const storeDiff = (path: Path, diff: StringDiff) => {
     const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor) ?? []
     EDITOR_TO_PENDING_DIFFS.set(editor, pendingDiffs)
 
-    const target = Node.leaf(editor, path)
+    const target = NodeApi.leaf(editor, path)
+    const pathKey = path.join(',')
+    const recentEcho = inputController.state.recentTextInputRepairEcho
+    let nextDiff = diff
+
+    if (
+      recentEcho &&
+      performance.now() <= recentEcho.expiresAt &&
+      recentEcho.pathKey === pathKey &&
+      target.text === recentEcho.text &&
+      !hasFreshNativeUserSelection() &&
+      diff.start === diff.end &&
+      diff.start < recentEcho.selectionOffset &&
+      diff.text.length > 0
+    ) {
+      nextDiff = {
+        ...diff,
+        end: recentEcho.selectionOffset,
+        start: recentEcho.selectionOffset,
+      }
+    }
+
     const idx = pendingDiffs.findIndex((change) =>
-      Path.equals(change.path, path)
+      PathApi.equals(change.path, path)
     )
     if (idx < 0) {
-      const normalized = normalizeStringDiff(target.text, diff)
+      const normalized = normalizeStringDiff(target.text, nextDiff)
       if (normalized) {
-        pendingDiffs.push({ path, diff, id: idCounter++ })
+        pendingDiffs.push({ path, diff: normalized, id: idCounter++ })
       }
 
       updatePlaceholderVisibility()
       return
     }
 
-    const merged = mergeStringDiffs(target.text, pendingDiffs[idx].diff, diff)
+    const merged = mergeStringDiffs(
+      target.text,
+      pendingDiffs[idx].diff,
+      nextDiff
+    )
+    const previousDiff = pendingDiffs[idx].diff
+
+    if (
+      previousDiff.start === previousDiff.end &&
+      nextDiff.start === nextDiff.end &&
+      previousDiff.start === nextDiff.start &&
+      previousDiff.text.length > 0 &&
+      nextDiff.text.length > 0 &&
+      !hasFreshNativeUserSelection()
+    ) {
+      pendingDiffs[idx].diff = {
+        ...previousDiff,
+        text: previousDiff.text + nextDiff.text,
+      }
+      updatePlaceholderVisibility()
+      return
+    }
+
     if (!merged) {
       pendingDiffs.splice(idx, 1)
       updatePlaceholderVisibility()
@@ -329,12 +458,101 @@ export function createAndroidInputManager({
     }
   }
 
+  const getTextInsertRepairOffset = (
+    path: Path,
+    diff: StringDiff,
+    { trustRuntimeCaret = false }: { trustRuntimeCaret?: boolean } = {}
+  ) => {
+    if (diff.start !== diff.end || diff.text.length === 0) {
+      return null
+    }
+
+    const pathKey = path.join(',')
+    const pendingRepairPathKey =
+      inputController.state.pendingNativeTextInputRepairPathKey
+    const pendingRepairOffset =
+      inputController.state.pendingNativeTextInputRepairOffset
+    const freshNativeUserSelection = hasFreshNativeUserSelection()
+
+    if (
+      !freshNativeUserSelection &&
+      pendingRepairPathKey === pathKey &&
+      pendingRepairOffset != null &&
+      diff.start < pendingRepairOffset
+    ) {
+      return pendingRepairOffset
+    }
+
+    const target = NodeApi.leaf(editor, path)
+    const recentEcho = inputController.state.recentTextInputRepairEcho
+
+    if (
+      recentEcho &&
+      performance.now() <= recentEcho.expiresAt &&
+      recentEcho.pathKey === pathKey &&
+      target.text === recentEcho.text &&
+      !freshNativeUserSelection &&
+      diff.start < recentEcho.selectionOffset
+    ) {
+      return recentEcho.selectionOffset
+    }
+
+    const selection = readRuntimeSelection(editor)
+    const shouldTrustRuntimeCaret =
+      trustRuntimeCaret ||
+      inputController.state.selectionChangeOrigin === 'repair-induced' ||
+      inputController.state.modelSelectionPreference?.reason ===
+        'repair-induced'
+
+    if (
+      !freshNativeUserSelection &&
+      shouldTrustRuntimeCaret &&
+      selection &&
+      RangeApi.isCollapsed(selection) &&
+      PathApi.equals(selection.anchor.path, path) &&
+      diff.start < selection.anchor.offset &&
+      selection.anchor.offset <= target.text.length
+    ) {
+      return selection.anchor.offset
+    }
+
+    return null
+  }
+
+  const canStoreDOMTextDiffAtRange = (range: Range) => {
+    if (IS_NODE_MAP_DIRTY.get(editor)) {
+      return false
+    }
+
+    const [start] = RangeApi.edges(range)
+
+    const domPoint = ReactEditor.resolveDOMPoint(editor, start)
+
+    if (!domPoint) {
+      return false
+    }
+
+    const [domNode] = domPoint
+    const element = isDOMText(domNode)
+      ? domNode.parentElement
+      : isDOMElement(domNode)
+        ? domNode
+        : null
+    const textHost = element?.closest('[data-slate-node="text"]')
+
+    return textHost?.getAttribute('data-slate-dom-sync') === 'true'
+  }
+
   const scheduleAction = (
     run: () => void,
-    { at }: { at?: Point | Range } = {}
+    {
+      at,
+      preserveInsertPositionHint = false,
+    }: { at?: Point | Range; preserveInsertPositionHint?: boolean } = {}
   ): void => {
-    insertPositionHint = false
-    debug('scheduleAction', { at, run })
+    if (!preserveInsertPositionHint) {
+      insertPositionHint = false
+    }
 
     EDITOR_TO_PENDING_SELECTION.delete(editor)
     scheduleOnDOMSelectionChange.cancel()
@@ -352,6 +570,13 @@ export function createAndroidInputManager({
     actionTimeoutId = setTimeout(flush)
   }
 
+  const scheduleCommand = (
+    command: EditableCommand,
+    { at }: { at?: Point | Range } = {}
+  ) => {
+    scheduleAction(() => applyEditableCommand({ command, editor }), { at })
+  }
+
   const handleDOMBeforeInput = (event: InputEvent): void => {
     if (flushTimeoutId) {
       clearTimeout(flushTimeoutId)
@@ -365,7 +590,18 @@ export function createAndroidInputManager({
     const { inputType: type } = event
     let targetRange: Range | null = null
     const data: DataTransfer | string | undefined =
-      (event as any).dataTransfer || event.data || undefined
+      getInputEventData(event) ?? undefined
+
+    const hasPendingChangesBeforeInput = hasPendingChanges()
+    if (
+      type === 'insertText' &&
+      typeof data === 'string' &&
+      data.length > 0 &&
+      hasPendingChangesBeforeInput &&
+      !IS_COMPOSING.get(editor)
+    ) {
+      flush()
+    }
 
     if (
       insertPositionHint !== false &&
@@ -375,11 +611,11 @@ export function createAndroidInputManager({
       insertPositionHint = false
     }
 
-    let [nativeTargetRange] = (event as any).getTargetRanges()
+    let nativeTargetRange: StaticRange | globalThis.Selection | undefined =
+      getInputEventTargetRanges(event)[0]
     if (nativeTargetRange) {
-      targetRange = ReactEditor.toSlateRange(editor, nativeTargetRange, {
+      targetRange = ReactEditor.resolveSlateRange(editor, nativeTargetRange, {
         exactMatch: false,
-        suppressThrow: true,
       })
     }
 
@@ -389,13 +625,12 @@ export function createAndroidInputManager({
     const domSelection = window.getSelection()
     if (!targetRange && domSelection) {
       nativeTargetRange = domSelection
-      targetRange = ReactEditor.toSlateRange(editor, domSelection, {
+      targetRange = ReactEditor.resolveSlateRange(editor, domSelection, {
         exactMatch: false,
-        suppressThrow: true,
       })
     }
 
-    targetRange = targetRange ?? editor.selection
+    targetRange = targetRange ?? readRuntimeSelection(editor)
     if (!targetRange) {
       return
     }
@@ -406,22 +641,28 @@ export function createAndroidInputManager({
     // scenarios where we cannot safely store the text diff and must instead
     // schedule an action to let Slate normalize the editor state.
     let canStoreDiff = true
+    const commandForTargetRange = () =>
+      getEditableCommandFromBeforeInputType({
+        data,
+        inputType: type,
+        selection: targetRange,
+      })
 
     if (type.startsWith('delete')) {
       const direction = type.endsWith('Backward') ? 'backward' : 'forward'
-      let [start, end] = Range.edges(targetRange)
+      let [start, end] = RangeApi.edges(targetRange)
       let [leaf, path] = Editor.leaf(editor, start.path)
 
       if (
-        Range.isExpanded(targetRange) &&
+        RangeApi.isExpanded(targetRange) &&
         leaf.text.length === start.offset &&
         end.offset === 0
       ) {
         const next = Editor.next(editor, {
           at: start.path,
-          match: Node.isText,
+          match: NodeApi.isText,
         })
-        if (next && Path.equals(next[1], end.path)) {
+        if (next && PathApi.equals(next[1], end.path)) {
           // when deleting a linebreak, targetRange will span across the break (ie start in the node before and end in the node after)
           // if the node before is empty, this will look like a hanging range and get unhung later--which will take the break we want to remove out of the range
           // so to avoid this we collapse the target range to default to single character deletion
@@ -443,7 +684,7 @@ export function createAndroidInputManager({
       }
       const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor)
       const relevantPendingDiffs = pendingDiffs?.find((change) =>
-        Path.equals(change.path, path)
+        PathApi.equals(change.path, path)
       )
       const diffs = relevantPendingDiffs
         ? [relevantPendingDiffs.diff, diff]
@@ -457,10 +698,10 @@ export function createAndroidInputManager({
         canStoreDiff = false
       }
 
-      if (Range.isExpanded(targetRange)) {
+      if (RangeApi.isExpanded(targetRange)) {
         if (
           canStoreDiff &&
-          Path.equals(targetRange.anchor.path, targetRange.focus.path)
+          PathApi.equals(targetRange.anchor.path, targetRange.focus.path)
         ) {
           const point = { path: targetRange.anchor.path, offset: start.offset }
           const range = Editor.range(editor, point, point)
@@ -474,9 +715,10 @@ export function createAndroidInputManager({
           return
         }
 
-        scheduleAction(() => Editor.deleteFragment(editor, { direction }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
     }
@@ -485,17 +727,18 @@ export function createAndroidInputManager({
       case 'deleteByComposition':
       case 'deleteByCut':
       case 'deleteByDrag': {
-        scheduleAction(() => Editor.deleteFragment(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteContent':
       case 'deleteContentForward': {
         const { anchor } = targetRange
-        if (canStoreDiff && Range.isCollapsed(targetRange)) {
-          const targetNode = Node.leaf(editor, anchor.path)
+        if (canStoreDiff && RangeApi.isCollapsed(targetRange)) {
+          const targetNode = NodeApi.leaf(editor, anchor.path)
 
           if (anchor.offset < targetNode.text.length) {
             storeDiff(anchor.path, {
@@ -507,9 +750,10 @@ export function createAndroidInputManager({
           }
         }
 
-        scheduleAction(() => Editor.deleteForward(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
@@ -526,7 +770,7 @@ export function createAndroidInputManager({
         if (
           canStoreDiff &&
           nativeCollapsed &&
-          Range.isCollapsed(targetRange) &&
+          RangeApi.isCollapsed(targetRange) &&
           anchor.offset > 0
         ) {
           storeDiff(anchor.path, {
@@ -537,76 +781,82 @@ export function createAndroidInputManager({
           return
         }
 
-        scheduleAction(() => Editor.deleteBackward(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteEntireSoftLine': {
-        scheduleAction(
-          () => {
-            Editor.deleteBackward(editor, { unit: 'line' })
-            Editor.deleteForward(editor, { unit: 'line' })
-          },
-          { at: targetRange }
-        )
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteHardLineBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'block' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteSoftLineBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'line' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteHardLineForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'block' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteSoftLineForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'line' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteWordBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'word' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteWordForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'word' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'insertLineBreak': {
-        scheduleAction(() => Editor.insertSoftBreak(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'insertParagraph': {
-        scheduleAction(() => Editor.insertBreak(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
       case 'insertCompositionText':
@@ -618,9 +868,7 @@ export function createAndroidInputManager({
       case 'insertReplacementText':
       case 'insertText': {
         if (isDataTransfer(data)) {
-          scheduleAction(() => ReactEditor.insertData(editor, data), {
-            at: targetRange,
-          })
+          scheduleCommand({ data, kind: 'insert-data' }, { at: targetRange })
           return
         }
 
@@ -647,10 +895,16 @@ export function createAndroidInputManager({
               const parts = text.split('\n')
               parts.forEach((line, i) => {
                 if (line) {
-                  Editor.insertText(editor, line)
+                  applyEditableCommand({
+                    command: { kind: 'insert-text', text: line },
+                    editor,
+                  })
                 }
                 if (i !== parts.length - 1) {
-                  Editor.insertSoftBreak(editor)
+                  applyEditableCommand({
+                    command: { kind: 'insert-break', variant: 'soft' },
+                    editor,
+                  })
                 }
               })
             },
@@ -661,13 +915,33 @@ export function createAndroidInputManager({
           return
         }
 
-        if (Path.equals(targetRange.anchor.path, targetRange.focus.path)) {
-          const [start, end] = Range.edges(targetRange)
+        if (PathApi.equals(targetRange.anchor.path, targetRange.focus.path)) {
+          canStoreDiff = canStoreDiff && canStoreDOMTextDiffAtRange(targetRange)
+          if (!canStoreDiff && event.cancelable) {
+            event.preventDefault()
+          }
 
-          const diff = {
+          const [start, end] = RangeApi.edges(targetRange)
+
+          let diff = {
             start: start.offset,
             end: end.offset,
             text,
+          }
+
+          const repairedTextInsertOffset =
+            type === 'insertText' && RangeApi.isCollapsed(targetRange)
+              ? getTextInsertRepairOffset(start.path, diff, {
+                  trustRuntimeCaret: hasPendingChangesBeforeInput,
+                })
+              : null
+
+          if (repairedTextInsertOffset != null) {
+            diff = {
+              ...diff,
+              end: repairedTextInsertOffset,
+              start: repairedTextInsertOffset,
+            }
           }
 
           // COMPAT: Swiftkey has a weird bug where the target range of the 2nd word
@@ -688,7 +962,6 @@ export function createAndroidInputManager({
               diff.end ===
                 insertPositionHint.start + insertPositionHint.text.length
             ) {
-              debug('adjusting swiftKey insert position using hint')
               diff.start -= 1
               insertPositionHint = null
               scheduleFlush()
@@ -700,10 +973,32 @@ export function createAndroidInputManager({
               insertPositionHint = diff
             } else if (
               insertPositionHint &&
-              Range.isCollapsed(targetRange) &&
+              RangeApi.isCollapsed(targetRange) &&
               insertPositionHint.end + insertPositionHint.text.length ===
                 start.offset
             ) {
+              insertPositionHint = {
+                ...insertPositionHint,
+                text: insertPositionHint.text + text,
+              }
+            } else if (
+              insertPositionHint &&
+              RangeApi.isCollapsed(targetRange) &&
+              diff.start === insertPositionHint.start &&
+              diff.end === insertPositionHint.start &&
+              NodeApi.leaf(editor, start.path).text.slice(
+                insertPositionHint.start,
+                insertPositionHint.start + insertPositionHint.text.length
+              ) === insertPositionHint.text
+            ) {
+              const remappedOffset =
+                insertPositionHint.start + insertPositionHint.text.length
+
+              diff = {
+                ...diff,
+                end: remappedOffset,
+                start: remappedOffset,
+              }
               insertPositionHint = {
                 ...insertPositionHint,
                 text: insertPositionHint.text + text,
@@ -716,32 +1011,37 @@ export function createAndroidInputManager({
           }
 
           if (canStoreDiff) {
-            const currentSelection = editor.selection
+            const currentSelection = readRuntimeSelection(editor)
             storeDiff(start.path, diff)
 
             if (currentSelection) {
               const newPoint = {
                 path: start.path,
-                offset: start.offset + text.length,
+                offset: diff.start + text.length,
               }
 
-              scheduleAction(
-                () => {
-                  Transforms.select(editor, {
-                    anchor: newPoint,
-                    focus: newPoint,
-                  })
-                },
-                { at: newPoint }
-              )
+              scheduleAction(() => {}, {
+                at: newPoint,
+                preserveInsertPositionHint: true,
+              })
+            }
+            if (shouldFlushStoredTextDiffForTransformMiddleware(editor, diff)) {
+              scheduleFlush()
             }
             return
           }
         }
 
-        scheduleAction(() => Editor.insertText(editor, text), {
-          at: targetRange,
-        })
+        scheduleCommand(
+          { kind: 'insert-text', text },
+          {
+            at: cloneRange(
+              canStoreDiff
+                ? targetRange
+                : (readRuntimeSelection(editor) ?? targetRange)
+            ),
+          }
+        )
         return
       }
     }
@@ -771,16 +1071,16 @@ export function createAndroidInputManager({
       flushTimeoutId = null
     }
 
-    const { selection } = editor
+    const selection = editor.read((state) => state.selection.get())
     if (!range) {
       return
     }
 
     const pathChanged =
-      !selection || !Path.equals(selection.anchor.path, range.anchor.path)
+      !selection || !PathApi.equals(selection.anchor.path, range.anchor.path)
     const parentPathChanged =
       !selection ||
-      !Path.equals(
+      !PathApi.equals(
         selection.anchor.path.slice(0, -1),
         range.anchor.path.slice(0, -1)
       )
@@ -795,8 +1095,13 @@ export function createAndroidInputManager({
   }
 
   const handleInput = () => {
-    if (hasPendingAction() || !hasPendingDiffs()) {
-      debug('flush input')
+    const shouldFlushPendingDiffs =
+      hasPendingDiffs() &&
+      !IS_COMPOSING.get(editor) &&
+      (inputController.state.selectionSource !== 'dom-current' ||
+        inputController.state.selectionChangeOrigin === 'repair-induced')
+
+    if (hasPendingAction() || !hasPendingDiffs() || shouldFlushPendingDiffs) {
       flush()
     }
   }
@@ -824,9 +1129,15 @@ export function createAndroidInputManager({
       return
     }
 
+    if (!receivedUserInput.current) {
+      return
+    }
+
     if (
-      mutations.some((mutation) =>
-        isTrackedMutation(editor, mutation, mutations)
+      mutations.some(
+        (mutation) =>
+          !isDOMTextSyncMutation(mutation) &&
+          isTrackedMutation(editor, mutation, mutations)
       )
     ) {
       // Cause a re-render to restore the dom state if we encounter tracked mutations without

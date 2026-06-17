@@ -4,10 +4,10 @@ import { jsx } from '../..'
 
 jsx
 
-import { Text, Transforms } from 'slate'
+import { TextApi } from 'slate'
 
 export const run = (editor) => {
-  Transforms.unsetNodes(editor, 'someKey', { match: Text.isText })
+  editor.nodes.unset('someKey', { match: TextApi.isText })
 }
 export const input = (
   <editor>

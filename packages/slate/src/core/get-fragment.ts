@@ -1,13 +1,15 @@
-import { type Editor, Node } from '../interfaces'
-import type { WithEditorFirstArg } from '../utils'
+import { NodeApi } from '../interfaces'
+import type { Editor, EditorFragmentReadOptions } from '../interfaces/editor'
+import { getLiveSelection } from './public-state'
 
-export const getFragment: WithEditorFirstArg<Editor['getFragment']> = (
-  editor
+export const getFragment = (
+  editor: Editor,
+  options: EditorFragmentReadOptions = {}
 ) => {
-  const { selection } = editor
+  const selection = options.at ?? getLiveSelection(editor)
 
   if (selection) {
-    return Node.fragment(editor, selection)
+    return NodeApi.fragment(editor, selection)
   }
   return []
 }

@@ -19,8 +19,15 @@ const EXAMPLE_IMPORTERS: Record<
   'check-lists': () => import('../../examples/ts/check-lists'),
   'code-highlighting': () => import('../../examples/ts/code-highlighting'),
   'custom-placeholder': () => import('../../examples/ts/custom-placeholder'),
+  'decorations-async': () => import('../../examples/ts/decorations-async'),
+  'document-state': () => import('../../examples/ts/document-state'),
+  'dom-coverage-boundaries': () =>
+    import('../../examples/ts/dom-coverage-boundaries'),
   'editable-voids': () => import('../../examples/ts/editable-voids'),
   embeds: () => import('../../examples/ts/embeds'),
+  'hidden-content-blocks': () =>
+    import('../../examples/ts/hidden-content-blocks'),
+  linting: () => import('../../examples/ts/linting'),
   'forced-layout': () => import('../../examples/ts/forced-layout'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
   'huge-document': () => import('../../examples/ts/huge-document'),
@@ -29,15 +36,23 @@ const EXAMPLE_IMPORTERS: Record<
   'markdown-preview': () => import('../../examples/ts/markdown-preview'),
   'markdown-shortcuts': () => import('../../examples/ts/markdown-shortcuts'),
   mentions: () => import('../../examples/ts/mentions'),
+  'multi-root-document': () => import('../../examples/ts/multi-root-document'),
   'paste-html': () => import('../../examples/ts/paste-html'),
+  'persistent-annotation-anchors': () =>
+    import('../../examples/ts/persistent-annotation-anchors'),
+  pagination: () => import('../../examples/ts/pagination'),
   plaintext: () => import('../../examples/ts/plaintext'),
   'read-only': () => import('../../examples/ts/read-only'),
+  'comment-mode': () => import('../../examples/ts/comment-mode'),
   iframe: () => import('../../examples/ts/iframe'),
   richtext: () => import('../../examples/ts/richtext'),
   'search-highlighting': () => import('../../examples/ts/search-highlighting'),
   'shadow-dom': () => import('../../examples/ts/shadow-dom'),
   styling: () => import('../../examples/ts/styling'),
+  'synced-blocks': () => import('../../examples/ts/synced-blocks'),
   tables: () => import('../../examples/ts/tables'),
+  'yjs-collaboration': () => import('../../examples/ts/yjs-collaboration'),
+  'yjs-hocuspocus': () => import('../../examples/ts/yjs-hocuspocus'),
 }
 
 const EXAMPLES: ExampleTuple[] = EXAMPLE_NAMES_AND_PATHS.map(([name, path]) => [
@@ -63,8 +78,7 @@ const ExamplePage = ({ example }: { example: string }) => {
   )
 }
 
-// Disable SSR because it results in a double rendering which makes debugging
-// examples more challenging. No idea how any of this works.
+// Disable SSR so example debugging sees one client-owned editor mount.
 const NoSsrExamplePage = dynamic(() => Promise.resolve(ExamplePage), {
   ssr: false,
 })

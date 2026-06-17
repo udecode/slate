@@ -1,105 +1,206 @@
-# ReactEditor
+# React Editor
 
-`ReactEditor` is added to `Editor` when it is instantiated using the `withReact` method.
+`createReactEditor` creates an editor with React, DOM, and clipboard host APIs
+installed. Hooks such as `useSlateEditor` create the same editor shape.
 
 ```typescript
-const [editor] = useState(() => withReact(withHistory(createEditor())))
+import { createReactEditor } from 'slate-react'
+
+const editor = createReactEditor()
+
+editor.api.dom.focus()
 ```
 
-- [Static methods](react-editor.md#static-methods)
-  - [Check methods](react-editor.md#check-methods)
-  - [Focus and selection methods](react-editor.md#focus-and-selection-methods)
-  - [DOM translation methods](react-editor.md#dom-translation-methods)
-  - [DataTransfer methods](react-editor.md#datatransfer-methods)
+- [Checks](react-editor.md#checks)
+- [Focus And Selection](react-editor.md#focus-and-selection)
+- [DOM Translation](react-editor.md#dom-translation)
+- [DOM Environment](react-editor.md#dom-environment)
+- [DataTransfer](react-editor.md#datatransfer)
 
-## Static methods
+## Checks
 
-### Check methods
-
-#### `ReactEditor.isComposing(editor: ReactEditor): boolean`
+#### `editor.api.react.isComposing(): boolean`
 
 Check if the user is currently composing inside the editor.
 
-#### `ReactEditor.isFocused(editor: ReactEditor): boolean`
+#### `editor.api.react.isFocused(): boolean`
 
 Check if the editor is focused.
 
-#### `ReactEditor.isReadOnly(editor: ReactEditor): boolean`
+#### `editor.api.react.isReadOnly(): boolean`
 
 Check if the editor is in read-only mode.
 
-### Focus and selection methods
+#### `editor.api.dom.isComposing(): boolean`
 
-#### `ReactEditor.blur(editor: ReactEditor): void`
+Check if the user is currently composing inside the editor from the DOM bridge.
+
+#### `editor.api.dom.isFocused(): boolean`
+
+Check if the DOM editor is focused.
+
+#### `editor.api.dom.isReadOnly(): boolean`
+
+Check if the DOM editor is in read-only mode.
+
+## Focus And Selection
+
+#### `editor.api.dom.blur(): void`
 
 Blur the editor.
 
-#### `ReactEditor.focus(editor: ReactEditor): void`
+#### `editor.api.dom.focus(options?: { retries: number }): void`
 
 Focus the editor.
 
-#### `ReactEditor.deselect(editor: ReactEditor): void`
+#### `editor.api.dom.deselect(): void`
 
-Deselect the editor.
+Clear the native DOM selection and the Slate selection.
 
-### DOM translation methods
+## DOM Translation
 
-#### `ReactEditor.findKey(editor: ReactEditor, node: Node): Key`
+#### `editor.api.dom.findKey(node: Node): Key`
 
 Find a key for a Slate node.
 
-Returns an instance of `Key` which looks like `{ id: string }`
+#### `editor.api.dom.resolvePath(node: Node): Path | null`
 
-#### `ReactEditor.findPath(editor: ReactEditor, node: Node): Path`
+Resolve the current path of a Slate node. Returns `null` when the node is not
+mounted in the current editor value.
 
-Find the path of Slate node.
+#### `editor.api.dom.assertPath(node: Node): Path`
 
-#### `ReactEditor.hasDOMNode(editor: ReactEditor, target: DOMNode, options: { editable?: boolean } = {}): boolean`
+Assert the current path of a Slate node.
+
+#### `editor.api.dom.hasDOMNode(target: DOMNode, options?: { editable?: boolean }): boolean`
 
 Check if a DOM node is within the editor.
 
-#### `ReactEditor.toDOMNode(editor: ReactEditor, node: Node): HTMLElement`
+#### `editor.api.dom.hasEditableTarget(target: EventTarget | null): target is DOMNode`
 
-Find the native DOM element from a Slate node.
+Check if the target is editable and in the editor.
 
-#### `ReactEditor.toDOMPoint(editor: ReactEditor, point: Point): DOMPoint`
+#### `editor.api.dom.hasSelectableTarget(target: EventTarget | null): boolean`
 
-Find a native DOM selection point from a Slate point.
+Check if the target can be selected by the editor.
 
-#### `ReactEditor.toDOMRange(editor: ReactEditor, range: Range): DOMRange`
+#### `editor.api.dom.hasTarget(target: EventTarget | null): target is DOMNode`
 
-Find a native DOM range from a Slate `range`.
+Check if the target is in the editor.
 
-#### `ReactEditor.toSlateNode(editor: ReactEditor, domNode: DOMNode): Node`
+#### `editor.api.dom.assertDOMNode(node: Node): HTMLElement`
 
-Find a Slate node from a native DOM `element`.
+Assert the native DOM element for a Slate node.
 
-#### `ReactEditor.findEventRange(editor: ReactEditor, event: any): Range`
+#### `editor.api.dom.resolveDOMNode(node: Node): HTMLElement | null`
 
-Get the target range from a DOM `event`.
+Resolve the native DOM element for a Slate node. Returns `null` when the Slate
+node is not mounted.
 
-#### `ReactEditor.toSlatePoint(editor: ReactEditor, domPoint: DOMPoint): Point | null`
+#### `editor.api.dom.assertDOMPoint(point: Point): DOMPoint`
 
-Find a Slate point from a DOM selection's `domNode` and `domOffset`.
+Assert a native DOM selection point from a Slate point.
 
-#### `ReactEditor.toSlateRange(editor: ReactEditor, domRange: DOMRange | DOMStaticRange | DOMSelection, options?: { exactMatch?: boolean } = {}): Range | null`
+#### `editor.api.dom.resolveDOMPoint(point: Point): DOMPoint | null`
 
-Find a Slate range from a DOM range or selection.
+Resolve a native DOM selection point from a Slate point. Returns `null` when the
+Slate point is not currently mappable.
 
-### DataTransfer methods
+#### `editor.api.dom.assertDOMRange(range: Range): DOMRange`
 
-#### `ReactEditor.insertData(editor: ReactEditor, data: DataTransfer): void`
+Assert a native DOM range from a Slate range.
 
-Insert data from a `DataTransfer` into the editor. This is a proxy method to call in this order `insertFragmentData(editor: ReactEditor, data: DataTransfer)` and then `insertTextData(editor: ReactEditor, data: DataTransfer)`.
+#### `editor.api.dom.resolveDOMRange(range: Range): DOMRange | null`
 
-#### `ReactEditor.insertFragmentData(editor: ReactEditor, data: DataTransfer): true`
+Resolve a native DOM range from a Slate range. Returns `null` when the Slate
+range is not currently mappable.
 
-Insert fragment data from a `DataTransfer` into the editor. Returns true if some content has been effectively inserted.
+#### `editor.api.dom.resolveRangeRect(range: Range): DOMRect | null`
 
-#### `ReactEditor.insertTextData(editor: ReactEditor, data: DataTransfer): true`
+Resolve the bounding rect for a Slate range. Returns `null` when the range is
+not currently mappable to mounted DOM.
 
-Insert text data from a `DataTransfer` into the editor. Returns true if some content has been effectively inserted.
+#### `editor.api.dom.assertSlateNode(domNode: DOMNode): Node`
 
-#### `ReactEditor.setFragmentData(editor: ReactEditor, data: DataTransfer, originEvent?: 'drag' | 'copy' | 'cut'): void`
+Assert a Slate node from a native DOM node.
 
-Sets data from the currently selected fragment on a `DataTransfer`.
+#### `editor.api.dom.resolveSlateNode(domNode: DOMNode): Node | null`
+
+Resolve a Slate node from a native DOM node. Returns `null` when the DOM node is
+not owned by the editor.
+
+#### `editor.api.dom.assertEventRange(event: unknown): Range`
+
+Assert the target range from a DOM event.
+
+#### `editor.api.dom.resolveEventRange(event: unknown): Range | null`
+
+Resolve the target range from a DOM event. Returns `null` when the event target
+cannot be mapped into the editor.
+
+#### `editor.api.dom.assertSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point`
+
+Assert a Slate point from a DOM point.
+
+#### `editor.api.dom.resolveSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point | null`
+
+Resolve a Slate point from a DOM point. Returns `null` when the DOM point is not
+currently mappable.
+
+#### `editor.api.dom.assertSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range`
+
+Assert a Slate range from a DOM range or selection.
+
+#### `editor.api.dom.resolveSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range | null`
+
+Resolve a Slate range from a DOM range or selection. Returns `null` when the DOM
+range is not currently mappable.
+
+## DOM Environment
+
+#### `editor.api.dom.findDocumentOrShadowRoot(): Document | ShadowRoot`
+
+Return the document or shadow root that owns the editor.
+
+#### `editor.api.dom.getWindow(): Window`
+
+Return the window that owns the editor.
+
+#### `editor.api.dom.hasRange(range: Range): boolean`
+
+Check whether a Slate range can currently be mapped to DOM.
+
+#### `editor.api.dom.isTargetInsideNonReadonlyVoid(target: EventTarget | null): boolean`
+
+Check whether a DOM event target is inside a non-read-only void element.
+
+## DataTransfer
+
+#### `editor.api.clipboard.insertData(data: DataTransfer): boolean`
+
+Insert data from a `DataTransfer` into the editor. Returns `true` when Slate or
+an extension inserts content.
+
+Slate runs typed `clipboard.insertData` extension handlers first. A handler that
+returns `true` stops the default import path. When no handler claims the data,
+Slate tries an internal Slate fragment for the editor's configured
+`clipboardFormatKey`, then plain text.
+
+#### `editor.api.clipboard.insertFragmentData(data: DataTransfer): boolean`
+
+Insert Slate fragment data from a `DataTransfer`. Returns `true` when fragment
+content was inserted.
+
+#### `editor.api.clipboard.insertTextData(data: DataTransfer): boolean`
+
+Insert plain text data from a `DataTransfer`. Returns `true` when text content
+was inserted.
+
+#### `editor.api.clipboard.writeSelection(data: Pick<DataTransfer, 'getData' | 'setData'>): void`
+
+Write the current selection to a `DataTransfer`.
+
+Slate writes plain text, HTML, and an internal Slate fragment payload. The
+fragment payload uses `application/${clipboardFormatKey}` and the HTML fallback
+is tagged with the same key, so differently configured editors do not blindly
+import each other's internal JSON.

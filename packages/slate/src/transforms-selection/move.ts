@@ -1,10 +1,17 @@
+import { executeCommand } from '../core/command-registry'
+import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Editor } from '../interfaces/editor'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import { type Range, RangeApi } from '../interfaces/range'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
-export const move: SelectionTransforms['move'] = (editor, options = {}) => {
-  const { selection } = editor
+type MoveSelectionCommand = {
+  options: Parameters<SelectionMutationMethods['move']>[1]
+  type: 'move_selection'
+}
+
+const applyMove: SelectionMutationMethods['move'] = (editor, options = {}) => {
+  const selection = getCurrentSelection(editor)
   const { distance = 1, unit = 'character', reverse = false } = options
   let { edge = null } = options
 
@@ -13,11 +20,11 @@ export const move: SelectionTransforms['move'] = (editor, options = {}) => {
   }
 
   if (edge === 'start') {
-    edge = Range.isBackward(selection) ? 'focus' : 'anchor'
+    edge = RangeApi.isBackward(selection) ? 'focus' : 'anchor'
   }
 
   if (edge === 'end') {
-    edge = Range.isBackward(selection) ? 'anchor' : 'focus'
+    edge = RangeApi.isBackward(selection) ? 'anchor' : 'focus'
   }
 
   const { anchor, focus } = selection
@@ -44,5 +51,19 @@ export const move: SelectionTransforms['move'] = (editor, options = {}) => {
     }
   }
 
-  Transforms.setSelection(editor, props)
+  getEditorTransformRegistry(editor).setSelection(props)
+}
+
+export const move: SelectionMutationMethods['move'] = (
+  editor,
+  options = {}
+) => {
+  executeCommand<MoveSelectionCommand>(
+    editor,
+    { options, type: 'move_selection' },
+    (command) => {
+      applyMove(editor, command.options)
+      return true
+    }
+  )
 }

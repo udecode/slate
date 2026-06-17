@@ -1,4 +1,4 @@
-import { Path } from 'slate'
+import { PathApi } from 'slate'
 
 export const input = {
   path: [0, 1, 2],
@@ -6,7 +6,7 @@ export const input = {
 }
 
 export const test = ({ path, another }) => {
-  return Path.isChild(path, another)
+  return PathApi.isChild(path, another)
 }
 
 export const output = false

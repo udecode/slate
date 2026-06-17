@@ -1,154 +1,184 @@
-import { css } from '@emotion/css'
+import { cva } from 'class-variance-authority'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
-import { useCallback, useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { type Descendant, NodeApi } from 'slate'
 import {
-  createEditor,
-  type Descendant,
-  Node,
-  type NodeEntry,
-  type Range,
-} from 'slate'
-import { withHistory } from 'slate-history'
-import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
-import type { CustomEditor } from './custom-types.d'
+  Editable,
+  Slate,
+  type SlateRangeDecoration,
+  useSlateEditor,
+  useSlateRangeDecorationSource,
+} from 'slate-react'
+import { cn } from '@/utils/cn'
+
+const markdownSegmentVariants = cva('slate-markdown-preview-segment', {
+  variants: {
+    blockquote: {
+      false: null,
+      true: 'is-blockquote',
+    },
+    bold: {
+      false: null,
+      true: 'is-bold',
+    },
+    code: {
+      false: null,
+      true: 'is-code',
+    },
+    hr: {
+      false: null,
+      true: 'is-hr',
+    },
+    italic: {
+      false: null,
+      true: 'is-italic',
+    },
+    list: {
+      false: null,
+      true: 'is-list',
+    },
+    title: {
+      false: null,
+      true: 'is-title',
+    },
+    underlined: {
+      false: null,
+      true: 'is-underlined',
+    },
+  },
+})
 
 const MarkdownPreviewExample = () => {
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Slate is flexible enough to add **decorations** that can format text based on its content. For example, this editor has **Markdown** preview decorations on it, to make it _dead_ simple to make an editor with built-in Markdown previewing.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: '## Try it out!' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Try it out for yourself!' }],
+      },
+    ],
+  })
+  const markdownSource = useSlateRangeDecorationSource<Record<string, true>>(
+    editor,
+    {
+      id: 'markdown-preview',
+      dirtiness: 'text',
+      read: ({ snapshot }) => collectMarkdownRanges(snapshot.children),
+    }
   )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor())) as CustomEditor,
-    []
-  )
-  const decorate = useCallback(([node, path]: NodeEntry) => {
-    const ranges: Range[] = []
-
-    if (!Node.isText(node)) {
-      return ranges
-    }
-
-    const getLength = (token: string | Prism.Token): number => {
-      if (typeof token === 'string') {
-        return token.length
-      }
-      if (typeof token.content === 'string') {
-        return token.content.length
-      }
-      return (token.content as Prism.Token[]).reduce(
-        (l, t) => l + getLength(t),
-        0
-      )
-    }
-
-    const tokens = Prism.tokenize(node.text, Prism.languages.markdown)
-    let start = 0
-
-    for (const token of tokens) {
-      const length = getLength(token)
-      const end = start + length
-
-      if (typeof token !== 'string') {
-        ranges.push({
-          [token.type]: true,
-          anchor: { path, offset: start },
-          focus: { path, offset: end },
-        })
-      }
-
-      start = end
-    }
-
-    return ranges
-  }, [])
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate decorationSources={[markdownSource]} editor={editor}>
       <Editable
-        decorate={decorate}
+        id="markdown-preview"
         placeholder="Write some markdown..."
-        renderLeaf={renderLeaf}
+        renderSegment={(segment, children) => (
+          <MarkdownSegment
+            data={Object.assign(
+              {},
+              ...segment.slices.map((slice) => slice.data ?? {})
+            )}
+          >
+            {children}
+          </MarkdownSegment>
+        )}
       />
     </Slate>
   )
 }
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+const getTokenLength = (token: string | Prism.Token): number => {
+  if (typeof token === 'string') {
+    return token.length
+  }
+  if (typeof token.content === 'string') {
+    return token.content.length
+  }
+  return (token.content as Prism.Token[]).reduce(
+    (length, child) => length + getTokenLength(child),
+    0
+  )
+}
+
+const collectMarkdownRanges = (
+  nodes: readonly Descendant[],
+  path: number[] = []
+): SlateRangeDecoration<Record<string, true>>[] => {
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
+
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+
+    if (NodeApi.isText(node)) {
+      const tokens = Prism.tokenize(node.text, Prism.languages.markdown)
+      let start = 0
+
+      for (const token of tokens) {
+        const length = getTokenLength(token)
+        const end = start + length
+
+        if (typeof token !== 'string') {
+          ranges.push({
+            data: { [token.type]: true },
+            key: `markdown:${nodePath.join('.')}:${start}:${end}`,
+            range: {
+              anchor: { path: nodePath, offset: start },
+              focus: { path: nodePath, offset: end },
+            },
+          })
+        }
+
+        start = end
+      }
+    }
+
+    if (NodeApi.isElement(node)) {
+      ranges.push(...collectMarkdownRanges(node.children, nodePath))
+    }
+  })
+
+  return ranges
+}
+
+const MarkdownSegment = ({
+  children,
+  data,
+}: {
+  children: ReactNode
+  data: Record<string, unknown>
+}) => {
+  const has = (key: string) => Boolean(data[key])
+
   return (
     <span
-      {...attributes}
-      className={css`
-        font-weight: ${leaf.bold && 'bold'};
-        font-style: ${leaf.italic && 'italic'};
-        text-decoration: ${leaf.underlined && 'underline'};
-        ${
-          leaf.title &&
-          css`
-          display: inline-block;
-          font-weight: bold;
-          font-size: 20px;
-          margin: 20px 0 10px 0;
-        `
-        }
-        ${
-          leaf.list &&
-          css`
-          padding-left: 10px;
-          font-size: 20px;
-          line-height: 10px;
-        `
-        }
-        ${
-          leaf.hr &&
-          css`
-          display: block;
-          text-align: center;
-          border-bottom: 2px solid #ddd;
-        `
-        }
-        ${
-          leaf.blockquote &&
-          css`
-          display: inline-block;
-          border-left: 2px solid #ddd;
-          padding-left: 10px;
-          color: #aaa;
-          font-style: italic;
-        `
-        }
-        ${
-          leaf.code &&
-          css`
-          font-family: monospace;
-          background-color: #eee;
-          padding: 3px;
-        `
-        }
-      `}
+      className={cn(
+        markdownSegmentVariants({
+          blockquote: has('blockquote'),
+          bold: has('bold'),
+          code: has('code'),
+          hr: has('hr'),
+          italic: has('italic'),
+          list: has('list'),
+          title: has('title'),
+          underlined: has('underlined'),
+        })
+      )}
     >
       {children}
     </span>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'Slate is flexible enough to add **decorations** that can format text based on its content. For example, this editor has **Markdown** preview decorations on it, to make it _dead_ simple to make an editor with built-in Markdown previewing.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: '## Try it out!' }],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'Try it out for yourself!' }],
-  },
-]
 
 export default MarkdownPreviewExample

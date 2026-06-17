@@ -1,21 +1,26 @@
-import isHotkey from 'is-hotkey'
 import type React from 'react'
-import { type PointerEvent, useCallback, useMemo, useState } from 'react'
+import { type PointerEvent, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { createEditor, type Descendant, Editor } from 'slate'
-import { withHistory } from 'slate-history'
+import { isHotkey } from 'slate-dom'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  useSlate,
-  withReact,
+  useEditor,
+  useEditorSelector,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, CustomTextKey } from './custom-types.d'
+import type {
+  CustomEditor,
+  CustomText,
+  CustomTextKey,
+  CustomValue,
+  ParagraphElement as ParagraphElementType,
+} from './custom-types.d'
+import { isMarkActive, toggleMark } from './mark-utils'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+b': 'bold',
@@ -24,47 +29,71 @@ const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+`': 'code',
 }
 
-const IFrameExample = () => {
-  const renderElement = useCallback(
-    ({ attributes, children }: RenderElementProps) => (
-      <p {...attributes}>{children}</p>
-    ),
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor())) as CustomEditor,
-    []
-  )
+const MARK_HOTKEYS = Object.entries(HOTKEYS)
 
-  const handleBlur = useCallback(() => ReactEditor.deselect(editor), [editor])
+const IFrameExample = () => {
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'In this example, the document gets rendered into a controlled ',
+        },
+        { text: '<iframe>', code: true },
+        {
+          text: '. This is ',
+        },
+        {
+          text: 'particularly',
+          italic: true,
+        },
+        {
+          text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
+        },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This also the only reliable method to preview any ',
+        },
+        {
+          text: 'media queries',
+          bold: true,
+        },
+        {
+          text: ' in your CSS.',
+        },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <MarkButton format="bold" icon="format_bold" />
         <MarkButton format="italic" icon="format_italic" />
         <MarkButton format="underline" icon="format_underlined" />
         <MarkButton format="code" icon="code" />
       </Toolbar>
-      <IFrame onBlur={handleBlur}>
+      <IFrame onBlur={() => editor.api.dom.deselect()}>
         <Editable
           autoFocus
           onKeyDown={(event) => {
-            for (const hotkey in HOTKEYS) {
-              if (isHotkey(hotkey, event as any)) {
-                event.preventDefault()
-                const mark = HOTKEYS[hotkey]
+            for (const [hotkey, mark] of MARK_HOTKEYS) {
+              if (isHotkey(hotkey, event)) {
                 toggleMark(editor, mark)
+                return true
               }
             }
           }}
           placeholder="Enter some rich text…"
-          renderElement={renderElement}
-          renderLeaf={renderLeaf}
+          renderElement={ParagraphElement}
+          renderLeaf={Leaf}
           spellCheck
         />
       </IFrame>
@@ -72,33 +101,23 @@ const IFrameExample = () => {
   )
 }
 
-const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  const isActive = isMarkActive(editor, format)
-  if (isActive) {
-    Editor.removeMark(editor, format)
-  } else {
-    Editor.addMark(editor, format, true)
-  }
-}
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
 
-const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = Editor.marks(editor)
-  return marks ? marks[format] === true : false
-}
-
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
   if (leaf.bold) {
     children = <strong>{children}</strong>
   }
-
   if (leaf.code) {
     children = <code>{children}</code>
   }
-
   if (leaf.italic) {
     children = <em>{children}</em>
   }
-
   if (leaf.underline) {
     children = <u>{children}</u>
   }
@@ -112,10 +131,13 @@ interface MarkButtonProps {
 }
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
-  const editor = useSlate()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector((editor: CustomEditor) =>
+    isMarkActive(editor, format)
+  )
   return (
     <Button
-      active={isMarkActive(editor, format)}
+      active={active}
       onClick={() => toggleMark(editor, format)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()
@@ -135,6 +157,10 @@ const IFrame = ({ children, ...props }: IFrameProps) => {
   const handleLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
     const iframe = e.target as HTMLIFrameElement
     if (!iframe.contentDocument) return
+    Object.assign(iframe.contentDocument.body.style, {
+      position: 'relative',
+      zIndex: '0',
+    })
     setIframeBody(iframe.contentDocument.body)
   }
   return (
@@ -143,42 +169,5 @@ const IFrame = ({ children, ...props }: IFrameProps) => {
     </iframe>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In this example, the document gets rendered into a controlled ',
-      },
-      { text: '<iframe>', code: true },
-      {
-        text: '. This is ',
-      },
-      {
-        text: 'particularly',
-        italic: true,
-      },
-      {
-        text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This also the only reliable method to preview any ',
-      },
-      {
-        text: 'media queries',
-        bold: true,
-      },
-      {
-        text: ' in your CSS.',
-      },
-    ],
-  },
-]
 
 export default IFrameExample

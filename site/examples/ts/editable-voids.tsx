@@ -1,101 +1,191 @@
-import { css } from '@emotion/css'
-import type React from 'react'
-import { type PointerEvent, useMemo, useState } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
-import { withHistory } from 'slate-history'
+import type { PointerEvent } from 'react'
+import { defineEditorExtension } from 'slate'
 import {
   Editable,
   type RenderElementProps,
+  type RenderLeafProps,
+  type RenderVoidProps,
   Slate,
-  useSlateStatic,
-  withReact,
+  useEditor,
+  useSlateChildRoot,
+  useSlateEditor,
+  useSlateRootChrome,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, EditableVoidElement } from './custom-types.d'
-import RichTextEditor from './richtext'
+import type {
+  BlockQuoteElement,
+  CustomEditor,
+  CustomElement,
+  CustomText,
+  CustomValue,
+  EditableVoidElement,
+  ParagraphElement as ParagraphElementType,
+} from './custom-types.d'
+
+let editableVoidId = 0
+
+const paragraph = (text: string): ParagraphElementType => ({
+  type: 'paragraph',
+  children: [{ text }],
+})
+
+const nextEditableVoidRoot = () => {
+  editableVoidId += 1
+
+  return `editable-void:${editableVoidId}:body`
+}
+
+const createEditableVoid = (bodyRoot: string): EditableVoidElement => ({
+  type: 'editable-void',
+  childRoots: { body: bodyRoot },
+  children: [{ text: '' }],
+})
+
+const createEditableVoidBody = (): CustomValue => [
+  {
+    type: 'paragraph',
+    children: [
+      { text: 'This is editable ' },
+      { text: 'rich', bold: true },
+      { text: ' text, much better than a ' },
+      { text: '<textarea>', code: true },
+      { text: '!' },
+    ],
+  },
+  paragraph(
+    "Since it's rich text, it can live in a same-runtime child root instead of a nested independent editor."
+  ),
+  {
+    type: 'block-quote',
+    children: [{ text: 'A wise quote.' }],
+  },
+]
+
+const createEmptyEditableVoidBody = (): CustomValue => [paragraph('')]
 
 const EditableVoidsExample = () => {
-  const editor = useMemo(
-    () => withEditableVoids(withHistory(withReact(createEditor()))),
-    []
-  )
+  const editor = useSlateEditor({
+    extensions: [editableVoid()],
+    initialValue: {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.',
+            },
+          ],
+        },
+        createEditableVoid('editable-void:initial:body'),
+        {
+          type: 'paragraph',
+          children: [
+            {
+              text: 'The editable void above stores its body in an extra root.',
+            },
+          ],
+        },
+      ],
+      roots: {
+        'editable-void:initial:body': createEditableVoidBody(),
+      },
+    },
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <InsertEditableVoidButton />
       </Toolbar>
 
       <Editable
         placeholder="Enter some text..."
-        renderElement={(props) => <Element {...props} />}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+        renderVoid={renderVoid}
       />
     </Slate>
   )
 }
 
-const withEditableVoids = (editor: CustomEditor) => {
-  const { isVoid } = editor
+const editableVoid = () =>
+  defineEditorExtension({
+    name: 'editable-voids',
+    elements: [
+      {
+        type: 'editable-void',
+        contentRoot: { slot: 'body' },
+        void: 'editable-island',
+      },
+    ],
+  })
 
-  editor.isVoid = (element) => {
-    return element.type === 'editable-void' ? true : isVoid(element)
-  }
-
-  return editor
-}
-
-const insertEditableVoid = (editor: CustomEditor) => {
-  const text = { text: '' }
-  const voidNode: EditableVoidElement = {
-    type: 'editable-void',
-    children: [text],
-  }
-  Transforms.insertNodes(editor, voidNode)
-}
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-
-  switch (element.type) {
-    case 'editable-void':
-      return <EditableVoid {...props} />
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'block-quote':
+      return (
+        <BlockQuote {...(props as RenderElementProps<BlockQuoteElement>)} />
+      )
+    case 'paragraph':
+      return (
+        <ParagraphElement
+          {...(props as RenderElementProps<ParagraphElementType>)}
+        />
+      )
     default:
-      return <p {...attributes}>{children}</p>
+      return <p {...props.attributes}>{props.children}</p>
   }
 }
 
-const unsetWidthStyle = css`
-  width: unset;
-`
+const renderVoid = (props: RenderVoidProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'editable-void':
+      return <EditableVoid element={props.element} />
+    default:
+      return null
+  }
+}
 
-const EditableVoid = ({
+const renderLeaf = (props: RenderLeafProps<CustomText>) => <Leaf {...props} />
+
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>
+  }
+
+  if (leaf.code) {
+    children = <code>{children}</code>
+  }
+
+  return <span {...attributes}>{children}</span>
+}
+
+const BlockQuote = ({
   attributes,
   children,
-  element,
-}: RenderElementProps) => {
-  const [inputValue, setInputValue] = useState('')
+}: RenderElementProps<BlockQuoteElement>) => (
+  <blockquote {...attributes}>{children}</blockquote>
+)
+
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
+
+const unsetWidthStyle = 'slate-editable-voids-unset-width-style'
+
+const EditableVoid = ({ element }: { element: EditableVoidElement }) => {
+  const bodyRoot = useSlateChildRoot(element, 'body')
+  const chrome = useSlateRootChrome(bodyRoot)
 
   return (
-    // Need contentEditable=false or Firefox has issues with certain input types.
-    <div {...attributes} contentEditable={false}>
-      <div
-        className={css`
-          box-shadow: 0 0 0 3px #ddd;
-          padding: 8px;
-        `}
-      >
+    <div className="slate-editable-voids-card">
+      <div contentEditable={false}>
         <h4>Name:</h4>
-        <input
-          className={css`
-            margin: 8px 0;
-          `}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            setInputValue(e.target.value)
-          }}
-          type="text"
-          value={inputValue}
-        />
+        <input className="slate-editable-voids-input" type="text" />
         <h4>Left or right handed:</h4>
         <input
           className={unsetWidthStyle}
@@ -113,25 +203,33 @@ const EditableVoid = ({
         />{' '}
         Right
         <h4>Tell us about yourself:</h4>
-        <div
-          className={css`
-            padding: 20px;
-            border: 2px solid #ddd;
-          `}
-        >
-          <RichTextEditor />
-        </div>
       </div>
-      {children}
+      <div {...chrome.props}>
+        <Editable
+          aria-label="Editable void rich content"
+          className="slate-editable-voids-child-editor"
+          placeholder="Tell us about yourself..."
+          renderElement={renderElement}
+          renderLeaf={renderLeaf}
+          root={bodyRoot}
+        />
+      </div>
     </div>
   )
 }
 
 const InsertEditableVoidButton = () => {
-  const editor = useSlateStatic()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
-      onClick={() => insertEditableVoid(editor)}
+      onClick={() => {
+        const bodyRoot = nextEditableVoidRoot()
+
+        editor.update((tx) => {
+          tx.roots.create(bodyRoot, createEmptyEditableVoidBody())
+          tx.nodes.insert(createEditableVoid(bodyRoot))
+        })
+      }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()
       }}
@@ -140,28 +238,5 @@ const InsertEditableVoidButton = () => {
     </Button>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or an entire other Slate editor.',
-      },
-    ],
-  },
-  {
-    type: 'editable-void',
-    children: [{ text: '' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: '',
-      },
-    ],
-  },
-]
 
 export default EditableVoidsExample

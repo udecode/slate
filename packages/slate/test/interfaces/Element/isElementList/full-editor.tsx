@@ -1,4 +1,6 @@
-import { Element } from 'slate'
+/** @jsx jsx */
+
+import { ElementApi } from 'slate'
 
 export const input = [
   {
@@ -7,7 +9,6 @@ export const input = [
     selection: null,
     marks: null,
     addMark() {},
-    apply() {},
     deleteBackward() {},
     deleteForward() {},
     deleteFragment() {},
@@ -21,12 +22,11 @@ export const input = [
     isSelectable() {},
     isVoid() {},
     normalizeNode() {},
-    onChange() {},
     removeMark() {},
     getDirtyPaths() {},
   },
 ]
 export const test = (value) => {
-  return Element.isElementList(value)
+  return ElementApi.isElementList(value)
 }
 export const output = false

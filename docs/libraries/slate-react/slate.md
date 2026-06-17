@@ -1,46 +1,223 @@
 # Slate Component
 
-## `Slate(props: SlateProps): React.JSX.Element`
+`Slate` provides a React context for one editor. Render it above `Editable`,
+toolbars, sidebars, and any component that needs editor state.
 
-The `Slate` component must include somewhere in its `children` the `Editable` component.
+```tsx
+<Slate editor={editor} onChange={handleChange}>
+  <Toolbar />
+  <Editable />
+</Slate>
+```
 
-### Props
+## Props
 
 ```typescript
-type SlateProps = {
-  editor: ReactEditor
-  value: Descendant[]
+type SlateBaseProps = {
+  annotationStore?: SlateAnnotationStore | null
   children: React.ReactNode
-  onChange?: (value: Descendant[]) => void
-  onSelectionChange?: (selection: Selection) => void
-  onValueChange?: (value: Descendant[]) => void
+  decorationSources?: readonly SlateDecorationSource[] | null
+  onChange?: (value: Descendant[], change: SlateChange) => void
+  onSelectionChange?: (selection: Range | null, change: SlateChange) => void
+  onValueChange?: (value: Descendant[], change: SlateChange) => void
+  readOnly?: boolean
+}
+
+type SlateProps =
+  | (SlateBaseProps & { editor: ReactEditor; root?: never })
+  | (SlateBaseProps & { editor?: never; root: string })
+
+type SlateChange = {
+  commit: EditorCommit
+  marksChanged: boolean
+  operations: readonly Operation[]
+  selection: Range | null
+  selectionChanged: boolean
+  snapshot: EditorSnapshot
+  tags: readonly string[]
+  value: Descendant[]
+  valueChanged: boolean
 }
 ```
 
-#### `props.editor: ReactEditor`
+`SlateChange` is the React callback detail for the provider root. Use it when
+React UI needs the root value plus commit flags. Use `editor.subscribeCommit`
+when infrastructure needs every raw commit.
 
-An instance of `ReactEditor`
+Pass `editor` for the top-level provider. Use the `root`-only form only inside
+an existing Slate runtime, when a nested provider should bind its callbacks and
+context to another root.
 
-#### `props.value: Descendant[]`
+### `editor`
 
-The initial value of the Editor.
+Pass the editor created with `useSlateEditor`.
 
-This prop is deceptively named.
+```tsx
+const MyEditor = () => {
+  const editor = useSlateEditor<CustomValue>({ initialValue })
 
-Slate once was a controlled component (i.e. it's contents were strictly controlled by the `value` prop) but due to features like its edit history which would be corrupted by direct editing of the `value` it is no longer a controlled component.
+  return <Slate editor={editor}>...</Slate>
+}
+```
 
-#### `props.children: React.ReactNode`
+Seed the editor with `initialValue` when the editor is created. `<Slate>` does
+not take an `initialValue` prop.
 
-The `children` which must contain an `Editable` component.
+Use `createReactEditor` when an editor must be created outside a React
+component or inside a custom hook that owns the same one-shot lifetime.
 
-#### `props.onChange: (value: Descendant[]) => void`
+Use editor APIs for later document replacement. `initialValue` is not a
+controlled value prop.
 
-An optional callback function which you can use to be notified of changes in the editor's value.
+### `children`
 
-#### `props.onValueChange?: (value: Descendant[]) => void`
+Render `Editable` and any editor UI inside the provider.
 
-`props.onChange` alias.
+```tsx
+<Slate editor={editor}>
+  <Toolbar />
+  <Editable />
+</Slate>
+```
 
-#### `props.onSelectionChange?: (selection: Selection) => void`
+### `onChange`
 
-An optional callback function which you can use to be notified of changes of the editor's selection.
+Use `onChange` when React UI needs current-root value, selection, marks, or the
+full `SlateChange` object. Use `editor.subscribe(...)` for persistence services
+that need a committed snapshot plus a change summary, including state-field
+changes.
+
+```tsx
+<Slate
+  editor={editor}
+  onChange={(value, change) => {
+    if (change.selectionChanged) {
+      updateToolbar(change.selection)
+    }
+
+    if (change.valueChanged) {
+      updateCurrentRootPreview(value)
+    }
+  }}
+>
+  <Editable />
+</Slate>
+```
+
+Use `editor.subscribeCommit(...)` for low-level commit subscribers that do not
+belong in React render props, such as sync adapters, operation replay, and
+instrumentation.
+
+Use `onValueChange` when a React component only cares about provider-root value
+changes.
+
+```tsx
+<Slate
+  editor={editor}
+  onValueChange={(value) => updateCurrentRootPreview(value)}
+>
+  <Editable />
+</Slate>
+```
+
+### Saving Provider Root Changes
+
+Use `onChange` and `change.valueChanged` when you only need committed changes
+for the provider root's block array. This is the single-root shortcut, not the
+full document persistence path.
+
+```tsx
+<Slate
+  editor={editor}
+  onChange={(value, change) => {
+    if (!change.valueChanged) return
+
+    localStorage.setItem('slate.children', JSON.stringify(value))
+  }}
+>
+  <Editable />
+</Slate>
+```
+
+The `value` argument is a root value, not the full persisted document. Use
+`editor.subscribe(...)` and `editor.read((state) => state.value.get())` when
+you need named roots or persistent state fields.
+
+```tsx
+useEffect(() => {
+  return editor.subscribe((_snapshot, change) => {
+    if (!change) return
+
+    if (!change.childrenChanged && change.dirtyStateKeys.length === 0) {
+      return
+    }
+
+    const documentValue = editor.read((state) => state.value.get())
+
+    localStorage.setItem('slate.document', JSON.stringify(documentValue))
+  })
+}, [editor])
+```
+
+See [Document State](../../concepts/14-document-state.md) for the full
+persistence shape.
+
+### Selection Changes
+
+Use `onSelectionChange` when React UI only cares about model selection changes.
+
+```tsx
+<Slate
+  editor={editor}
+  onSelectionChange={(selection) => updateToolbar(selection)}
+>
+  <Editable />
+</Slate>
+```
+
+### `decorationSources`
+
+Decoration sources publish transient render-time ranges such as search matches,
+diagnostics, and code highlights.
+
+```tsx
+const searchSource = useSlateDecorationSource(editor, {
+  id: 'search',
+  read: ({ snapshot }) => findSearchMatches(snapshot, query),
+});
+
+<Slate decorationSources={[searchSource]} editor={editor}>
+  <Editable renderSegment={renderSearchMatch} />
+</Slate>
+```
+
+Use provider-owned `decorationSources` so every `Editable` and overlay UI reads
+from the same projection source. Use `Editable.decorate` for a simple
+editor-local decoration callback.
+
+### `annotationStore`
+
+The annotation store publishes anchor-backed annotations to text rendering and annotation UI hooks.
+
+```tsx
+const annotations = comments.map((comment) => ({
+  anchor: comment.anchor,
+  data: comment,
+  id: comment.id,
+  projection: {
+    status: comment.status,
+    tone: comment.tone,
+  },
+}));
+
+const annotationStore = useSlateAnnotationStore(editor, annotations);
+
+<Slate annotationStore={annotationStore} editor={editor}>
+  <Editable renderSegment={renderCommentSegment} />
+  <CommentsSidebar />
+</Slate>
+```
+
+Widget stores are hook-owned. Create them with `useSlateWidgetStore` and pass
+the store directly to `useSlateWidgets` or `useSlateWidget`; `Slate` does not
+take a `widgetStore` prop.

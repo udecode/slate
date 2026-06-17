@@ -1,10 +1,12 @@
-import { Text } from 'slate'
+/** @jsx jsx */
+
+import { TextApi } from 'slate'
 
 export const input = {
   text: { text: '', bold: true },
   props: { bold: true },
 }
 export const test = ({ text, props }) => {
-  return Text.matches(text, props)
+  return TextApi.matches(text, props)
 }
 export const output = true

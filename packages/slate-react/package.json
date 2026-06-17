@@ -3,10 +3,18 @@
   "description": "Tools for building completely customizable richtext editors with React.",
   "version": "0.124.0",
   "license": "MIT",
-  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -17,16 +25,16 @@
   ],
   "dependencies": {
     "@juggle/resize-observer": "^3.4.0",
-    "direction": "^1.0.4",
+    "@tanstack/react-virtual": "^3.13.25",
     "lodash": "^4.17.21",
-    "scroll-into-view-if-needed": "^3.1.0"
+    "slate-history": "0.115.0"
   },
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
-    "test": "bun test:vitest",
+    "test": "npm run test:vitest",
     "test:vitest": "vitest run --config ./vitest.config.mjs",
-    "typecheck": "tsc --project tsconfig.build.json --noEmit"
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project test/tsconfig.generic-types.json --noEmit"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
@@ -41,15 +49,14 @@
     "react-dom": "^19.2.5",
     "slate": "workspace:*",
     "slate-dom": "workspace:*",
-    "slate-history": "workspace:*",
     "slate-hyperscript": "workspace:*",
     "vitest": "^4.1.0"
   },
   "peerDependencies": {
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
-    "slate": ">=0.121.0",
-    "slate-dom": ">=0.119.1"
+    "slate": "0.124.1",
+    "slate-dom": "0.124.1"
   },
   "keywords": [
     "canvas",
@@ -66,7 +73,6 @@
     "paper",
     "react",
     "rich",
-    "richtext",
     "richtext",
     "slate",
     "text",

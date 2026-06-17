@@ -1,4 +1,6 @@
-import { Range } from 'slate'
+/** @jsx jsx */
+
+import { RangeApi } from 'slate'
 
 /**
  * If a collapsed Range is transformed with affinity outward by an insert_text operation, it should expand.
@@ -15,7 +17,7 @@ export const input = {
   },
 }
 export const test = (value) => {
-  return Range.transform(
+  return RangeApi.transform(
     value,
     {
       type: 'insert_text',

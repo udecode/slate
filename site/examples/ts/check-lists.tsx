@@ -1,88 +1,79 @@
-import { css } from '@emotion/css'
-import { type ChangeEvent, useCallback, useMemo } from 'react'
+import type { ChangeEvent } from 'react'
 import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  Point,
-  Range,
+  defineEditorExtension,
+  NodeApi,
+  PointApi,
+  RangeApi,
   type Element as SlateElement,
-  Transforms,
 } from 'slate'
-import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   Slate,
-  useReadOnly,
-  useSlateStatic,
-  withReact,
+  useEditor,
+  useEditorReadOnly,
+  useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
+
 import type {
   CheckListItemElement as CheckListItemType,
   CustomEditor,
-  RenderElementPropsFor,
+  ParagraphElement as ParagraphElementType,
 } from './custom-types.d'
 
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
+const CheckListsExample = () => {
+  const editor = useSlateEditor({
+    extensions: [checklist()],
+    initialValue: [
       {
-        text: 'With Slate you can build complex block types that have their own embedded content and behaviors, like rendering checkboxes inside check list items!',
+        type: 'paragraph',
+        children: [
+          {
+            text: 'With Slate you can build complex block types that have their own embedded content and behaviors, like rendering checkboxes inside check list items!',
+          },
+        ],
+      },
+      {
+        type: 'check-list-item',
+        checked: true,
+        children: [{ text: 'Slide to the left.' }],
+      },
+      {
+        type: 'check-list-item',
+        checked: true,
+        children: [{ text: 'Slide to the right.' }],
+      },
+      {
+        type: 'check-list-item',
+        checked: false,
+        children: [{ text: 'Criss-cross.' }],
+      },
+      {
+        type: 'check-list-item',
+        checked: true,
+        children: [{ text: 'Criss-cross!' }],
+      },
+      {
+        type: 'check-list-item',
+        checked: false,
+        children: [{ text: 'Cha cha real smooth…' }],
+      },
+      {
+        type: 'check-list-item',
+        checked: false,
+        children: [{ text: "Let's go to work!" }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Try it out for yourself!' }],
       },
     ],
-  },
-  {
-    type: 'check-list-item',
-    checked: true,
-    children: [{ text: 'Slide to the left.' }],
-  },
-  {
-    type: 'check-list-item',
-    checked: true,
-    children: [{ text: 'Slide to the right.' }],
-  },
-  {
-    type: 'check-list-item',
-    checked: false,
-    children: [{ text: 'Criss-cross.' }],
-  },
-  {
-    type: 'check-list-item',
-    checked: true,
-    children: [{ text: 'Criss-cross!' }],
-  },
-  {
-    type: 'check-list-item',
-    checked: false,
-    children: [{ text: 'Cha cha real smooth…' }],
-  },
-  {
-    type: 'check-list-item',
-    checked: false,
-    children: [{ text: "Let's go to work!" }],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'Try it out for yourself!' }],
-  },
-]
-
-const CheckListsExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const editor = useMemo(
-    () => withChecklists(withHistory(withReact(createEditor()))),
-    []
-  )
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         autoFocus
         placeholder="Get to work…"
@@ -93,99 +84,96 @@ const CheckListsExample = () => {
   )
 }
 
-const withChecklists = (editor: CustomEditor) => {
-  const { deleteBackward } = editor
+const checklist = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'checklists',
+    transforms: {
+      deleteBackward({ next, tx }) {
+        const selection = tx.selection.get()
 
-  editor.deleteBackward = (...args) => {
-    const { selection } = editor
-
-    if (selection && Range.isCollapsed(selection)) {
-      const [match] = Editor.nodes(editor, {
-        match: (n) => Node.isElement(n) && n.type === 'check-list-item',
-      })
-
-      if (match) {
-        const [, path] = match
-        const start = Editor.start(editor, path)
-
-        if (Point.equals(selection.anchor, start)) {
-          const newProperties: Partial<SlateElement> = {
-            type: 'paragraph',
-          }
-          Transforms.setNodes(editor, newProperties, {
-            match: (n) => Node.isElement(n) && n.type === 'check-list-item',
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const match = tx.nodes.find({
+            match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
           })
-          return
+
+          if (match) {
+            const [, path] = match
+            const start = tx.points.start(path)
+
+            if (PointApi.equals(selection.anchor, start)) {
+              tx.nodes.set(
+                { type: 'paragraph' } satisfies Partial<SlateElement>,
+                {
+                  match: (n) =>
+                    NodeApi.isElement(n) && n.type === 'check-list-item',
+                }
+              )
+              tx.selection.set(start)
+              return true
+            }
+          }
         }
-      }
-    }
 
-    deleteBackward(...args)
-  }
+        return next()
+      },
+    },
+  })
 
-  return editor
-}
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-
-  switch (element.type) {
+const renderElement = (
+  props: RenderElementProps<CheckListItemType | ParagraphElementType>
+) => {
+  switch (props.element.type) {
     case 'check-list-item':
-      return <CheckListItemElement {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
+      return (
+        <CheckListItemElement
+          {...(props as RenderElementProps<CheckListItemType>)}
+        />
+      )
+    case 'paragraph':
+      return (
+        <ParagraphElement
+          {...(props as RenderElementProps<ParagraphElementType>)}
+        />
+      )
   }
 }
+
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
 
 const CheckListItemElement = ({
   attributes,
   children,
   element,
-}: RenderElementPropsFor<CheckListItemType>) => {
+}: RenderElementProps<CheckListItemType>) => {
   const { checked } = element
-  const editor = useSlateStatic()
-  const readOnly = useReadOnly()
+  const editor = useEditor<CustomEditor>()
+  const readOnly = useEditorReadOnly()
   return (
-    <div
-      {...attributes}
-      className={css`
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-
-        & + & {
-          margin-top: 0;
-        }
-      `}
-    >
-      <span
-        className={css`
-          margin-right: 0.75em;
-        `}
-        contentEditable={false}
-      >
+    <div {...attributes} className="slate-check-lists-item">
+      <span className="slate-check-lists-checkbox" contentEditable={false}>
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const path = ReactEditor.findPath(editor, element)
-            const newProperties: Partial<SlateElement> = {
-              checked: event.target.checked,
+            const path = editor.api.dom.resolvePath(element)
+
+            if (!path) {
+              return
             }
-            Transforms.setNodes(editor, newProperties, { at: path })
+
+            editor.update((tx) => {
+              tx.nodes.set({ checked: event.target.checked }, { at: path })
+            })
           }}
           type="checkbox"
         />
       </span>
       <span
-        className={css`
-          flex: 1;
-          opacity: ${checked ? 0.666 : 1};
-          text-decoration: ${checked ? 'line-through' : 'none'};
-
-          &:focus {
-            outline: none;
-          }
-        `}
+        className={cn('slate-check-lists-content', checked && 'is-checked')}
         contentEditable={!readOnly}
         suppressContentEditableWarning
       >

@@ -1,20 +1,19 @@
-import type { Ancestor } from 'slate'
-import { DOMEditor, type DOMEditorInterface } from 'slate-dom'
+import type { Value } from 'slate'
+import type { DOMApi, DOMClipboardApi } from 'slate-dom'
+import { DOMEditor, type DOMEditorInterface } from 'slate-dom/internal'
 
 /**
  * A React and DOM-specific version of the `Editor` interface.
  */
 
-export interface ReactEditor extends DOMEditor {
-  /**
-   * Determines the chunk size used by the children chunking optimization. If
-   * null is returned (which is the default), the chunking optimization is
-   * disabled.
-   */
-  getChunkSize: (node: Ancestor) => number | null
+export interface ReactRuntimeEditor<V extends Value = Value>
+  extends DOMEditor<V> {
+  api: DOMEditor<V>['api'] & {
+    clipboard: DOMClipboardApi
+    dom: DOMApi
+  }
 }
 
 export interface ReactEditorInterface extends DOMEditorInterface {}
 
-// eslint-disable-next-line no-redeclare
 export const ReactEditor: ReactEditorInterface = DOMEditor

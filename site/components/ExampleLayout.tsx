@@ -1,7 +1,10 @@
+import { MenuIcon } from 'lucide-react'
 import Link from 'next/link'
 import React, { type ErrorInfo, useState } from 'react'
-import { NON_HIDDEN_EXAMPLES } from '../constants/examples'
-import { Icon } from '../examples/ts/components/index'
+
+import { cn } from '@/utils/cn'
+
+import { type ExampleBadge, NON_HIDDEN_EXAMPLES } from '../constants/examples'
 
 const Header = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-header" />
@@ -23,6 +26,10 @@ const Pill = (props: React.ComponentProps<'span'>) => (
   <span {...props} className="example-pill" />
 )
 
+const ExampleBadgeLabel = ({ badge }: { badge: ExampleBadge }) => (
+  <span className={cn('example-badge', `example-badge-${badge}`)}>Alpha</span>
+)
+
 const TabList = ({
   isVisible,
   ...props
@@ -32,7 +39,7 @@ const TabList = ({
     aria-label="Examples navigation"
     role="menu"
     {...props}
-    className={`example-tab-list ${isVisible ? 'visible' : 'hidden'}`}
+    className={cn('example-tab-list', isVisible ? 'visible' : 'hidden')}
   />
 )
 
@@ -42,17 +49,25 @@ const TabListUnderlay = ({
 }: React.ComponentProps<'div'> & { isVisible?: boolean }) => (
   <div
     {...props}
-    className={`example-tab-list-underlay ${isVisible ? 'visible' : 'hidden'}`}
+    className={cn(
+      'example-tab-list-underlay',
+      isVisible ? 'visible' : 'hidden'
+    )}
   />
 )
 
-const TabButton = (props: React.ComponentProps<'button'>) => (
+const TabButton = ({
+  children: _children,
+  ...props
+}: React.ComponentProps<'button'>) => (
   <button
     {...props}
     aria-haspopup="menu"
     aria-label="Toggle examples menu"
     className="example-tab-button"
-  />
+  >
+    <MenuIcon aria-hidden />
+  </button>
 )
 
 const Tab = ({
@@ -66,7 +81,7 @@ const Tab = ({
     aria-current={active ? 'page' : undefined}
     role="menuitem"
     {...props}
-    className={`example-tab ${active ? 'active' : ''} ${className ?? ''}`.trim()}
+    className={cn('example-tab', active && 'active', className)}
   />
 )
 
@@ -126,27 +141,20 @@ export function ExampleLayout({
                 setShowTabs(false)
               }
             }}
-          >
-            <Icon>menu</Icon>
-          </TabButton>
+          />
           <ExampleTitle>
             {exampleName}
             <A
-              href={`https://github.com/ianstormtaylor/slate/blob/main/site/examples/js/${examplePath}.jsx`}
-            >
-              <Pill>JS Code</Pill>
-            </A>
-            <A
               href={`https://github.com/ianstormtaylor/slate/blob/main/site/examples/ts/${examplePath}.tsx`}
             >
-              <Pill>TS Code</Pill>
+              <Pill>Code</Pill>
             </A>
           </ExampleTitle>
         </ExampleHeader>
       )}
 
       <TabList isVisible={showTabs}>
-        {NON_HIDDEN_EXAMPLES.map(([n, p]) => (
+        {NON_HIDDEN_EXAMPLES.map(([n, p, metadata]) => (
           <Tab
             active={p === examplePath}
             as={`/examples/${p}`}
@@ -159,7 +167,10 @@ export function ExampleLayout({
               }
             }}
           >
-            {n}
+            <span>{n}</span>
+            {metadata?.badge ? (
+              <ExampleBadgeLabel badge={metadata.badge} />
+            ) : null}
           </Tab>
         ))}
       </TabList>

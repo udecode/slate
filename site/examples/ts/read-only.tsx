@@ -1,25 +1,23 @@
-import { useMemo } from 'react'
-import { createEditor, type Descendant } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const ReadOnlyExample = () => {
-  const editor = useMemo(() => withReact(createEditor()), [])
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This example shows what happens when the Editor is set to readOnly, it is not editable',
+          },
+        ],
+      },
+    ],
+  })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable placeholder="Enter some plain text..." readOnly />
     </Slate>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows what happens when the Editor is set to readOnly, it is not editable',
-      },
-    ],
-  },
-]
 
 export default ReadOnlyExample

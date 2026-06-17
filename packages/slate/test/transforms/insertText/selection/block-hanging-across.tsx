@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.insertText(editor, 'a')
+  editor.text.insert('a')
 }
 export const input = (
   <editor>
@@ -26,8 +24,7 @@ export const output = (
   <editor>
     <block>
       a<cursor />
-      three
     </block>
+    <block>three</block>
   </editor>
 )
-export const skip = true

@@ -1,4 +1,15 @@
-import { Editor, Node, type Operation, Path, Point, Range } from 'slate'
+import {
+  NodeApi,
+  type Operation,
+  type Path,
+  PathApi,
+  type Point,
+  PointApi,
+  type Range,
+  RangeApi,
+  type Editor as SlateEditor,
+} from 'slate'
+import { Editor, getOperationRoot, MAIN_ROOT_KEY } from 'slate/internal'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
 
 export type StringDiff = {
@@ -13,18 +24,24 @@ export type TextDiff = {
   diff: StringDiff
 }
 
+const getPendingDiffRoot = (editor?: SlateEditor<any>) =>
+  editor?.read((state) => state.view.root()) ?? MAIN_ROOT_KEY
+
 /**
  * Check whether a text diff was applied in a way we can perform the pending action on /
  * recover the pending selection.
  */
-export function verifyDiffState(editor: Editor, textDiff: TextDiff): boolean {
+export function verifyDiffState(
+  editor: SlateEditor<any>,
+  textDiff: TextDiff
+): boolean {
   const { path, diff } = textDiff
   if (!Editor.hasPath(editor, path)) {
     return false
   }
 
-  const node = Node.get(editor, path)
-  if (!Node.isText(node)) {
+  const node = NodeApi.get(editor, path)
+  if (!NodeApi.isText(node)) {
     return false
   }
 
@@ -34,15 +51,16 @@ export function verifyDiffState(editor: Editor, textDiff: TextDiff): boolean {
     )
   }
 
-  const nextPath = Path.next(path)
+  const nextPath = PathApi.next(path)
   if (!Editor.hasPath(editor, nextPath)) {
     return false
   }
 
-  const nextNode = Node.get(editor, nextPath)
-  return Node.isText(nextNode) && nextNode.text.startsWith(diff.text)
+  const nextNode = NodeApi.get(editor, nextPath)
+  return NodeApi.isText(nextNode) && nextNode.text.startsWith(diff.text)
 }
 
+/** Apply one or more string diffs to a text value in order. */
 export function applyStringDiff(text: string, ...diffs: StringDiff[]) {
   return diffs.reduce(
     (text, diff) =>
@@ -71,7 +89,7 @@ function longestCommonSuffixLength(
   const length = Math.min(str.length, another.length, max)
 
   for (let i = 0; i < length; i++) {
-    if (str.at(i + 1) !== another.at(i + 1)) {
+    if (str.at(-i - 1) !== another.at(-i - 1)) {
       return i
     }
   }
@@ -152,19 +170,22 @@ export function targetRange(textDiff: TextDiff): Range {
  * marks we have to 'walk' the offset from the starting position to ensure we still
  * have a valid point inside the document
  */
-export function normalizePoint(editor: Editor, point: Point): Point | null {
+export function normalizePoint(
+  editor: SlateEditor<any>,
+  point: Point
+): Point | null {
   let { path, offset } = point
   if (!Editor.hasPath(editor, path)) {
     return null
   }
 
-  let leaf = Node.get(editor, path)
-  if (!Node.isText(leaf)) {
+  let leaf = NodeApi.get(editor, path)
+  if (!NodeApi.isText(leaf)) {
     return null
   }
 
   const parentBlock = Editor.above(editor, {
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
     at: path,
   })
 
@@ -173,8 +194,8 @@ export function normalizePoint(editor: Editor, point: Point): Point | null {
   }
 
   while (offset > leaf.text.length) {
-    const entry = Editor.next(editor, { at: path, match: Node.isText })
-    if (!entry || !Path.isDescendant(entry[1], parentBlock[1])) {
+    const entry = Editor.next(editor, { at: path, match: NodeApi.isText })
+    if (!entry || !PathApi.isDescendant(entry[1], parentBlock[1])) {
       return null
     }
 
@@ -189,13 +210,16 @@ export function normalizePoint(editor: Editor, point: Point): Point | null {
 /**
  * Normalize a 'pending selection' to ensure it's valid in the current document state.
  */
-export function normalizeRange(editor: Editor, range: Range): Range | null {
+export function normalizeRange(
+  editor: SlateEditor<any>,
+  range: Range
+): Range | null {
   const anchor = normalizePoint(editor, range.anchor)
   if (!anchor) {
     return null
   }
 
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return { anchor, focus: anchor }
   }
 
@@ -207,26 +231,60 @@ export function normalizeRange(editor: Editor, range: Range): Range | null {
   return { anchor, focus }
 }
 
+const getPendingPointRoot = (editor: SlateEditor<any>, point: Point) =>
+  point.root ?? editor.read((state) => state.view.root())
+
+const withPendingPointRoot = (
+  editor: SlateEditor<any>,
+  point: Point
+): Point => {
+  const root = getPendingPointRoot(editor, point)
+
+  return point.root === undefined && root !== MAIN_ROOT_KEY
+    ? { ...point, root }
+    : point
+}
+
+const stripImplicitPendingPointRoot = (
+  point: Point | null,
+  original: Point
+): Point | null => {
+  if (!point || original.root !== undefined || point.root === undefined) {
+    return point
+  }
+
+  const { root: _root, ...pointWithoutRoot } = point
+
+  return pointWithoutRoot
+}
+
 export function transformPendingPoint(
-  editor: Editor,
+  editor: SlateEditor<any>,
   point: Point,
   op: Operation
 ): Point | null {
+  const rootedPoint = withPendingPointRoot(editor, point)
   const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor)
   const textDiff = pendingDiffs?.find(({ path }) =>
-    Path.equals(path, point.path)
+    PathApi.equals(path, point.path)
   )
 
   if (!textDiff || point.offset <= textDiff.diff.start) {
-    return Point.transform(point, op, { affinity: 'backward' })
+    return stripImplicitPendingPointRoot(
+      PointApi.transform(rootedPoint, op, { affinity: 'backward' }),
+      point
+    )
   }
 
   const { diff } = textDiff
   // Point references location inside the diff => transform the point based on the location
   // the diff will be applied to and add the offset inside the diff.
   if (point.offset <= diff.start + diff.text.length) {
-    const anchor = { path: point.path, offset: diff.start }
-    const transformed = Point.transform(anchor, op, {
+    const anchor = withPendingPointRoot(editor, {
+      path: point.path,
+      offset: diff.start,
+    })
+    const transformed = PointApi.transform(anchor, op, {
       affinity: 'backward',
     })
 
@@ -234,18 +292,21 @@ export function transformPendingPoint(
       return null
     }
 
-    return {
-      path: transformed.path,
-      offset: transformed.offset + point.offset - diff.start,
-    }
+    return stripImplicitPendingPointRoot(
+      {
+        ...transformed,
+        offset: transformed.offset + point.offset - diff.start,
+      },
+      point
+    )
   }
 
   // Point references location after the diff
-  const anchor = {
+  const anchor = withPendingPointRoot(editor, {
     path: point.path,
     offset: point.offset - diff.text.length + diff.end - diff.start,
-  }
-  const transformed = Point.transform(anchor, op, {
+  })
+  const transformed = PointApi.transform(anchor, op, {
     affinity: 'backward',
   })
   if (!transformed) {
@@ -254,21 +315,24 @@ export function transformPendingPoint(
 
   if (
     op.type === 'split_node' &&
-    Path.equals(op.path, point.path) &&
+    PathApi.equals(op.path, point.path) &&
     anchor.offset < op.position &&
     diff.start < op.position
   ) {
-    return transformed
+    return stripImplicitPendingPointRoot(transformed, point)
   }
 
-  return {
-    path: transformed.path,
-    offset: transformed.offset + diff.text.length - diff.end + diff.start,
-  }
+  return stripImplicitPendingPointRoot(
+    {
+      ...transformed,
+      offset: transformed.offset + diff.text.length - diff.end + diff.start,
+    },
+    point
+  )
 }
 
 export function transformPendingRange(
-  editor: Editor,
+  editor: SlateEditor<any>,
   range: Range,
   op: Operation
 ): Range | null {
@@ -277,7 +341,7 @@ export function transformPendingRange(
     return null
   }
 
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return { anchor, focus: anchor }
   }
 
@@ -291,13 +355,19 @@ export function transformPendingRange(
 
 export function transformTextDiff(
   textDiff: TextDiff,
-  op: Operation
+  op: Operation,
+  editor?: SlateEditor<any>
 ): TextDiff | null {
   const { path, diff, id } = textDiff
+  const root = getPendingDiffRoot(editor)
+
+  if (root !== getOperationRoot(op)) {
+    return textDiff
+  }
 
   switch (op.type) {
     case 'insert_text': {
-      if (!Path.equals(op.path, path) || op.offset >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.offset >= diff.end) {
         return textDiff
       }
 
@@ -324,26 +394,24 @@ export function transformTextDiff(
       }
     }
     case 'remove_text': {
-      if (!Path.equals(op.path, path) || op.offset >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.offset >= diff.end) {
         return textDiff
       }
 
-      if (op.offset + op.text.length <= diff.start) {
-        return {
-          diff: {
-            start: diff.start - op.text.length,
-            end: diff.end - op.text.length,
-            text: diff.text,
-          },
-          id,
-          path,
-        }
-      }
+      const opEnd = op.offset + op.text.length
+      const removedBeforeStart = Math.max(
+        0,
+        Math.min(opEnd, diff.start) - op.offset
+      )
+      const removedWithinDiff = Math.max(
+        0,
+        Math.min(opEnd, diff.end) - Math.max(op.offset, diff.start)
+      )
 
       return {
         diff: {
-          start: diff.start,
-          end: diff.end - op.text.length,
+          start: diff.start - removedBeforeStart,
+          end: diff.end - removedBeforeStart - removedWithinDiff,
           text: diff.text,
         },
         id,
@@ -351,11 +419,11 @@ export function transformTextDiff(
       }
     }
     case 'split_node': {
-      if (!Path.equals(op.path, path) || op.position >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.position >= diff.end) {
         return {
           diff,
           id,
-          path: Path.transform(path, op, { affinity: 'backward' })!,
+          path: PathApi.transform(path, op, { affinity: 'backward' })!,
         }
       }
 
@@ -378,15 +446,15 @@ export function transformTextDiff(
           text: diff.text,
         },
         id,
-        path: Path.transform(path, op, { affinity: 'forward' })!,
+        path: PathApi.transform(path, op, { affinity: 'forward' })!,
       }
     }
     case 'merge_node': {
-      if (!Path.equals(op.path, path)) {
+      if (!PathApi.equals(op.path, path)) {
         return {
           diff,
           id,
-          path: Path.transform(path, op)!,
+          path: PathApi.transform(path, op)!,
         }
       }
 
@@ -397,12 +465,12 @@ export function transformTextDiff(
           text: diff.text,
         },
         id,
-        path: Path.transform(path, op)!,
+        path: PathApi.transform(path, op)!,
       }
     }
   }
 
-  const newPath = Path.transform(path, op)
+  const newPath = PathApi.transform(path, op)
   if (!newPath) {
     return null
   }

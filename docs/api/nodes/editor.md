@@ -1,499 +1,376 @@
-# Editor API
+# Editor
 
-The `Editor` object stores all the state of a Slate editor. It can be extended by [plugins](../../concepts/08-plugins.md) to add helpers and implement new behaviors. It's a type of `Node` and its path is `[]`.
+An editor owns the document runtime. It is the root node of the document, and
+its path is `[]`.
+
+The public editor object is intentionally small:
 
 ```typescript
-interface Editor {
-  children: Node[]
-  selection: Range | null
-  operations: Operation[]
-  marks: Omit<Text, 'text'> | null
-
-  // Schema-specific node behaviors.
-  isInline: (element: Element) => boolean
-  isVoid: (element: Element) => boolean
-  markableVoid: (element: Element) => boolean
-  normalizeNode: (entry: NodeEntry) => void
-  onChange: (options?: { operation?: Operation }) => void
-
-  // Overrideable core actions.
-  addMark: (key: string, value: any) => void
-  apply: (operation: Operation) => void
-  deleteBackward: (unit: 'character' | 'word' | 'line' | 'block') => void
-  deleteForward: (unit: 'character' | 'word' | 'line' | 'block') => void
-  deleteFragment: () => void
-  insertBreak: () => void
-  insertFragment: (fragment: Node[]) => void
-  insertNode: (node: Node) => void
-  insertText: (text: string) => void
-  removeMark: (key: string) => void
+interface Editor<TExtensions extends readonly unknown[] = []> {
+  api: Readonly<InstalledApiGroups<TExtensions>>
+  getApi(extension: EditorExtension): unknown
+  read<T>(fn: (state: EditorState) => T): T
+  subscribe(listener: SnapshotListener): () => void
+  subscribeCommit(listener: (commit: EditorCommit) => void): () => void
+  update(
+    fn: (tx: EditorTransaction, context: EditorUpdateContext) => void,
+    options?: EditorUpdateOptions
+  ): void
+  extend(extension: EditorExtension | EditorExtension[]): () => void
 }
 ```
 
-- [Instantiation methods](editor.md#instantiation-methods)
-- [Static methods](editor.md#static-methods)
-  - [Retrieval methods](editor.md#retrieval-methods)
-  - [Manipulation methods](editor.md#manipulation-methods)
-  - [Check methods](editor.md#check-methods)
-  - [Normalization methods](editor.md#normalization-methods)
-  - [Ref methods](editor.md#ref-methods)
-- [Instance methods](editor.md#instance-methods)
-  - [Schema-specific methods to override](editor.md#schema-specific-instance-methods-to-override)
-  - [Element Type Methods](editor.md/#element-type-methods)
-  - [Normalize Methods](editor.md/#normalize-methods)
-  - [Callback Method](editor.md/#callback-method)
-  - [Mark Methods](editor.md/#mark-methods)
-  - [getFragment Method](editor.md/#getfragment-method)
-  - [Delete Methods](editor.md/#delete-methods)
-  - [Insert Methods](editor.md/#insert-methods)
-  - [Operation Handling Method](editor.md/#operation-handling-method)
-
-## Instantiation methods
-
-#### `createEditor() => Editor`
-
-Note: This method is imported directly from Slate and is not part of the Editor object.
-
-Creates a new, empty `Editor` object.
-
-## Static methods
-
-### Retrieval methods
-
-#### `Editor.above<T extends Ancestor>(editor: Editor, options?) => NodeEntry<T> | undefined`
-
-Get the matching ancestor above a location in the document.
-
-Options:
-
-- `at?: Location = editor.selection`: Where to start at which is `editor.selection` by default.
-- `match?: NodeMatch = () => true`: Narrow the match
-- `mode?: 'highest' | 'lowest' = 'lowest'`: If `lowest` (default), returns the lowest matching ancestor. If `highest`, returns the highest matching ancestor.
-- `voids?: boolean = false`: When `false` ignore void objects.
-
-#### `Editor.after(editor: Editor, at: Location, options?) => Point | undefined`
-
-Get the point after a location.
-
-If there is no point after the location (e.g. we are at the bottom of the document) returns `undefined`.
-
-Options: `{distance?: number, unit?: 'offset' | 'character' | 'word' | 'line' | 'block', voids?: boolean}`
-
-#### `Editor.before(editor: Editor, at: Location, options?) => Point | undefined`
-
-Get the point before a location.
-
-If there is no point before the location (e.g. we are at the top of the document) returns `undefined`.
-
-Options: `{distance?: number, unit?: 'offset' | 'character' | 'word' | 'line' | 'block', voids?: boolean}`
-
-#### `Editor.edges(editor: Editor, at: Location) => [Point, Point]`
-
-Get the start and end points of a location.
-
-#### `Editor.end(editor: Editor, at: Location) => Point`
-
-Get the end point of a location.
-
-#### `Editor.first(editor: Editor, at: Location) => NodeEntry`
-
-Get the first node at a location.
-
-#### `Editor.fragment(editor: Editor, at: Location) => Descendant[]`
-
-Get the fragment at a location.
-
-#### `Editor.last(editor: Editor, at: Location) => NodeEntry`
-
-Get the last node at a location.
-
-#### `Editor.leaf(editor: Editor, at: Location, options?) => NodeEntry`
-
-Get the leaf text node at a location.
-
-Options: `{depth?: number, edge?: 'start' | 'end'}`
-
-#### `Editor.levels<T extends Node>(editor: Editor, options?) => Generator<NodeEntry<T>, void, undefined>`
-
-Iterate through all of the levels at a location.
-
-Options: `{at?: Location, match?: NodeMatch, reverse?: boolean, voids?: boolean}`
-
-#### `Editor.marks(editor: Editor) => Omit<Text, 'text'> | null`
-
-Get the marks that would be added to text at the current selection.
-
-#### `Editor.next<T extends Descendant>(editor: Editor, options?) => NodeEntry<T> | undefined`
-
-Get the matching node in the branch of the document after a location.
-
-Note: To find the next Point, and not the next Node, use the `Editor.after` method
-
-Options: `{at?: Location, match?: NodeMatch, mode?: 'all' | 'highest' | 'lowest', voids?: boolean}`
-
-#### `Editor.node(editor: Editor, at: Location, options?) => NodeEntry`
-
-Get the node at a location.
-
-Options: `depth?: number, edge?: 'start' | 'end'`
-
-#### `Editor.nodes<T extends Node>(editor: Editor, options?) => Generator<NodeEntry<T>, void, undefined>`
-
-At any given `Location` or `Span` in the editor provided by `at` (default is the current selection), the method returns a Generator of `NodeEntry` objects that represent the nodes that include `at`. At the top of the hierarchy is the `Editor` object itself.
-
-Options: `{at?: Location | Span, match?: NodeMatch, mode?: 'all' | 'highest' | 'lowest', universal?: boolean, reverse?: boolean, voids?: boolean, pass?: (node: NodeEntry => boolean)}`
-
-`options.match`: Provide a value to the `match?` option to limit the `NodeEntry` objects that are returned.
-
-`options.mode`:
-
-- `'all'` (default): Return all matching nodes
-- `'highest'`: in a hierarchy of nodes, only return the highest level matching nodes
-- `'lowest'`: in a hierarchy of nodes, only return the lowest level matching nodes
-
-`options.pass`: Skip the descendants of certain nodes (but not the nodes themselves).
-
-#### `Editor.parent(editor: Editor, at: Location, options?) => NodeEntry<Ancestor>`
-
-Get the parent node of a location.
-
-Options: `{depth?: number, edge?: 'start' | 'end'}`
-
-#### `Editor.path(editor: Editor, at: Location, options?) => Path`
-
-Get the path of a location.
-
-Options: `{depth?: number, edge?: 'start' | 'end'}`
-
-#### `Editor.point(editor: Editor, at: Location, options?) => Point`
-
-Get the `start` or `end` (default is `start`) point of a location.
-
-Options: `{edge?: 'start' | 'end'}`
-
-#### `Editor.positions(editor: Editor, options?) => Generator<Point, void, undefined>`
-
-Iterate through all of the positions in the document where a `Point` can be placed. The first `Point` returns is always the starting point followed by the next `Point` as determined by the `unit` option.
-
-Read `options.unit` to see how this method iterates through positions.
-
-Note: By default void nodes are treated as a single point and iteration will not happen inside their content unless the voids option is set, then iteration will occur.
-
-Options:
-
-- `at?: Location = editor.selection`: The `Location` in which to iterate the positions of.
-- `unit?: 'offset' | 'character' | 'word' | 'line' | 'block' = 'offset'`:
-  - `offset`: Moves to the next offset `Point`. It will include the `Point` at the end of a `Text` object and then move onto the first `Point` (at the 0th offset) of the next `Text` object. This may be counter-intuitive because the end of a `Text` and the beginning of the next `Text` might be thought of as the same position.
-  - `character`: Moves to the next `character` but is not always the next `index` in the string. This is because Unicode encodings may require multiple bytes to create one character. Unlike `offset`, `character` will not count the end of a `Text` and the beginning of the next `Text` as separate positions to return. Warning: The character offsets for Unicode characters does not appear to be reliable in some cases like a Smiley Emoji will be identified as 2 characters.
-  - `word`: Moves to the position immediately after the next `word`. In `reverse` mode, moves to the position immediately before the previous `word`.
-  - `line` | `block`: Starts at the beginning position and then the position at the end of the block. Then starts at the beginning of the next block and then the end of the next block.
-- `reverse?: boolean = false`: When `true` returns the positions in reverse order. In the case of the `unit` being `word`, the actual returned positions are different (i.e. we will get the start of a word in reverse instead of the end).
-- `voids?: boolean = false`: When `true` include void Nodes.
-
-#### `Editor.previous<T extends Node>(editor: Editor, options?) => NodeEntry<T> | undefined`
-
-Get the matching node in the branch of the document before a location.
-
-Note: To find the previous Point, and not the previous Node, use the `Editor.before` method
-
-Options: `{at?: Location, match?: NodeMatch, mode?: 'all' | 'highest' | 'lowest', voids?: boolean}`
-
-#### `Editor.range(editor: Editor, at: Location, to?: Location) => Range`
-
-Get a range of a location.
-
-#### `Editor.start(editor: Editor, at: Location) => Point`
-
-Get the start point of a location.
-
-#### `Editor.string(editor: Editor, at: Location, options?) => string`
-
-Get the text string content of a location.
-
-Note: by default the text of void nodes is considered to be an empty string, regardless of content, unless the voids option is set.
-
-Options: : `{voids?: boolean}`
-
-#### `Editor.void(editor: Editor, options?) => NodeEntry<Element> | undefined`
-
-Match a void node in the current branch of the editor.
-
-Options: `{at?: Location, mode?: 'highest' | 'lowest', voids?: boolean}`
-
-### Manipulation methods
-
-#### `Editor.addMark(editor: Editor, key: string, value: any) => void`
-
-Add a custom property to the leaf text nodes and any nodes that `editor.markableVoid()` allows in the current selection.
-
-If the selection is currently collapsed, the marks will be added to the `editor.marks` property instead, and applied when text is inserted next.
-
-#### `Editor.deleteBackward(editor: Editor, options?) => void`
-
-Delete content in the editor backward from the current selection.
-
-Options: `{unit?: 'character' | 'word' | 'line' | 'block'}`
-
-#### `Editor.deleteForward(editor: Editor, options?) => void`
-
-Delete content in the editor forward from the current selection.
-
-Options: `{unit?: 'character' | 'word' | 'line' | 'block'}`
-
-#### `Editor.deleteFragment(editor: Editor) => void`
-
-Delete the content in the current selection.
-
-#### `Editor.insertBreak(editor: Editor) => void`
-
-Insert a block break at the current selection.
-
-#### `Editor.insertSoftBreak(editor: Editor) => void`
-
-Insert a soft break at the current selection.
-
-#### `Editor.insertFragment(editor: Editor, fragment: Node[], options?) => void`
-
-Inserts a fragment at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options: `{at?: Location, hanging?: boolean, voids?: boolean}`
-
-#### `Editor.insertNode(editor: Editor, node: Node, options?) => void`
-
-Atomically insert `node` at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options supported: `NodeOptions & {hanging?: boolean, select?: boolean}`.
-
-#### `Editor.insertText(editor: Editor, text: string, options?) => void`
-
-Insert a string of text at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options: `{at?: Location, voids?: boolean}`
-
-#### `Editor.removeMark(editor: Editor, key: string) => void`
-
-Remove a custom property from all of the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection.
-
-If the selection is currently collapsed, the removal will be stored on `editor.marks` and applied to the text inserted next.
-
-#### `Editor.unhangRange(editor: Editor, range: Range, options?) => Range`
-
-Convert a range into a non-hanging one.
-
-A "hanging" range is one created by the browser's "triple-click" selection behavior. When triple-clicking a block, the browser selects from the start of that block to the start of the _next_ block. The range thus "hangs over" into the next block. If `unhangRange` is given such a range, it moves the end backwards until it's in a non-empty text node that precedes the hanging block.
-
-Note that `unhangRange` is designed for the specific purpose of fixing triple-clicked blocks, and therefore currently has a number of caveats:
-
-- It does not modify the start of the range; only the end. For example, it does not "unhang" a selection that starts at the end of a previous block.
-- It only does anything if the start block is fully selected. For example, it does not handle ranges created by double-clicking the end of a paragraph (which browsers treat by selecting from the end of that paragraph to the start of the next).
-
-Options:
-
-- `voids?: boolean = false`: Allow placing the end of the selection in a void node.
-
-### Check methods
-
-#### `Editor.hasBlocks(editor: Editor, element: Element) => boolean`
-
-Check if a node has block children.
-
-#### `Editor.hasInlines(editor: Editor, element: Element) => boolean`
-
-Check if a node has inline and text children.
-
-#### `Editor.hasTexts(editor: Editor, element: Element) => boolean`
-
-Check if a node has text children.
-
-#### `Editor.isBlock(editor: Editor, value: any) => value is Element`
-
-Check if a value is a block `Element` object.
-
-#### `Editor.isEditor(value: any) => value is Editor`
-
-Check if a value is an `Editor` object.
-
-#### `Editor.isEnd(editor: Editor, point: Point, at: Location) => boolean`
-
-Check if a point is the end point of a location.
-
-#### `Editor.isEdge(editor: Editor, point: Point, at: Location) => boolean`
-
-Check if a point is an edge of a location.
-
-#### `Editor.isEmpty(editor: Editor, element: Element) => boolean`
-
-Check if an element is empty, accounting for void nodes.
-
-#### `Editor.isInline(editor: Editor, value: any) => value is Element`
-
-Check if a value is an inline `Element` object.
-
-#### `Editor.isNormalizing(editor: Editor) => boolean`
-
-Check if the editor is currently normalizing after each operation.
-
-#### `Editor.isStart(editor: Editor, point: Point, at: Location) => boolean`
-
-Check if a point is the start point of a location.
-
-#### `Editor.isVoid(editor: Editor, value: any) => value is Element`
-
-Check if a value is a void `Element` object.
-
-### Normalization methods
-
-#### `Editor.normalize(editor: Editor, options?) => void`
-
-Normalize any dirty objects in the editor.
-
-Options: `{force?: boolean; operation?: Operation}`
-
-#### `Editor.withoutNormalizing(editor: Editor, fn: () => void) => void`
-
-Call a function, deferring normalization until after it completes.
-See [Normalization - Implications for Other Code](../../concepts/11-normalizing.md#implications-for-other-code);
-
-### Ref Methods
-
-#### `Editor.pathRef(editor: Editor, path: Path, options?) => PathRef`
-
-Create a mutable ref for a `Path` object, which will stay in sync as new operations are applied to the editor.
-
-Options: `{affinity?: 'backward' | 'forward' | null}`
-
-#### `Editor.pathRefs(editor: Editor) => Set<PathRef>`
-
-Get the set of currently tracked path refs of the editor.
-
-#### `Editor.pointRef(editor: Editor, point: Point, options?) => PointRef`
-
-Create a mutable ref for a `Point` object, which will stay in sync as new operations are applied to the editor.
-
-Options: `{affinity?: 'backward' | 'forward' | null}`
-
-#### `Editor.pointRefs(editor: Editor) => Set<PointRef>`
-
-Get the set of currently tracked point refs of the editor.
-
-#### `Editor.rangeRef(editor: Editor, range: Range, options?) => RangeRef`
-
-Create a mutable ref for a `Range` object, which will stay in sync as new operations are applied to the editor.
-
-Options: `{affinity?: 'backward' | 'forward' | 'outward' | 'inward' | null}`
-
-#### `Editor.rangeRefs(editor: Editor) => Set<RangeRef>`
-
-Get the set of currently tracked range refs of the editor.
-
-## Instance Methods
-
-### Schema-specific instance methods to override
-
-Replace these methods to modify the original behavior of the editor when building [Plugins](../../concepts/08-plugins.md). When modifying behavior, call the original method when appropriate. For example, a plugin that marks image nodes as "void":
+- [Creating an editor](editor.md#creating-an-editor)
+- [Reading state](editor.md#reading-state)
+- [Updating state](editor.md#updating-state)
+- [Document roots](editor.md#document-roots)
+- [Document state](editor.md#document-state)
+- [Schema behavior](editor.md#schema-behavior)
+- [Runtime APIs](editor.md#runtime-apis)
+- [Subscribing to commits](editor.md#subscribing-to-commits)
+- [Extending the editor](editor.md#extending-the-editor)
+- [Pure node and location helpers](editor.md#pure-node-and-location-helpers)
+
+## Creating an editor
+
+#### `createEditor(options?) => Editor`
+
+Create an editor.
 
 ```javascript
-const withImages = editor => {
-  const { isVoid } = editor
+const editor = createEditor({
+  initialValue: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
+})
+```
 
-  editor.isVoid = element => {
-    return element.type === 'image' ? true : isVoid(element)
+Extensions define schema, normalizers, commit listeners, operation middleware,
+feature namespaces, and optional runtime registration.
+
+## Reading state
+
+#### `editor.read(fn) => T`
+
+Read a coherent snapshot of editor state.
+
+```javascript
+const selection = editor.read(state => state.selection.get())
+```
+
+Use `state` for editor-state queries:
+
+```javascript
+editor.read(state => {
+  const children = state.nodes.children()
+  const marks = state.marks.get()
+  const first = state.nodes.get([0])
+  const start = state.points.start([])
+  const range = state.ranges.get([])
+
+  return { children, first, marks, range, start }
+})
+```
+
+Schema policy is read through `state.schema`:
+
+```javascript
+const isInline = editor.read(state => state.schema.isInline(element))
+```
+
+## Updating state
+
+#### `editor.update(fn, options?) => void`
+
+Run a transaction. The callback receives `tx`, which owns command reads and
+writes.
+
+```javascript
+editor.update(tx => {
+  tx.marks.toggle('bold')
+})
+```
+
+Use transaction groups for document changes:
+
+```javascript
+editor.update(tx => {
+  tx.nodes.set({ type: 'heading' })
+  tx.text.insert('Title')
+  tx.selection.move({ distance: 1 })
+})
+```
+
+Replay operations through the transaction boundary:
+
+```javascript
+editor.update(
+  tx => {
+    tx.operations.replay(remoteOperations)
+  },
+  {
+    tag: ['collaboration', 'remote-import'],
+    metadata: {
+      collab: { origin: 'remote', saveToHistory: false },
+      history: { mode: 'skip' },
+      selection: { dom: 'preserve' },
+    },
   }
+)
+```
 
-  return editor
+`tag` is the cheap lifecycle label. `metadata` is the typed policy channel for
+history, collaboration, and model/DOM selection behavior.
+
+The update callback also receives a context object for local post-commit hooks:
+
+```javascript
+editor.update((tx, { afterCommit }) => {
+  tx.text.insert('Saved')
+
+  afterCommit((change) => {
+    analytics.track('editor-change', change.source)
+  })
+})
+```
+
+## Document roots
+
+A plain block array initializes the primary document. Pass
+`initialValue.children` plus `initialValue.roots` when one editor owns extra
+roots.
+
+```javascript
+const editor = createEditor({
+  initialValue: {
+    children: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
+    roots: {
+      header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
+      footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
+    },
+  },
+})
+```
+
+Read the primary document with `state.value.root()`. Read an extra root by key.
+
+```javascript
+const body = editor.read((state) => state.value.root())
+const footer = editor.read((state) => state.value.root('footer'))
+```
+
+Create, replace, or delete extra roots with `tx.roots`.
+
+```javascript
+editor.update((tx) => {
+  tx.roots.create('aside:1', [
+    { type: 'paragraph', children: [{ text: 'Aside' }] },
+  ])
+})
+```
+
+Use normal node and text transforms for the primary document. See
+[Roots](../../concepts/13-roots.md) for React rendering, root chrome, and
+content roots.
+
+## Document state
+
+`state.value.get()` returns the persisted document value.
+
+```ts
+type EditorDocumentValue = {
+  children: Descendant[]
+  roots?: Record<string, Descendant[]>
+  state?: Record<string, unknown>
 }
 ```
 
-### Element type methods
+Use it for database persistence because it includes the primary document, extra
+roots, and persistent state fields.
 
-Use these methods so that Slate can identify certain elements as [inlines](../../concepts/02-nodes.md#blocks-vs-inlines) or [voids](../../concepts/02-nodes.md#voids).
+```javascript
+const documentValue = editor.read((state) => state.value.get())
+```
 
-#### `isInline(element: Element) => boolean`
+State fields are registered with `defineStateField` and read through
+`state.getField(field)`.
 
-Check if a value is an inline `Element` object.
+```javascript
+const title = editor.read((state) => state.getField(documentTitle))
+```
 
-#### `isVoid(element: Element) => boolean`
+Write state fields with `tx.setField`.
 
-Check if a value is a void `Element` object.
+```javascript
+editor.update((tx) => {
+  tx.setField(documentTitle, 'Q3 Launch Brief')
+})
+```
 
-### Normalize methods
+State-field writes appear in `commit.statePatches` and
+`commit.dirtyStateKeys`. Collaboration adapters should export only shared
+state-patch keys. Replay remote state patches with `tx.statePatches.replay(...)`.
 
-#### `normalizeNode(entry: NodeEntry, { operation, fallbackElement }) => void`
+```javascript
+editor.update(
+  (tx) => {
+    tx.statePatches.replay(remoteStatePatches)
+  },
+  {
+    metadata: {
+      collab: { origin: 'remote', saveToHistory: false },
+      history: { mode: 'skip' },
+      selection: { dom: 'preserve' },
+    },
+    tag: ['collaboration', 'remote-state'],
+  }
+)
+```
 
-[Normalize](../../concepts/11-normalizing.md) a Node according to the schema.
+See [Document State](../../concepts/14-document-state.md) for persistence
+patterns and comments ownership.
 
-#### `shouldNormalize: (options) => boolean`
+## Schema behavior
 
-Override this method to prevent normalizing the editor.
+Schema setup belongs to extensions. Read schema policy through `state.schema`
+or `tx.schema`.
 
-Options: `{ dirtyPaths: Path[]; initialDirtyPathsLength: number; iteration: number; operation?: Operation }`
+```javascript
+import { defineEditorExtension, elementProperty } from 'slate'
 
-### Callback method
+const tables = defineEditorExtension({
+  name: 'tables',
+  elements: [
+    {
+      type: 'table-cell',
+      isolating: true,
+      keyboardSelectable: true,
+      properties: {
+        colSpan: elementProperty.number({ default: 1 }),
+        rowSpan: elementProperty.number({ default: 1 }),
+      },
+    },
+  ],
+})
 
-#### `onChange(options?: { operation?: Operation }) => void`
+editor.extend(tables)
 
-Called when there is a change in the editor.
+editor.read(state => state.schema.isVoid(element))
 
-### Mark methods
+editor.update(tx => {
+  if (tx.schema.isInline(element)) {
+    tx.selection.move({ unit: 'character' })
+  }
+})
+```
 
-#### `markableVoid: (element: Element) => boolean`
+Common schema checks include:
 
-Tells which void nodes accept Marks. Slate's default implementation returns `false`, but if some void elements support formatting, override this function to include them.
+- `state.schema.getElementBehavior(element)`
+- `state.schema.getElementProperty(element, property)`
+- `state.schema.getElementPropertyDescriptor(type, property)`
+- `state.schema.isAtom(element)`
+- `state.schema.isEditableIsland(element)`
+- `state.schema.isInline(element)`
+- `state.schema.isIsolating(element)`
+- `state.schema.isKeyboardSelectable(element)`
+- `state.schema.isReadOnly(element)`
+- `state.schema.isVoid(element)`
+- `state.schema.markableVoid(element)`
+- `state.schema.isSelectable(element)`
+- `state.schema.isElementPropertyEqual(type, property, left, right)`
 
-#### `addMark(key: string, value: any) => void`
+Element property descriptors provide defaults and equality for extension-owned
+element fields. Reading a default does not write that property into the
+document. The Slate value remains plain JSON until your transaction writes a
+field.
 
-Add a custom property to the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection. If the selection is currently collapsed, the marks will be added to the `editor.marks` property instead, and applied when text is inserted next.
+## Runtime APIs
 
-#### `removeMark(key: string) => void`
+Extensions expose mounted host and runtime services through `editor.api`.
 
-Remove a custom property from the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection.
+```javascript
+editor.api.dom.focus()
+editor.api.clipboard.insertTextData(dataTransfer)
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('Imported')
+  })
+})
+```
 
-### getFragment method
+Use `api` for services that are not transaction-scoped document mutations:
+DOM/React bridges, clipboard ingress, history batching, mounted overlay handles,
+measurements, or framework adapters. Do not put product editing commands there.
+If a feature changes Slate model state, expose it as a `tx` group and call it
+inside `editor.update(...)`.
 
-#### `getFragment() => Descendant[]`
+Use `editor.getApi(extension)` when the call site owns the extension token and
+needs the typed API for that extension.
 
-Returns the fragment at the current selection. Used when cutting or copying, as an example, to get the fragment at the current selection.
+## Subscribing to commits
 
-### Delete methods
+#### `editor.subscribe(listener) => () => void`
 
-When a user presses backspace or delete, it invokes the method based on the selection. For example, if the selection is expanded over some text and the user presses the backspace key, `deleteFragment` will be called, but if the selection is collapsed, `deleteBackward` will be called.
+Subscribe to editor snapshots. The listener receives the current snapshot and an
+optional change summary.
 
-#### `deleteBackward(options?: {unit?: 'character' | 'word' | 'line' | 'block'}) => void`
+```javascript
+const unsubscribe = editor.subscribe((_snapshot, change) => {
+  if (change?.childrenChanged || change?.dirtyStateKeys.length) {
+    const documentValue = editor.read((state) => state.value.get())
 
-Delete content in the editor backward from the current selection.
+    save(documentValue)
+  }
+})
+```
 
-#### `deleteForward(options?: {unit?: 'character' | 'word' | 'line' | 'block'}) => void`
+#### `editor.subscribeCommit(listener) => () => void`
 
-Delete content in the editor forward from the current selection.
+Subscribe only to committed changes. The listener receives the change summary
+for each commit.
 
-#### `deleteFragment() => void`
+```javascript
+const unsubscribe = editor.subscribeCommit((change) => {
+  if (change.selectionChanged) {
+    syncSelection(change.selection)
+  }
+})
+```
 
-Delete the content of the current selection.
+Call the returned function to unsubscribe.
 
-### Insert methods
+## Extending the editor
 
-#### `insertFragment(fragment: Node[]) => void`
+#### `editor.extend(extension) => () => void`
 
-Insert a fragment at the current selection. If the selection is currently expanded, delete it first.
+Install an extension and return a cleanup function.
 
-#### `insertBreak() => void`
+```javascript
+const removeExtension = editor.extend(myExtension)
+```
 
-Insert a block break at the current selection. If the selection is currently expanded, delete it first.
+Extensions add typed `state` and `tx` namespaces. They should not add methods to
+the editor object.
 
-#### `insertSoftBreak() => void`
+```javascript
+editor.update(tx => {
+  tx.links.toggle({ href })
+})
+```
 
-Insert a soft break at the current selection. If the selection is currently expanded, delete it first.
+## Pure node and location helpers
 
-#### `insertNode(node: Node) => void`
+Pure helpers stay on their own namespaces because they do not read editor
+runtime state.
 
-Insert a node at the current selection. If the selection is currently expanded, delete it first.
+```javascript
+NodeApi.string(node)
+ElementApi.isElement(value)
+TextApi.isText(value)
+PathApi.next(path)
+PointApi.equals(point, other)
+RangeApi.isCollapsed(range)
+OperationApi.isOperation(value)
+```
 
-#### `insertText(text: string) => void`
-
-Insert text at the current selection. If the selection is currently expanded, delete it first.
-
-### Operation handling method
-
-#### `apply(operation: Operation) => void`
-
-Apply an operation in the editor.
+Use `editor.read(...)` or `editor.update(...)` when a helper needs editor
+state.

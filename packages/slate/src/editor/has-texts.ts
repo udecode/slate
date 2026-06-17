@@ -1,6 +1,6 @@
-import type { EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import type { EditorStaticApi } from '../interfaces/editor'
+import { NodeApi } from '../interfaces/node'
 
-export const hasTexts: EditorInterface['hasTexts'] = (editor, element) => {
-  return element.children.every((n) => Node.isText(n))
+export const hasTexts: EditorStaticApi['hasTexts'] = (editor, element) => {
+  return element.children.every((n) => NodeApi.isText(n))
 }

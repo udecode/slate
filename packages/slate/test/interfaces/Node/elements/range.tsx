@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -13,7 +13,7 @@ export const input = (
 )
 export const test = (value) => {
   return Array.from(
-    Node.elements(value, {
+    NodeApi.elements(value, {
       range: {
         anchor: {
           path: [0, 1],

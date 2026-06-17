@@ -1,10 +1,11 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -15,7 +16,7 @@ export const input = (
 export const test = (editor) => {
   return Editor.next(editor, {
     at: [0],
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
   })
 }
 export const output = [<block>two</block>, [1]]

@@ -1,14 +1,31 @@
-import { css } from '@emotion/css'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createEditor, type Descendant } from 'slate'
-import { withHistory } from 'slate-history'
-import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
+import { parseAsStringLiteral, useQueryState } from 'nuqs'
+import type { Value } from 'slate'
+import {
+  Editable,
+  type RenderLeafProps,
+  Slate,
+  useSlateEditor,
+} from 'slate-react'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { replaceQueryOptions } from './query-controls'
+
+const TEST_CASE_IDS = [
+  'split-join',
+  'insert',
+  'special',
+  'empty',
+  'remove',
+  'autocorrect',
+] as const
+
+type AndroidTestCaseId = (typeof TEST_CASE_IDS)[number]
 
 interface AndroidTestCase {
-  id: string
+  id: AndroidTestCaseId
   name: string
   instructions: string
-  value: Descendant[]
+  value: Value
 }
 
 const TEST_CASES: AndroidTestCase[] = [
@@ -195,13 +212,12 @@ const TEST_CASES: AndroidTestCase[] = [
 ]
 
 const AndroidTestsExample = () => {
-  const [testId, setTestId] = useState(
-    () => window.location.hash.replace('#', '') || TEST_CASES[0].id
+  const [testId, setTestId] = useQueryState(
+    'test',
+    parseAsStringLiteral(TEST_CASE_IDS)
+      .withDefault(TEST_CASE_IDS[0])
+      .withOptions(replaceQueryOptions)
   )
-
-  useEffect(() => {
-    window.history.replaceState({}, '', `#${testId}`)
-  }, [testId])
 
   const testCase = TEST_CASES.find(({ id }) => id === testId)
   if (!testCase) {
@@ -210,24 +226,24 @@ const AndroidTestsExample = () => {
 
   return (
     <>
-      <label>
-        Test case:{' '}
-        <select onChange={(e) => setTestId(e.target.value)} value={testId}>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="android-test-case">Test case:</Label>
+        <NativeSelect
+          id="android-test-case"
+          onChange={(e) => {
+            void setTestId(e.target.value as AndroidTestCaseId)
+          }}
+          value={testId}
+        >
           {TEST_CASES.map(({ name, id }) => (
-            <option key={id} value={id}>
+            <NativeSelectOption key={id} value={id}>
               {name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </div>
 
-      <p
-        className={css`
-          font-weight: 600;
-          margin: 0.5rem 0;
-          white-space: pre-line;
-        `}
-      >
+      <p className="slate-android-tests-instructions">
         {testCase.instructions}
       </p>
 
@@ -237,20 +253,13 @@ const AndroidTestsExample = () => {
 }
 
 const TestCase = ({ value }: AndroidTestCase) => {
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({
+    initialValue: value,
+  })
 
   return (
-    <Slate editor={editor} initialValue={value}>
-      <Editable
-        placeholder="Enter some text…"
-        renderLeaf={renderLeaf}
-        spellCheck
-      />
+    <Slate editor={editor}>
+      <Editable placeholder="Enter some text…" renderLeaf={Leaf} spellCheck />
     </Slate>
   )
 }

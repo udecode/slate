@@ -1,7 +1,9 @@
-import { Location, Path } from 'slate'
+/** @jsx jsx */
+
+import { LocationApi, type Path } from 'slate'
 
 export const input: Path = [0, 1]
 export const test = (value: typeof input) => {
-  return Location.isSpan(value)
+  return LocationApi.isSpan(value)
 }
 export const output = false

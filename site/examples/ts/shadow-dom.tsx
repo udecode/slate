@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createEditor, type Descendant } from 'slate'
-import { withHistory } from 'slate-history'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const ShadowDOM = () => {
   const container = useRef<HTMLDivElement>(null)
@@ -29,20 +27,22 @@ const ShadowDOM = () => {
 }
 
 const ShadowEditor = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This Editor is rendered within a nested Shadow DOM.' },
+        ],
+      },
+    ],
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable placeholder="Enter some plain text..." />
     </Slate>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'This Editor is rendered within a nested Shadow DOM.' }],
-  },
-]
 
 export default ShadowDOM

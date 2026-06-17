@@ -1,53 +1,178 @@
+import { transformBookmarks } from '../editor/bookmark'
+import { allRangeRefs, publishRangeRefDrafts } from '../editor/range-ref'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
-import { PathRef } from '../interfaces/path-ref'
-import { PointRef } from '../interfaces/point-ref'
-import { RangeRef } from '../interfaces/range-ref'
-import { Transforms } from '../interfaces/transforms'
-import type { WithEditorFirstArg } from '../utils/types'
-import { FLUSHING } from '../utils/weak-maps'
+import type { Operation } from '../interfaces/operation'
+import { type Path, PathApi } from '../interfaces/path'
+import { PathRefApi } from '../interfaces/path-ref'
+import { PointRefApi } from '../interfaces/point-ref'
+import { RangeRefApi } from '../interfaces/range-ref'
+import { transform } from '../interfaces/transforms/general'
+import { getOperationRoot } from '../internal/root-location'
 import { isBatchingDirtyPaths } from './batch-dirty-paths'
+import {
+  appendOperation,
+  assertCanStartEditorWrite,
+  buildSnapshotChange,
+  canUseTextFastPath,
+  getCommandContext,
+  getCurrentMarks,
+  getCurrentSelection,
+  getOperationDirtiness,
+  getSnapshot,
+  getSnapshotVersion,
+  hasCachedFullRootReplaceSnapshotIndex,
+  hasListeners,
+  incrementVersion,
+  isInTransaction,
+  markTransactionChanged,
+  notifyListeners,
+  profileCoreDuration,
+  runEditorTransaction,
+  setCurrentMarks,
+  transformImplicitTarget,
+  withOperationRootChildren,
+} from './public-state'
 import { updateDirtyPaths } from './update-dirty-paths'
 
-export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
-  for (const ref of Editor.pathRefs(editor)) {
-    PathRef.transform(ref, op)
+export const apply = (editor: Editor, op: Operation) => {
+  if (!isInTransaction(editor)) {
+    assertCanStartEditorWrite(editor)
   }
 
-  for (const ref of Editor.pointRefs(editor)) {
-    PointRef.transform(ref, op)
+  if (
+    !isInTransaction(editor) &&
+    (op.type === 'insert_text' || op.type === 'remove_text') &&
+    canUseTextFastPath(editor)
+  ) {
+    const previousVersion = getSnapshotVersion(editor)
+    const previousSnapshot = hasListeners(editor) ? getSnapshot(editor) : null
+    const previousSelection =
+      previousSnapshot?.selection ?? getCurrentSelection(editor)
+    const previousMarks = previousSnapshot?.marks ?? getCurrentMarks(editor)
+
+    for (const ref of Editor.pointRefs(editor)) {
+      PointRefApi.transform(ref, op)
+    }
+
+    for (const ref of allRangeRefs(editor)) {
+      RangeRefApi.transform(ref, op)
+    }
+
+    transformBookmarks(editor, op)
+    transformImplicitTarget(editor, op)
+
+    withOperationRootChildren(editor, op, () => transform(editor, op))
+    appendOperation(editor, op)
+    publishRangeRefDrafts(editor)
+    incrementVersion(editor)
+
+    notifyListeners(
+      editor,
+      previousSnapshot
+        ? buildSnapshotChange({
+            command: getCommandContext(editor),
+            nextSnapshot: getSnapshot(editor),
+            operations: [op],
+            previousSnapshot,
+            reason: null,
+          })
+        : getOperationDirtiness(editor, [op], {
+            command: getCommandContext(editor),
+            previousVersion,
+            marksBefore: previousMarks,
+            selectionBefore: previousSelection,
+          })
+    )
+
+    return
   }
 
-  for (const ref of Editor.rangeRefs(editor)) {
-    RangeRef.transform(ref, op)
+  if (
+    !isInTransaction(editor) &&
+    op.type === 'set_selection' &&
+    !hasListeners(editor)
+  ) {
+    const previousVersion = getSnapshotVersion(editor)
+    const previousSelection = getCurrentSelection(editor)
+    const previousMarks = getCurrentMarks(editor)
+    transform(editor, op)
+    appendOperation(editor, op)
+    incrementVersion(editor)
+    setCurrentMarks(editor, null)
+    notifyListeners(
+      editor,
+      getOperationDirtiness(editor, [op], {
+        previousVersion,
+        marksBefore: previousMarks,
+        selectionBefore: previousSelection,
+      })
+    )
+    return
   }
+
+  if (!isInTransaction(editor)) {
+    runEditorTransaction(editor, () => {
+      apply(editor, op)
+    })
+    return
+  }
+
+  const profileReplaceChildrenPhase = <T>(id: string, callback: () => T): T =>
+    op.type === 'replace_children'
+      ? profileCoreDuration(`apply-replace_children:${id}`, callback)
+      : callback()
+
+  profileReplaceChildrenPhase('path-refs', () => {
+    for (const ref of Editor.pathRefs(editor)) {
+      PathRefApi.transform(ref, op)
+    }
+  })
+
+  profileReplaceChildrenPhase('point-refs', () => {
+    for (const ref of Editor.pointRefs(editor)) {
+      PointRefApi.transform(ref, op)
+    }
+  })
+
+  profileReplaceChildrenPhase('range-refs', () => {
+    for (const ref of allRangeRefs(editor)) {
+      RangeRefApi.transform(ref, op)
+    }
+  })
+
+  profileReplaceChildrenPhase('bookmarks', () => transformBookmarks(editor, op))
+  profileReplaceChildrenPhase('implicit-target', () =>
+    transformImplicitTarget(editor, op)
+  )
 
   // update dirty paths
   if (!isBatchingDirtyPaths(editor)) {
-    const transform = Path.operationCanTransformPath(op)
-      ? (p: Path) => Path.transform(p, op)
-      : undefined
-    updateDirtyPaths(editor, editor.getDirtyPaths(op), transform)
-  }
+    profileReplaceChildrenPhase('dirty-paths', () => {
+      const cachedFullRootReplace = hasCachedFullRootReplaceSnapshotIndex(op)
+      const transform = cachedFullRootReplace
+        ? () => null
+        : PathApi.operationCanTransformPath(op)
+          ? (p: Path) => PathApi.transform(p, op)
+          : undefined
+      const dirtyPaths = cachedFullRootReplace
+        ? [op.path]
+        : Editor.getDirtyPaths(editor, op)
 
-  Transforms.transform(editor, op)
-  editor.operations.push(op)
-  Editor.normalize(editor, {
-    operation: op,
-  })
-
-  // Clear any formats applied to the cursor if the selection changes.
-  if (op.type === 'set_selection') {
-    editor.marks = null
-  }
-
-  if (!FLUSHING.get(editor)) {
-    FLUSHING.set(editor, true)
-
-    Promise.resolve().then(() => {
-      FLUSHING.set(editor, false)
-      editor.onChange({ operation: op })
-      editor.operations = []
+      updateDirtyPaths(editor, dirtyPaths, transform, {
+        root: getOperationRoot(op),
+      })
     })
   }
+
+  profileReplaceChildrenPhase('transform', () =>
+    withOperationRootChildren(editor, op, () => transform(editor, op))
+  )
+  profileReplaceChildrenPhase('append', () => appendOperation(editor, op))
+
+  // Clear any formats applied to the cursor if the selection changes.
+  if (op.type === 'set_selection' && !isInTransaction(editor)) {
+    setCurrentMarks(editor, null)
+  }
+
+  markTransactionChanged(editor)
 }

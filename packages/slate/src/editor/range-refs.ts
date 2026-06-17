@@ -1,7 +1,7 @@
-import type { EditorInterface } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { RANGE_REFS } from '../utils/weak-maps'
 
-export const rangeRefs: EditorInterface['rangeRefs'] = (editor) => {
+export const rangeRefs: EditorStaticApi['rangeRefs'] = (editor) => {
   let refs = RANGE_REFS.get(editor)
 
   if (!refs) {

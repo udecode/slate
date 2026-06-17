@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 export const withFallbackElement = true
 
 export const input = (

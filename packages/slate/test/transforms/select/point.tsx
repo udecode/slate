@@ -4,10 +4,8 @@ import { jsx } from '../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.select(editor, {
+  editor.selection.set({
     path: [0, 0],
     offset: 1,
   })

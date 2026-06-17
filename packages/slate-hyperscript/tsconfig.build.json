@@ -1,0 +1,12 @@
+{
+  "extends": "../../config/typescript/tsconfig.json",
+  "include": ["src/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "types": []
+  }
+}

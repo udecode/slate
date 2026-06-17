@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.splitNodes(editor, { at: [0, 1] })
+  editor.nodes.split({ at: [0, 1] })
 }
 export const input = (
   <editor>

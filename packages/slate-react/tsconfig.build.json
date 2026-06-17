@@ -2,11 +2,12 @@
   "extends": "../../config/typescript/tsconfig.json",
   "include": ["src/**/*"],
   "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
     "jsx": "react-jsx",
     "types": ["node", "react", "react-dom"],
     "rootDir": ".",
-    "outDir": "./lib",
-    "composite": true
-  },
-  "references": [{ "path": "../slate" }, { "path": "../slate-dom" }]
+    "outDir": "./lib"
+  }
 }

@@ -1,4 +1,6 @@
-import { Operation } from 'slate'
+/** @jsx jsx */
+
+import { OperationApi } from 'slate'
 
 export const input = {
   type: 'move_node',
@@ -6,6 +8,6 @@ export const input = {
   newPath: [1],
 }
 export const test = (value) => {
-  return Operation.isOperation(value)
+  return OperationApi.isOperation(value)
 }
 export const output = true

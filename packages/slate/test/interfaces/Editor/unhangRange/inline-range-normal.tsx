@@ -1,10 +1,9 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
-
-import { Editor } from 'slate'
 
 export const input = (
   <editor>
@@ -28,7 +27,7 @@ export const input = (
 )
 
 export const test = (editor) => {
-  const range = Editor.unhangRange(editor, editor.selection)
+  const range = Editor.unhangRange(editor, Editor.getSnapshot(editor).selection)
   return range
 }
 

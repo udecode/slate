@@ -4,7 +4,7 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Text, Transforms } from 'slate'
+import { TextApi } from 'slate'
 
 export const input = (
   <editor>
@@ -16,7 +16,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Transforms.mergeNodes(editor, { at: [1, 1], match: Text.isText })
+  editor.nodes.merge({ at: [1, 1], match: TextApi.isText })
 }
 export const output = (
   <editor>

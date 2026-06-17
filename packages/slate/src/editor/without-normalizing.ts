@@ -1,15 +1,39 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import {
+  getLatestContentOperation,
+  getLatestOperation,
+  getOperationCount,
+  isInTransaction,
+} from '../core/public-state'
+import type { EditorStaticApi } from '../interfaces/editor'
+import { isNormalizing } from './is-normalizing'
+import { normalize } from './normalize'
+import { setNormalizing } from './set-normalizing'
 
-export const withoutNormalizing: EditorInterface['withoutNormalizing'] = (
+export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   editor,
   fn
 ) => {
-  const value = Editor.isNormalizing(editor)
-  Editor.setNormalizing(editor, false)
+  const wasInTransaction = isInTransaction(editor)
+  const operationCount = getOperationCount(editor)
+  const value = isNormalizing(editor)
+  setNormalizing(editor, false)
   try {
     fn()
   } finally {
-    Editor.setNormalizing(editor, value)
+    setNormalizing(editor, value)
   }
-  Editor.normalize(editor)
+
+  if (wasInTransaction) {
+    return
+  }
+
+  const latestOperation =
+    getLatestContentOperation(editor, operationCount) ??
+    getLatestOperation(editor)
+
+  normalize(editor, {
+    explicit: false,
+    force: latestOperation == null,
+    operation: latestOperation,
+  })
 }

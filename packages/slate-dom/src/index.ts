@@ -1,6 +1,33 @@
 // Plugin
-export { DOMEditor, type DOMEditorInterface } from './plugin/dom-editor'
-export { withDOM } from './plugin/with-dom'
+
+export type {
+  DOMCoverageBoundary,
+  DOMCoverageBoundaryAnchor,
+  DOMCoverageBoundaryEdge,
+  DOMCoverageBoundaryState,
+  DOMCoverageCopyPolicy,
+  DOMCoverageDOMPointResult,
+  DOMCoverageDOMRangeResult,
+  DOMCoverageFindPolicy,
+  DOMCoverageMaterializeHandler,
+  DOMCoverageMaterializeRangeRole,
+  DOMCoverageMaterializeReason,
+  DOMCoverageMaterializeResult,
+  DOMCoveragePathRange,
+  DOMCoverageReason,
+  DOMCoverageRuntimeRange,
+  DOMCoverageSelectionPolicy,
+  DOMCoverageSlatePointResult,
+} from './plugin/dom-coverage'
+export { DOMCoverage } from './plugin/dom-coverage'
+export type {
+  DOMApi,
+  DOMClipboardApi,
+  DOMClipboardInsertDataHandler,
+} from './plugin/dom-editor'
+export { SlateDOMResolutionError } from './plugin/dom-editor'
+export type { DOMEditorOptions } from './plugin/with-dom'
+export { dom } from './plugin/with-dom'
 
 // Utils
 export { TRIPLE_CLICK } from './utils/constants'
@@ -35,6 +62,7 @@ export {
   isDOMElement,
   isDOMNode,
   isDOMSelection,
+  isDOMText,
   isPlainTextOnlyPaste,
   isTrackedMutation,
   normalizeDOMPoint,
@@ -46,14 +74,21 @@ export {
   IS_ANDROID,
   IS_CHROME,
   IS_FIREFOX,
-  IS_FIREFOX_LEGACY,
   IS_IOS,
   IS_UC_MOBILE,
   IS_WEBKIT,
   IS_WECHATBROWSER,
 } from './utils/environment'
-
-export { default as Hotkeys } from './utils/hotkeys'
+export type {
+  HotkeyMatchOptions,
+  HotkeyPlatform,
+  HotkeySpec,
+  KeyboardEventLike,
+} from './utils/hotkeys'
+export {
+  Hotkeys,
+  isHotkey,
+} from './utils/hotkeys'
 
 export { Key } from './utils/key'
 
@@ -62,30 +97,3 @@ export {
   isTextDecorationsEqual,
   splitDecorationsByChild,
 } from './utils/range-list'
-
-export {
-  EDITOR_TO_ELEMENT,
-  EDITOR_TO_FORCE_RENDER,
-  EDITOR_TO_KEY_TO_ELEMENT,
-  EDITOR_TO_ON_CHANGE,
-  EDITOR_TO_PENDING_ACTION,
-  EDITOR_TO_PENDING_DIFFS,
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_PENDING_SELECTION,
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  EDITOR_TO_SCHEDULE_FLUSH,
-  EDITOR_TO_USER_MARKS,
-  EDITOR_TO_USER_SELECTION,
-  EDITOR_TO_WINDOW,
-  ELEMENT_TO_NODE,
-  IS_COMPOSING,
-  IS_FOCUSED,
-  IS_NODE_MAP_DIRTY,
-  IS_READ_ONLY,
-  MARK_PLACEHOLDER_SYMBOL,
-  NODE_TO_ELEMENT,
-  NODE_TO_INDEX,
-  NODE_TO_KEY,
-  NODE_TO_PARENT,
-  PLACEHOLDER_SYMBOL,
-} from './utils/weak-maps'

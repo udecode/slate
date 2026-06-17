@@ -1,7 +1,5 @@
 /** @jsx jsx */
 
-import { Transforms } from 'slate'
-
 export const input = (
   <editor>
     <block>
@@ -11,7 +9,9 @@ export const input = (
 )
 
 export const run = (editor) => {
-  Transforms.insertText(editor, 'additional text')
+  editor.update(() => {
+    editor.insertText('additional text')
+  })
 
   editor.undo()
 }

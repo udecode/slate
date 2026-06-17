@@ -6,7 +6,8 @@ import {
   type RefObject,
 } from 'react'
 import { IS_ANDROID } from 'slate-dom'
-import { EditorContext } from '../../hooks/use-slate-static'
+import { EditorContext } from '../../hooks/use-editor'
+import type { ReactRuntimeEditor } from '../../plugin/react-editor'
 import {
   createRestoreDomManager,
   type RestoreDOMManager,
@@ -36,16 +37,18 @@ class RestoreDOMComponent extends Component<RestoreDOMProps> {
 
   observe() {
     const { node } = this.props
-    if (!node.current) {
-      throw new Error('Failed to attach MutationObserver, `node` is undefined')
+    const current = node.current
+
+    if (!current) {
+      return
     }
 
-    this.mutationObserver?.observe(node.current, MUTATION_OBSERVER_CONFIG)
+    this.mutationObserver?.observe(current, MUTATION_OBSERVER_CONFIG)
   }
 
   componentDidMount() {
     const { receivedUserInput } = this.props
-    const editor = this.context!
+    const editor = this.context! as unknown as ReactRuntimeEditor
 
     this.manager = createRestoreDomManager(editor, receivedUserInput)
     this.mutationObserver = new MutationObserver(this.manager.registerMutations)

@@ -1,10 +1,12 @@
-import { Text } from 'slate'
+/** @jsx jsx */
+
+import { TextApi } from 'slate'
 
 export const input = {
   text: '',
   custom: true,
 }
 export const test = (value) => {
-  return Text.isText(value)
+  return TextApi.isText(value)
 }
 export const output = true

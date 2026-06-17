@@ -1,4 +1,5 @@
-import { type Element, isObject, createEditor as makeEditor } from 'slate'
+import { type Element, createEditor as makeEditor } from 'slate'
+import { isObject } from 'slate/internal'
 import {
   createAnchor,
   createCursor,
@@ -37,14 +38,15 @@ type HyperscriptCreators<T = any> = Record<
 
 /**
  * `HyperscriptShorthands` are dictionaries of properties applied to specific
- * kind of object, keyed by tag name. They allow you to easily define custom
- * hyperscript tags for your domain.
+ * object kinds, keyed by tag name. Use them to define domain-specific fixture
+ * tags.
  */
 
 type HyperscriptShorthands = Record<string, Record<string, any>>
 
 /**
- * Create a Slate hyperscript function with `options`.
+ * Create a Slate hyperscript factory with optional custom creators and element
+ * shorthands.
  */
 
 const createHyperscript = (
@@ -66,7 +68,7 @@ const createHyperscript = (
 }
 
 /**
- * Create a Slate hyperscript function with `options`.
+ * Create the callable JSX factory from a normalized creator map.
  */
 
 const createFactory = <T extends HyperscriptCreators>(creators: T) => {
@@ -90,7 +92,7 @@ const createFactory = <T extends HyperscriptCreators>(creators: T) => {
     }
 
     normalizedChildren = normalizedChildren
-      .filter((child) => Boolean(child))
+      .filter((child) => child != null && child !== false)
       .flat()
     const ret = creator(tagName, normalizedAttributes, normalizedChildren)
     return ret
@@ -112,7 +114,7 @@ const normalizeElements = (elements: HyperscriptShorthands) => {
 
     if (typeof props !== 'object') {
       throw new Error(
-        `Properties specified for a hyperscript shorthand should be an object, but for the custom element <${tagName}>  tag you passed: ${props}`
+        `Properties specified for a hyperscript shorthand should be an object, but for the custom element <${tagName}> tag you passed: ${props}`
       )
     }
 

@@ -13,6 +13,7 @@
   ],
   "tasks": {
     "build": {
+      "dependsOn": ["^build"],
       "outputs": ["dist/**", "lib/**"],
       "cache": true
     },
@@ -21,7 +22,6 @@
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": ["build"],
       "outputs": [],
       "cache": true
     },

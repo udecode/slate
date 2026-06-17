@@ -1,89 +1,72 @@
-# History Editor
+# History Editor API
 
-The `HistoryEditor` interface is added to the `Editor` when it is instantiated using the `withHistory` method.
+History adds read, transaction, and editor API groups instead of mutating the
+root editor object.
+
+## State API
+
+#### `state.history.get(): History`
+
+Read the full history value.
+
+#### `state.history.undos(): Batch[]`
+
+Read the undo stack.
+
+#### `state.history.redos(): Batch[]`
+
+Read the redo stack.
+
+## Transaction API
+
+#### `tx.history.undo(): void`
+
+Undo the previous history batch.
+
+#### `tx.history.redo(): void`
+
+Redo the next history batch.
+
+## Editor API
+
+#### `editor.api.history.withMerging(fn: () => void): void`
+
+Run updates that merge into the previous history batch.
+
+#### `editor.api.history.withNewBatch(fn: () => void): void`
+
+Run updates where the first operation starts a new history batch.
+
+#### `editor.api.history.withoutMerging(fn: () => void): void`
+
+Run updates without merging new operations into the previous history batch.
+
+#### `editor.api.history.withoutSaving(fn: () => void): void`
+
+Run updates without saving operations to history.
+
+#### `editor.api.history.isMerging(): boolean | undefined`
+
+Read the current merge flag.
+
+#### `editor.api.history.isSaving(): boolean | undefined`
+
+Read the current saving flag.
+
+## Types
 
 ```typescript
-const [editor] = useState(() => withReact(withHistory(createEditor())))
-```
+import type { EditorStatePatch, Operation, Range } from 'slate'
 
-This adds properties to `editor` that enables undo and redo in Slate.
+type History = {
+  redos: Batch[]
+  undos: Batch[]
+}
 
-There are also static methods for working with the Editor's undo/redo history.
-
-```typescript
-export interface HistoryEditor extends BaseEditor {
-  history: History
-  undo: () => void
-  redo: () => void
-  writeHistory: (stack: 'undos' | 'redos', batch: any) => void
+type Batch = {
+  operations: Operation[]
+  selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
 }
 ```
-
-- [Static methods](history-editor.md#static-methods)
-  - [Undo and Redo](history-editor.md#undo-and-redo)
-  - [Merging and Saving](history-editor.md#merging-and-saving)
-  - [Check methods](history-editor.md#check-methods)
-- [Instance methods](history-editor.md#instance-methods)
-
-## Static methods
-
-### Undo and Redo
-
-#### `HistoryEditor.redo(editor: HistoryEditor): void`
-
-Redo to the next saved state.
-
-#### `HistoryEditor.undo(editor: HistoryEditor): void`
-
-Undo to the previous saved state.
-
-### Merging and Saving
-
-#### `HistoryEditor.withMerging(editor: HistoryEditor, fn: () => void): void`
-
-Apply a series of changes inside a synchronous `fn`, These operations will
-be merged into the previous history.
-
-#### `HistoryEditor.withNewBatch(editor: HistoryEditor, fn: () => void): void`
-
-Apply a series of changes inside a synchronous `fn`, ensuring that the first
-operation starts a new batch in the history. Subsequent operations will be
-merged as usual.
-
-#### `HistoryEditor.withoutMerging(editor: HistoryEditor, fn: () => void): void`
-
-Apply a series of changes inside a synchronous `fn`, without merging any of
-the new operations into previous save point in the history.
-
-#### `HistoryEditor.withoutSaving(editor: HistoryEditor, fn: () => void): void`
-
-Apply a series of changes inside a synchronous `fn`, without saving any of
-their operations into the history.
-
-### Check methods
-
-#### `HistoryEditor.isHistoryEditor(value: any): value is HistoryEditor`
-
-Check if a value is a `HistoryEditor` (i.e. it has the `HistoryEditor` interface).
-
-#### `HistoryEditor.isMerging(editor: HistoryEditor): boolean | undefined`
-
-Get the merge flag's current value.
-
-#### `HistoryEditor.isSaving(editor: HistoryEditor): boolean | undefined`
-
-Get the saving flag's current value.
-
-## Instance methods
-
-#### `undo(): void`
-
-Undo the last batch of operations
-
-#### `redo(): void`
-
-Redo the last undone batch of operations
-
-#### `writeHistory(stack: 'undos'| 'redos', batch: any) => void`
-
-Push a batch of operations as either `undos` or `redos` onto `editor.undos` or `editor.redos`

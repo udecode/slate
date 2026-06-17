@@ -1,5 +1,5 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx  */
-import { Editor } from 'slate'
 
 export const input = (
   <editor>

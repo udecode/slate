@@ -1,4 +1,6 @@
-import { Point } from 'slate'
+/** @jsx jsx */
+
+import { PointApi } from 'slate'
 
 export const input = {
   point: {
@@ -11,6 +13,6 @@ export const input = {
   },
 }
 export const test = ({ point, another }) => {
-  return Point.equals(point, another)
+  return PointApi.equals(point, another)
 }
 export const output = true

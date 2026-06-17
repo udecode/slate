@@ -1,12 +1,12 @@
-import { Location } from '../interfaces'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { LocationApi } from '../interfaces'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
-export const range: EditorInterface['range'] = (editor, at, to) => {
-  if (Location.isRange(at) && !to) {
+export const range: EditorStaticApi['range'] = (editor, at, to) => {
+  if (LocationApi.isRange(at) && !to) {
     return at
   }
 
-  const start = Editor.start(editor, at)
-  const end = Editor.end(editor, to || at)
+  const start = Editor.point(editor, at, { edge: 'start' })
+  const end = Editor.point(editor, to || at, { edge: 'end' })
   return { anchor: start, focus: end }
 }

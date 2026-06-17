@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.move(editor, { edge: 'end', reverse: true })
+  editor.selection.move({ edge: 'end', reverse: true })
 }
 export const input = (
   <editor>

@@ -1,78 +1,225 @@
-import ReactDOM from 'react-dom'
-import { type BaseEditor, Node } from 'slate'
-import { EDITOR_TO_PENDING_SELECTION, IS_ANDROID, withDOM } from 'slate-dom'
-import { getChunkTreeForNode } from '../chunking'
-import { REACT_MAJOR_VERSION } from '../utils/environment'
-import { ReactEditor } from './react-editor'
+import {
+  type CreateEditorOptions,
+  createEditor,
+  defineEditorExtension,
+  type Editor,
+  type EditorExtension,
+  type EditorExtensionSetupContext,
+  type EditorStateExtensionGroups,
+  type EditorStatePatch,
+  type EditorTxExtensionGroups,
+  type Operation,
+  type Range,
+  type Value,
+} from 'slate'
+import type { DOMApi, DOMClipboardApi, DOMEditorOptions } from 'slate-dom'
+import { EDITOR_TO_PENDING_SELECTION, installDOM } from 'slate-dom/internal'
+import { history } from 'slate-history'
+import {
+  getEditorTransformRegistry,
+  setEditorTransformRegistry,
+} from '../editable/runtime-editor-api'
 
-/**
- * `withReact` adds React and DOM specific behaviors to the editor.
- *
- * If you are using TypeScript, you must extend Slate's CustomTypes to use
- * this plugin.
- *
- * See https://docs.slatejs.org/concepts/11-typescript to learn how.
- */
-export const withReact = <T extends BaseEditor>(
-  editor: T,
-  clipboardFormatKey = 'x-slate-fragment'
-): T & ReactEditor => {
-  let e = editor as T & ReactEditor
+const ANDROID_USER_AGENT_RE = /Android/
 
-  e = withDOM(e, clipboardFormatKey)
+/** Options for installing the React DOM bridge on an editor. */
+export interface ReactEditorOptions extends DOMEditorOptions {}
 
-  const { onChange, apply, insertText } = e
+/** React capability exposed through `editor.api.react`. */
+export type ReactApi = {
+  isComposing: () => boolean
+  isFocused: () => boolean
+  isReadOnly: () => boolean
+}
 
-  e.getChunkSize = () => null
+type ReactHistoryBatch<V extends Value = Value> = {
+  operations: Operation<V>[]
+  selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
+}
 
-  if (IS_ANDROID) {
-    e.insertText = (text, options) => {
-      // COMPAT: Android devices, specifically Samsung devices, experience cursor jumping.
-      // This issue occurs when the ⁠insertText function is called immediately after typing.
-      // The problem arises because typing schedules a selection change.
-      // However, this selection change is only executed after the ⁠insertText function.
-      // As a result, the already obsolete selection is applied, leading to incorrect
-      // final cursor position.
-      EDITOR_TO_PENDING_SELECTION.delete(e)
+type ReactHistoryStateFallback<V extends Value = Value> = {
+  get: () => {
+    redos: ReactHistoryBatch<V>[]
+    undos: ReactHistoryBatch<V>[]
+  }
+  redos: () => readonly ReactHistoryBatch<V>[]
+  undos: () => readonly ReactHistoryBatch<V>[]
+}
 
-      return insertText(text, options)
+type ReactHistoryStateKey<V extends Value = Value> = Extract<
+  'history',
+  keyof EditorStateExtensionGroups<V>
+>
+
+type ReactHistoryStateApi<V extends Value = Value> = [
+  ReactHistoryStateKey<V>,
+] extends [never]
+  ? ReactHistoryStateFallback<V>
+  : EditorStateExtensionGroups<V>[ReactHistoryStateKey<V>]
+
+type ReactHistoryTxKey<V extends Value = Value> = Extract<
+  'history',
+  keyof EditorTxExtensionGroups<V>
+>
+
+type ReactHistoryTxFallback = {
+  redo: () => void
+  undo: () => void
+}
+
+type ReactHistoryTxApi<V extends Value = Value> = [
+  ReactHistoryTxKey<V>,
+] extends [never]
+  ? ReactHistoryTxFallback
+  : EditorTxExtensionGroups<V>[ReactHistoryTxKey<V>]
+
+type ReactHistoryControlApi = {
+  isMerging: () => boolean | undefined
+  isSaving: () => boolean | undefined
+  withMerging: (fn: () => void) => void
+  withNewBatch: (fn: () => void) => void
+  withoutMerging: (fn: () => void) => void
+  withoutSaving: (fn: () => void) => void
+}
+
+/** Editor extension installed by `react()`. */
+export type ReactExtension = EditorExtension<Editor> & {
+  conflicts: readonly ['dom']
+  name: 'react'
+  setup: (context: EditorExtensionSetupContext<Editor>) => {
+    api: {
+      clipboard: DOMClipboardApi
+      dom: DOMApi
+      react: ReactApi
     }
   }
+}
+type HistoryExtension = {
+  api: {
+    history: ReactHistoryControlApi
+  }
+  name: 'history'
+  state: {
+    history: <V extends Value>(
+      _state: unknown,
+      editor: Editor<V>
+    ) => ReactHistoryStateApi<V>
+  }
+  tx: {
+    history: <V extends Value>(
+      _tx: unknown,
+      editor: Editor<V>
+    ) => ReactHistoryTxApi<V>
+  }
+}
+type ReactDefaultExtensions<TExtensions extends readonly unknown[]> = readonly [
+  ReactExtension,
+  HistoryExtension,
+  ...TExtensions,
+]
+/** Editor type with Slate React, DOM, and history extensions installed. */
+export type ReactEditor<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = Editor<V, ReactDefaultExtensions<TExtensions>>
 
-  e.onChange = (options) => {
-    // COMPAT: React < 18 doesn't batch `setState` hook calls, which means
-    // that the children and selection can get out of sync for one render
-    // pass. So we have to use this unstable API to ensure it batches them.
-    // (2019/12/03)
-    // https://github.com/facebook/react/issues/14259#issuecomment-439702367
-    const maybeBatchUpdates =
-      REACT_MAJOR_VERSION < 18
-        ? ReactDOM.unstable_batchedUpdates
-        : (callback: () => void) => callback()
+/** React-only editor context value used by lower-level provider internals. */
+export type ReactEditorContextValue<V extends Value = Value> = Omit<
+  Editor<V, readonly [ReactExtension]>,
+  'api' | 'getApi'
+> & {
+  api: Editor<V, readonly [ReactExtension]>['api']
+  getApi: Editor<V, readonly [ReactExtension]>['getApi']
+}
 
-    maybeBatchUpdates(() => {
-      onChange(options)
+/** Options for `createReactEditor`. */
+export type CreateReactEditorOptions<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = CreateEditorOptions<V, TExtensions> & ReactEditorOptions
+
+const installReactTransforms = (editor: Editor) => {
+  const transforms = getEditorTransformRegistry(editor)
+
+  if (
+    typeof navigator !== 'undefined' &&
+    ANDROID_USER_AGENT_RE.test(navigator.userAgent)
+  ) {
+    setEditorTransformRegistry(editor, {
+      ...transforms,
+      insertText: (text, options) => {
+        // COMPAT: Android devices can apply pending selection after insertText.
+        EDITOR_TO_PENDING_SELECTION.delete(editor)
+
+        return transforms.insertText(text, options)
+      },
     })
   }
+}
 
-  // On move_node, if the chunking optimization is enabled for the parent of the
-  // node being moved, add the moved node to the movedNodeKeys set of the
-  // parent's chunk tree.
-  e.apply = (operation) => {
-    if (operation.type === 'move_node') {
-      const parent = Node.parent(e, operation.path)
-      const chunking = !!e.getChunkSize(parent)
+const createReactApi = (domApi: DOMApi): ReactApi =>
+  Object.freeze({
+    isComposing: () => domApi.isComposing(),
+    isFocused: () => domApi.isFocused(),
+    isReadOnly: () => domApi.isReadOnly(),
+  })
 
-      if (chunking) {
-        const node = Node.get(e, operation.path)
-        const chunkTree = getChunkTreeForNode(e, parent)
-        const key = ReactEditor.findKey(e, node)
-        chunkTree.movedNodeKeys.add(key)
+/**
+ * Installs the DOM bridge and exposes React focus, read-only, and composition
+ * APIs through the editor extension system.
+ */
+export const react = (options: ReactEditorOptions = {}): ReactExtension =>
+  defineEditorExtension({
+    conflicts: ['dom'],
+    name: 'react',
+    setup(context: EditorExtensionSetupContext<Editor>) {
+      const editor = installDOM(context.editor, options)
+      const { clipboard, ...domApi } = editor.dom
+
+      Reflect.deleteProperty(editor, 'dom')
+      installReactTransforms(editor)
+
+      const frozenDOMApi = Object.freeze(domApi) as DOMApi
+
+      return {
+        api: {
+          clipboard,
+          dom: frozenDOMApi,
+          react: createReactApi(frozenDOMApi),
+        },
       }
-    }
+    },
+  })
 
-    apply(operation)
-  }
+export function createReactEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(
+  options?: CreateReactEditorOptions<V, TExtensions>
+): ReactEditor<V, TExtensions>
 
-  return e
+/**
+ * Creates a React editor with the React bridge and history extension installed
+ * before any custom extensions.
+ */
+export function createReactEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(
+  options: CreateReactEditorOptions<V, TExtensions> = {}
+): ReactEditor<V, TExtensions> {
+  const { clipboardFormatKey, extensions, ...editorOptions } = options
+  const reactOptions = { clipboardFormatKey }
+  const editorExtensions = [
+    react(reactOptions),
+    history(),
+    ...((extensions ?? []) as TExtensions),
+  ] as const
+
+  return createEditor({
+    ...editorOptions,
+    extensions: editorExtensions,
+  }) as ReactEditor<V, TExtensions>
 }

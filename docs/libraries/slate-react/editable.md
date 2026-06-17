@@ -1,252 +1,465 @@
-# Editable component
+# Editable Component
 
-## `Editable(props: EditableProps): React.JSX.Element`
+`Editable` renders the editable document surface for the nearest `Slate` provider. App code customizes what content looks like; the runtime owns browser selection, DOM repair, void shells, and editing events.
 
-The `Editable` component is the main editing component. Note that it must be inside a `Slate` component.
+```tsx
+<Slate editor={editor}>
+  <Editable />
+</Slate>
+```
 
-### Props
-
-It takes as its props, any props accepted by a Textarea element plus the following props.
+## Props
 
 ```typescript
 type EditableProps = {
-  decorate?: (entry: NodeEntry) => Range[]
-  onDOMBeforeInput?: (event: InputEvent) => void
-  placeholder?: string
-  readOnly?: boolean
-  role?: string
-  style?: React.CSSProperties
-  renderElement?: (props: RenderElementProps) => React.JSX.Element
-  renderLeaf?: (props: RenderLeafProps) => React.JSX.Element
-  renderPlaceholder?: (props: RenderPlaceholderProps) => React.JSX.Element
-  scrollSelectionIntoView?: (editor: ReactEditor, domRange: DOMRange) => void
-  as?: React.ElementType
+  autoFocus?: boolean
+  className?: string
+  decorate?: (entry: NodeEntry) => EditableDecoration[]
+  decorateDirtiness?: SlateSourceDirtiness
+  decorateRuntimeScope?: SlateProjectionRuntimeScope
   disableDefaultStyles?: boolean
-} & React.TextareaHTMLAttributes<HTMLDivElement>
+  id?: string
+  domStrategy?: DOMStrategyOptions | null
+  domStrategyLayout?: EditableDOMStrategyLayout | null
+  onBeforeInput?: React.FormEventHandler<HTMLDivElement>
+  onDOMBeforeInput?: (
+    event: InputEvent,
+    context: EditableDOMBeforeInputContext
+  ) => boolean | EditableRepairRequest | void
+  onKeyDown?: EditableKeyDownHandler
+  onDOMStrategyMetrics?: (
+    metrics: EditableDOMStrategyMetrics
+  ) => void
+  onPaste?: React.ClipboardEventHandler<HTMLDivElement>
+  placeholder?: React.ReactNode
+  readOnly?: boolean
+  renderElement?: (props: RenderElementProps) => React.ReactNode
+  renderLeaf?: (props: RenderLeafProps) => React.ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => React.ReactNode
+  renderSegment?: (
+    segment: EditableTextSegment,
+    children: React.ReactNode
+  ) => React.ReactNode
+  renderText?: (props: RenderTextProps) => React.ReactNode
+  renderVoid?: (props: RenderVoidProps) => React.ReactNode
+  root?: RootKey
+  scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
+  spellCheck?: boolean
+  style?: React.CSSProperties
+}
 ```
 
-_NOTE: Detailed breakdown of Props not completed. Refer to the [source code](https://github.com/ianstormtaylor/slate/blob/main/packages/slate-react/src/components/editable.tsx) at the moment. Under construction._
+`Editable` also accepts safe `div` attributes such as `aria-*`, `data-*`, and event handlers that are not owned by Slate.
 
-#### `placeholder?: string = ""`
+`DOMStrategyOptions` is either `'auto'`, `'staged'`, `'full'`, an object with
+`{ type: 'auto' | 'staged' | 'full', textSync? }`, or the experimental object
+form `{ type: 'virtualized', estimatedBlockSize?, overscan?, threshold?,
+textSync? }`.
 
-The text to display as a placeholder when the Editor is empty. A typical value for `placeholder` would be "Enter text here..." or "Start typing...". The placeholder text will not be treated as an actual value and will disappear when the user starts typing in the Editor.
+`scrollSelectionIntoView` defaults to `defaultScrollSelectionIntoView`. Import
+the helper when custom scroll behavior should wrap Slate's default caret and
+selection scrolling instead of replacing it completely.
 
-#### `readOnly?: boolean = false`
+## Render Props
 
-When set to true, renders the editor in a "read-only" state. In this state, user input and interactions will not modify the editor's content.
+Use raw render props for content rendering. Keep renderer functions stable by
+defining them at module scope or creating them once with the editor.
 
-If this prop is omitted or set to false, the editor remains in the default "editable" state, allowing users to interact with and modify the content.
-
-This prop is particularly useful when you want to display text or rich media content without allowing users to edit it, such as when displaying published content or a preview of the user's input.
-
-#### `renderElement?: (props: RenderElementProps) => React.JSX.Element`
-
-The `renderElement` prop is a function used to render a custom component for a specific type of Element node in the Slate.js document model.
-
-Here is the type of the `RenderElementProps` passed into the function.
-
-```typescript
-export interface RenderElementProps {
-  children: any
-  element: Element
+```ts
+type RenderElementProps = {
   attributes: {
-    'data-slate-node': 'element'
     'data-slate-inline'?: true
+    'data-slate-node': 'element'
+    'data-slate-path': string
+    'data-slate-runtime-id': RuntimeId
     'data-slate-void'?: true
-    dir?: 'rtl'
-    ref: any
+    ref: React.RefCallback<HTMLElement>
+  }
+  children: React.ReactNode
+  element: Element
+  isInline: boolean
+  slots: EditableElementSlots
+}
+```
+
+## `renderElement`
+
+Use `renderElement` for normal elements that render Slate-managed children.
+
+```tsx
+const renderElement = ({ attributes, children, element }) => {
+  switch (element.type) {
+    case 'code':
+      return (
+        <pre {...attributes}>
+          <code>{children}</code>
+        </pre>
+      )
+    default:
+      return <p {...attributes}>{children}</p>
   }
 }
 ```
 
-The `attributes` must be added to the props of the top level HTML element returned from the function and the `children` must be rendered somewhere inside the returned JSX.
+Always spread `attributes` on the top-level DOM element and render `children`.
 
-Here is a typical usage of `renderElement` with two types of elements.
+## `renderVoid`
 
-```javascript
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
+Use `renderVoid` for void elements. A void renderer returns visible content only.
+
+```tsx
+const renderVoid = ({ element }) => {
+  switch (element.type) {
+    case 'image':
+      return <ImageElement element={element} />
+    default:
+      return null
+  }
+}
+```
+
+Do not render `children`, hidden text anchors, or shell wrappers in normal void renderers. Slate renders the shell and model anchor for you.
+
+If a void needs selected UI, subscribe from inside the void component.
+
+```tsx
+const ImageElement = ({ element }) => {
+  const selected = useElementSelected({ mode: 'collapsed' })
+
+  return <img data-selected={selected || undefined} src={element.url} />
+}
+```
+
+If an event handler needs the current location of the rendered element, resolve
+the path inside the handler.
+
+```tsx
+const ImageElement = ({ element }) => {
+  const editor = useEditor()
+
+  return (
+    <button
+      onClick={() => {
+        const path = editor.api.dom.resolvePath(element)
+
+        if (!path) return
+
+        editor.update((tx) => {
+          tx.nodes.remove({ at: path, voids: true })
+        })
+      }}
+    />
+  )
+}
+```
+
+## `renderLeaf`
+
+Use `renderLeaf` for text marks.
+
+```tsx
+const renderLeaf = ({ attributes, children, leaf }) => {
+  return (
+    <span
+      {...attributes}
+      style={{
+        fontWeight: leaf.bold ? 'bold' : 'normal',
+        fontStyle: leaf.italic ? 'italic' : 'normal',
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+```
+
+## `renderText`
+
+Use `renderText` when you need to wrap a whole text node, regardless of how decorations split it into leaves.
+
+```tsx
+const renderText = ({ attributes, children, text }) => {
+  return (
+    <span {...attributes} data-commented={text.commentId || undefined}>
+      {children}
+    </span>
+  )
+}
+```
+
+## `decorate`
+
+Use `Editable.decorate` for simple editor-local ranges such as a one-off search
+match or lightweight syntax highlight.
+
+```tsx
+<Editable
+  decorate={([node, path]) => {
+    if (!TextApi.isText(node)) return []
+
+    const start = node.text.indexOf(query)
+
+    return start === -1
+      ? []
+      : [
+          {
+            anchor: { path, offset: start },
+            data: { search: true },
+            focus: { path, offset: start + query.length },
+          },
+        ]
+  }}
+  renderSegment={(segment, children) =>
+    segment.slices.some((slice) => slice.data?.search) ? (
+      <mark>{children}</mark>
+    ) : (
+      children
+    )
+  }
+/>
+```
+
+`decorate` is a convenience adapter over the projection runtime. Use
+provider-owned `decorationSources` when the ranges are shared with other UI,
+come from external state, update frequently, or need source-scoped refreshes.
+
+Use `decorateDirtiness` and `decorateRuntimeScope` when a decoration callback
+depends on external projection state and can name which runtime targets should
+refresh.
+
+## `renderSegment`
+
+`renderSegment` renders text after projection sources split it into projected slices. Use it for search results, comments, diagnostics, and other render-time overlays.
+
+```tsx
+<Editable
+  renderSegment={(segment, children) =>
+    segment.slices.length > 0 ? <mark>{children}</mark> : children
+  }
+/>
+```
+
+Normal apps should pass `decorationSources` and `annotationStore` to `Slate`, then render projected text through `renderSegment`.
+
+## `placeholder` And `renderPlaceholder`
+
+Use `placeholder` for the normal empty-editor message.
+
+```tsx
+<Editable placeholder="Start typing..." />
+```
+
+Use `renderPlaceholder` when the placeholder needs custom markup.
+
+```tsx
+<Editable
+  placeholder="Start typing..."
+  renderPlaceholder={({ attributes, children }) => (
+    <span {...attributes}>{children}</span>
+  )}
+/>
+```
+
+Keep the provided attributes. They make the placeholder behave like editor chrome instead of document content.
+
+## Event Props
+
+Use `onKeyDown` for UI hotkeys on one `Editable` instance.
+
+```tsx
+<Editable
+  onKeyDown={(event, { editor }) => {
+    if (event.key === '`' && event.ctrlKey) {
+      editor.update(tx => {
+        tx.nodes.set({ type: 'code' })
+      })
+      return true
+    }
+  }}
+/>
+```
+
+Use extension `transforms` for model behavior such as `deleteBackward`, `deleteForward`, and `insertBreak`.
+Those handlers run for keyboard input, native input, programmatic transforms, and tests.
+
+```tsx
+const markdown = defineEditorExtension({
+  name: 'markdown',
+  transforms: {
+    insertText({ next, text, tx }) {
+      if (text === ' ') {
+        const selection = tx.selection.get()
+
+        if (selection) {
+          tx.nodes.set({ type: 'code' })
+        }
+        return true
+      }
+
+      return next()
+    },
   },
-]
-
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  // Define a rendering function based on the element passed to `props`. We use
-  // `useCallback` here to memoize the function for subsequent renders.
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable
-        // Pass in the `renderElement` function.
-        renderElement={renderElement}
-      />
-    </Slate>
-  )
-}
-
-const CodeElement = props => {
-  return (
-    <pre {...props.attributes}>
-      <code>{props.children}</code>
-    </pre>
-  )
-}
-
-const DefaultElement = props => {
-  return <p {...props.attributes}>{props.children}</p>
-}
+})
 ```
 
-#### `renderLeaf?: (props: RenderLeafProps) => React.JSX.Element`
+`onBeforeInput` is the React form-event hook on the editable root. Use
+`onDOMBeforeInput` only when you need the raw native `InputEvent`. Returning
+`true` or calling `event.preventDefault()` marks the event handled.
 
-The `renderLeaf` prop allows you to customize the rendering of leaf nodes in the document tree of your Slate editor. A "leaf" in Slate is the smallest chunk of text and its associated formatting attributes.
+## Projection Sources
 
-The `renderLeaf` function receives an object of type `RenderLeafProps` as its argument:
+Put decoration sources and the annotation store on `Slate`, not `Editable`. The provider owns editor-level projection sources so the editor surface, toolbar, and overlay UI read the same committed projection.
 
-```typescript
-export interface RenderLeafProps {
-  children: any
-  leaf: Text
-  text: Text
-  attributes: {
-    'data-slate-leaf': true
-  }
-  /**
-   * The position of the leaf within the Text node, only present when the text node is split by decorations.
-   */
-  leafPosition?: {
-    start: number
-    end: number
-    isFirst?: true
-    isLast?: true
-  }
-}
+```tsx
+<Slate
+  annotationStore={commentStore}
+  decorationSources={[searchSource]}
+  editor={editor}
+>
+  <Editable renderSegment={renderSearchMatch} />
+  <CommentsSidebar store={commentStore} />
+</Slate>
 ```
 
-Example usage:
+Inline, void, selectable, and read-only behavior belongs to the editor schema.
 
-```jsx
-<Editor
-  renderLeaf={({ attributes, children, leaf }) => {
-    return (
-      <span
-        {...attributes}
-        style={{ fontWeight: leaf.bold ? 'bold' : 'normal' }}
-      >
-        {children}
-      </span>
-    )
-  }}
-/>
+```tsx
+editor.extend({
+  elements: [
+    {
+      type: 'mention',
+      void: 'markable-inline',
+    },
+  ],
+  name: 'mentions',
+})
 ```
 
-#### `renderText?: (props: RenderTextProps) => React.JSX.Element`
+Product input rules belong in higher-level command layers or editor extensions. Keep raw `Editable` focused on rendering and DOM events.
 
-The `renderText` prop allows you to customize the rendering of the container element for a Text node in the Slate editor. This is useful when you need to wrap the entire text node content or add elements associated with the text node as a whole, regardless of how decorations might split the text into multiple leaves.
+## DOM Strategy
 
-The `renderText` function receives an object of type `RenderTextProps` as its argument:
+`Editable` keeps large documents DOM-bounded by default. Use
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate keeps coarse
+groups covered by model-backed boundaries and mounts a small active window
+inside the opened group; the surrounding range stays selectable and copyable
+through boundary policy until it materializes. Use `domStrategy="staged"` when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface for debugging.
 
-```typescript
-export interface RenderTextProps {
-  text: Text
-  children: any
-  attributes: {
-    'data-slate-node': 'text'
-    ref: any
-  }
-}
-```
+Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
+callback runs after commit and reports the current document cohort, requested
+strategy, effective strategy, degradation mode, mounted/pending counts, DOM
+coverage boundary counts, visible DOM node count, and editable descendant count.
 
-Example usage:
-
-```jsx
+```tsx
 <Editable
-  renderText={({ attributes, children, text }) => {
+  domStrategy="auto"
+  onDOMStrategyMetrics={metrics => {
+    datadogRum.addAction('slate.dom_strategy.surface', metrics)
+  }}
+/>
+```
+
+Track dashboards by interaction name, cohort, document size, requested strategy,
+effective strategy, degradation mode, native surface completion, boundary count,
+visible DOM count, editable descendant count, custom renderer flag, browser,
+mobile/desktop, IME state, and app version. Virtualized and partial-DOM
+metrics are bounded-surface rows. `staged-warmup` metrics are staged
+materialization rows. Do not mix either bucket with complete full-DOM rows.
+
+Pass `domStrategyLayout` only when the app owns a layout engine that can name
+virtualized top-level or page items. Normal editor surfaces should leave it
+unset.
+
+## DOM Coverage Boundaries
+
+`renderElement` receives `slots.contentBoundary` for model content whose DOM is
+intentionally not mounted. Use it for closed accordions, inactive tab panels,
+collapsed sections, or hidden element shells that still exist in the Slate
+value.
+
+```tsx
+const renderElement = ({ children, element, slots }) => {
+  if (element.type === 'section') {
     return (
-      <span {...attributes} className="custom-text">
-        {children}
-        {text.tooltipContent && <Tooltip content={text.tooltipContent} />}
-      </span>
+      <EditableElement>
+        {React.Children.toArray(children)[0]}
+        {slots.contentBoundary({
+          mounted: !element.collapsed,
+          onMaterialize: () => openSection(element.id),
+          renderPlaceholder: ({ materialize }) => (
+            <button onClick={materialize} type="button">
+              Show section
+            </button>
+          ),
+          scope: { from: 1, type: 'children' },
+          selectionPolicy: 'materialize',
+        })}
+      </EditableElement>
     )
-  }}
-/>
-```
-
-#### `renderPlaceholder?: (props: RenderPlaceholderProps) => React.JSX.Element`
-
-The `renderPlaceholder` prop allows you to customize how the placeholder of the Slate.js `Editable` component is rendered when the editor is empty. The placeholder will only be shown when the editor's content is empty.
-
-The `RenderPlaceholderProps` interface looks like this:
-
-```typescript
-export type RenderPlaceholderProps = {
-  children: any
-  attributes: {
-    'data-slate-placeholder': boolean
-    dir?: 'rtl'
-    contentEditable: boolean
-    ref: React.RefCallback<any>
-    style: React.CSSProperties
   }
+
+  if (element.type === 'hidden-header') {
+    return (
+      <EditableElement>
+        {slots.contentBoundary({
+          boundaryId: 'hidden-header',
+          children: <button type="button">Show header</button>,
+          copyPolicy: 'exclude',
+          mounted: !element.hidden,
+          reason: 'app-hidden',
+          scope: { type: 'self' },
+          selectionPolicy: 'skip',
+        })}
+      </EditableElement>
+    )
+  }
+
+  return <EditableElement>{children}</EditableElement>
 }
 ```
 
-An example usage might look like:
+Boundary content is model-present but DOM-incomplete while `mounted` is `false`.
+Slate maps selection, copy, paste, and DOM point import through the boundary
+registry instead of resolving missing descendants with raw DOM lookups.
 
-```jsx
-<Editable
-  placeholder="Enter text here..."
-  renderPlaceholder={({ attributes, children }) => {
-    const styledAttributes = {
-      ...attributes,
-      style: {
-        ...attributes.style,
-        color: 'gray',
-      },
-    }
-    return <div {...styledAttributes}>{children}</div>
-  }}
-/>
+Use the dedicated [DOM Coverage Boundaries](./dom-coverage-boundaries.md) page
+for `selectionPolicy`, `copyPolicy`, `findPolicy`, and `onMaterialize`.
+
+## Multiple Roots
+
+Pass `root` when one editor renders a named document root.
+
+```tsx
+<Slate editor={editor}>
+  <Editable aria-label="Header" root="header" />
+  <Editable aria-label="Body" />
+  <Editable aria-label="Footer" root="footer" />
+</Slate>
 ```
 
-Note that the `attributes` prop that comes in will contain a `style` object already. This object contains important styling properties which will make the placeholder behave like a placeholder. As such, it is advisable to extend styles and to focus on things like changing colors, opacity etc. Changing positioning, for example, could cause undesirable behavior.
+Use `slots.contentRoot(slot)` from `renderElement` when an element owns an
+editable child root, such as a synced block body.
 
-#### `scrollSelectionIntoView?: (editor: ReactEditor, domRange: DOMRange) => void`
-
-Slate has its own default method to scroll a DOM selection into view that works for most cases; however, if the default behavior isn't working for you, possible due to some complex styling, you may need to override the default behavior by providing a different function here.
-
-#### `as?: React.ElementType = "div"`
-
-The as prop specifies the type of element that will be used to render the Editable component in your React application. By default, this is a `div`.
-
-#### `disableDefaultStyles?: boolean = false`
-
-The `disableDefaultStyles` prop determines whether the default styles of the Slate.js `Editable` component are applied or not.
-
-Please note that with this prop set to `true`, you will need to ensure that your styles cater to all the functionalities of the editor that rely on specific styles to work properly.
-
-Here are the default styles:
-
-```typescript
-const defaultStyles = {
-  // Allow positioning relative to the editable element.
-  position: 'relative',
-  // Preserve adjacent whitespace and new lines.
-  whiteSpace: 'pre-wrap',
-  // Allow words to break if they are too long.
-  wordWrap: 'break-word',
-  // Make the minimum height that of the placeholder.
-  ...(placeholderHeight ? { minHeight: placeholderHeight } : {}),
-}
+```tsx
+const SyncedBlock = ({ attributes, element, slots }) => (
+  <section {...attributes}>
+    <header>Synced block</header>
+    {slots.contentRoot('body', { ariaLabel: 'Synced block body' })}
+  </section>
+)
 ```
+
+See [Roots](../../concepts/13-roots.md) for the value shape, `tx.roots`, root
+chrome, and content-root ownership.
+
+## Styling
+
+Use `style` or `className` for editor styling.
+
+```tsx
+<Editable style={{ minHeight: 200 }} />
+```
+
+Pass `disableDefaultStyles` only when your CSS replaces Slate's default editable-surface styles.

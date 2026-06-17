@@ -1,13 +1,14 @@
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { RangeApi } from '../interfaces/range'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
-export const setPoint: SelectionTransforms['setPoint'] = (
+export const setPoint: SelectionMutationMethods['setPoint'] = (
   editor,
   props,
   options = {}
 ) => {
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
   let { edge = 'both' } = options
 
   if (!selection) {
@@ -15,17 +16,26 @@ export const setPoint: SelectionTransforms['setPoint'] = (
   }
 
   if (edge === 'start') {
-    edge = Range.isBackward(selection) ? 'focus' : 'anchor'
+    edge = RangeApi.isBackward(selection) ? 'focus' : 'anchor'
   }
 
   if (edge === 'end') {
-    edge = Range.isBackward(selection) ? 'anchor' : 'focus'
+    edge = RangeApi.isBackward(selection) ? 'anchor' : 'focus'
   }
 
   const { anchor, focus } = selection
+
+  if (edge === 'both') {
+    getEditorTransformRegistry(editor).setSelection({
+      anchor: { ...anchor, ...props },
+      focus: { ...focus, ...props },
+    })
+    return
+  }
+
   const point = edge === 'anchor' ? anchor : focus
 
-  Transforms.setSelection(editor, {
+  getEditorTransformRegistry(editor).setSelection({
     [edge === 'anchor' ? 'anchor' : 'focus']: { ...point, ...props },
   })
 }

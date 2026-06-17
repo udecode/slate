@@ -1,19 +1,17 @@
 import {
   type BrowserMobileDescriptor,
   type BrowserMobileTarget,
+  createBrowserMobileUrl,
   resolveBrowserMobileSurface,
 } from './contracts'
 
+/** Default iOS device label used by agent-browser proof scripts. */
 export const AGENT_BROWSER_IOS_DEVICE_DEFAULT = 'iPhone 17 Pro'
+
+/** Default iOS session label used by agent-browser proof scripts. */
 export const AGENT_BROWSER_IOS_SESSION_DEFAULT = 'ios-proof'
 
-const createUrl = ({
-  debugQuery = 'debug=1',
-  example,
-  port,
-}: BrowserMobileTarget) =>
-  `http://localhost:${port}/examples/${example}${debugQuery ? `?${debugQuery}` : ''}`
-
+/** Create the agent-browser descriptor for an iOS Safari proof target. */
 export const createAgentBrowserIosDescriptor = (
   target: BrowserMobileTarget,
   scenario: BrowserMobileDescriptor['scenario']
@@ -23,13 +21,14 @@ export const createAgentBrowserIosDescriptor = (
   return {
     ...target,
     ...surface,
-    hostReadyUrl: createUrl(target),
+    hostReadyUrl: createBrowserMobileUrl(target),
     scenario,
     transport: 'agent-browser-ios',
-    url: createUrl(target),
+    url: createBrowserMobileUrl(target),
   }
 }
 
+/** Build the agent-browser batch script for a descriptor. */
 export const buildAgentBrowserIosBatch = (
   descriptor: BrowserMobileDescriptor
 ) =>

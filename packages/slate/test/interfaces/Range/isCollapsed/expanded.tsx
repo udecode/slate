@@ -1,4 +1,6 @@
-import { Range } from 'slate'
+/** @jsx jsx */
+
+import { RangeApi } from 'slate'
 
 export const input = {
   anchor: {
@@ -11,6 +13,6 @@ export const input = {
   },
 }
 export const test = (range) => {
-  return Range.isCollapsed(range)
+  return RangeApi.isCollapsed(range)
 }
 export const output = false

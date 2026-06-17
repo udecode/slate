@@ -1,10 +1,11 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -16,8 +17,8 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Transforms.moveNodes(editor, {
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+  editor.nodes.move({
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
     to: [1],
   })
 }

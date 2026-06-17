@@ -1,14 +1,22 @@
 import { createEditor } from 'slate'
+import { Editor, getEditorRuntime } from 'slate/internal'
 
 export const input = createEditor() as any
+const runtime = getEditorRuntime(input)
 
-const { isSelectable, shouldNormalize } = input
+const { shouldNormalize } = runtime
+const isSelectable = runtime.schema.isSelectable
 
-input.isSelectable = (element: any) => {
-  return element.type === 'collapsible-content' ? false : isSelectable(element)
+runtime.schema = {
+  ...runtime.schema,
+  isSelectable: (element: any) => {
+    return element.type === 'collapsible-content'
+      ? false
+      : isSelectable(element)
+  },
 }
 
-input.shouldNormalize = (options: any) => {
+runtime.shouldNormalize = (options: any) => {
   if (options.iteration > 20) {
     throw new Error(
       'Normalization likely stalled while merging text under a non-selectable element.'
@@ -18,32 +26,33 @@ input.shouldNormalize = (options: any) => {
   return shouldNormalize(options)
 }
 
-input.children = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'Before the collapsible.' }],
-  },
-  {
-    type: 'collapsible',
-    children: [
-      {
-        type: 'collapsible-summary',
-        children: [{ text: 'Summary' }],
-      },
-      {
-        type: 'collapsible-content',
-        children: [
-          {
-            type: 'paragraph',
-            children: [{ text: 'is' }, { text: ' here' }],
-          },
-        ],
-      },
-    ],
-  },
-]
-
-input.selection = null
+Editor.replace(input, {
+  children: [
+    {
+      type: 'paragraph',
+      children: [{ text: 'Before the collapsible.' }],
+    },
+    {
+      type: 'collapsible',
+      children: [
+        {
+          type: 'collapsible-summary',
+          children: [{ text: 'Summary' }],
+        },
+        {
+          type: 'collapsible-content',
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ text: 'is' }, { text: ' here' }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  selection: null,
+})
 
 export const output = {
   children: [

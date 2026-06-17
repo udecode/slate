@@ -5,10 +5,11 @@ import { jsx } from '../..'
 jsx
 
 import { cloneDeep } from 'lodash'
-import { Transforms } from 'slate'
 
 export const run = (editor) => {
-  Transforms.delete(editor)
+  editor.update(() => {
+    editor.delete()
+  })
 }
 export const input = (
   <editor>

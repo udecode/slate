@@ -4,8 +4,6 @@ import { jsx } from '../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const input = (
   <editor>
     <element>
@@ -30,4 +28,12 @@ export const output = (
   </editor>
 )
 
-Transforms.setSelection(output, { custom: 123 })
+output.update((tx) => {
+  tx.operations.replay([
+    {
+      type: 'set_selection',
+      properties: {},
+      newProperties: { custom: 123 },
+    },
+  ])
+})

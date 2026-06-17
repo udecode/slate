@@ -4,14 +4,22 @@ import { jsx } from '../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  editor.insertText('t')
-  Transforms.move(editor, { reverse: true })
-  editor.insertText('w')
-  Transforms.move(editor, { reverse: true })
-  editor.insertText('o')
+  editor.update(() => {
+    editor.insertText('t')
+  })
+  editor.update(() => {
+    editor.move({ reverse: true })
+  })
+  editor.update(() => {
+    editor.insertText('w')
+  })
+  editor.update(() => {
+    editor.move({ reverse: true })
+  })
+  editor.update(() => {
+    editor.insertText('o')
+  })
 }
 export const input = (
   <editor>
@@ -24,9 +32,9 @@ export const input = (
 export const output = (
   <editor>
     <block>
-      onew
-      <cursor />t
+      one
+      <cursor />
+      wt
     </block>
   </editor>
 )
-export const skip = true

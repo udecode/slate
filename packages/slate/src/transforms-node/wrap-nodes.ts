@@ -1,128 +1,238 @@
-import { Location, Node, type Point } from '../interfaces'
+import { getEditorSchema } from '../core/editor-runtime'
+import { runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { nodes as getNodes } from '../editor/nodes'
+import { createInternalRangeRef } from '../editor/range-ref'
+import { LocationApi, NodeApi, type Point, RangeApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import { PathApi } from '../interfaces/path'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
+import { insertNodes } from './insert-nodes'
+import { moveNodes } from './move-nodes'
+import { splitNodes } from './split-nodes'
 
-export const wrapNodes: NodeTransforms['wrapNodes'] = (
+export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
   editor,
   element,
   options = {}
 ) => {
-  Editor.withoutNormalizing(editor, () => {
-    const { mode = 'lowest', split = false, voids = false } = options
-    let { match, at = editor.selection } = options
-
-    if (!at) {
-      return
-    }
-
-    if (match == null) {
-      if (Location.isPath(at)) {
-        match = matchPath(editor, at)
-      } else if (editor.isInline(element)) {
-        match = (n) =>
-          (Node.isElement(n) && Editor.isInline(editor, n)) || Node.isText(n)
-      } else {
-        match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+  runEditorTransaction(editor, (tx) => {
+    Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
+      let target = tx.resolveTarget({ at: options.at })
+      const mode = options.mode ?? 'lowest'
+      const split = options.split ?? false
+      const voids = options.voids ?? false
+      let { match } = options
+      const wrapper = {
+        ...element,
+        children: [],
       }
-    }
 
-    if (split && Location.isRange(at)) {
-      const [start, end] = Range.edges(at)
+      if (!target) {
+        return
+      }
 
-      const rangeRef = Editor.rangeRef(editor, at, {
-        affinity: 'inward',
-      })
+      if (match == null) {
+        if (LocationApi.isPath(target)) {
+          match = matchPath(editor, target)
+        } else if (getEditorSchema(editor).isInline(element)) {
+          match = (node) =>
+            (NodeApi.isElement(node) &&
+              getEditorSchema(editor).isInline(node)) ||
+            NodeApi.isText(node)
+        } else {
+          match = (node) =>
+            NodeApi.isElement(node) && Editor.isBlock(editor, node)
+        }
+      }
 
-      // Always split if we're in the middle of a block, to ensure that text
-      // node boundaries are handled correctly.
-      const isAtBlockEdge = (point: Point) => {
-        const blockAbove = Editor.above(editor, {
-          at: point,
-          match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+      if (LocationApi.isPath(target) && options.match == null && !split) {
+        insertNodes(editor, wrapper, { at: target })
+        moveNodes(editor, {
+          at: [...target.slice(0, -1), target.at(-1)! + 1],
+          to: [...target, 0],
         })
-        return blockAbove && Editor.isEdge(editor, point, blockAbove[1])
+        return
       }
 
-      Transforms.splitNodes(editor, {
-        at: end,
-        match,
-        voids,
-        always: !isAtBlockEdge(end),
-      })
+      if (split && LocationApi.isRange(target)) {
+        const [start, end] = RangeApi.edges(target)
+        const rangeRef = createInternalRangeRef(editor, target, {
+          affinity: 'inward',
+        })
+        const isAtBlockEdge = (point: Point) => {
+          const blockAbove = Editor.above(editor, {
+            at: point,
+            match: (node) =>
+              NodeApi.isElement(node) && Editor.isBlock(editor, node),
+          })
 
-      Transforms.splitNodes(editor, {
-        at: start,
-        match,
-        voids,
-        always: !isAtBlockEdge(start),
-      })
+          return blockAbove && Editor.isEdge(editor, point, blockAbove[1])
+        }
+        const shouldAlwaysSplit = (point: Point) => !isAtBlockEdge(point)
 
-      at = rangeRef.unref()!
+        splitNodes(editor, {
+          at: end,
+          match,
+          voids,
+          always: shouldAlwaysSplit(end),
+        })
 
-      if (options.at == null) {
-        Transforms.select(editor, at)
+        splitNodes(editor, {
+          at: start,
+          match,
+          voids,
+          always: shouldAlwaysSplit(start),
+        })
+
+        target = rangeRef.unref() ?? target
+
+        if (LocationApi.isRange(target)) {
+          let [nextStart, nextEnd] = RangeApi.edges(target)
+          const [startLeaf] = Editor.leaf(editor, nextStart)
+          const [endLeaf] = Editor.leaf(editor, nextEnd)
+
+          if (
+            NodeApi.isText(startLeaf) &&
+            nextStart.offset === startLeaf.text.length
+          ) {
+            nextStart =
+              Editor.after(editor, nextStart, {
+                distance: 1,
+                unit: 'offset',
+              }) ?? nextStart
+          }
+
+          if (NodeApi.isText(endLeaf) && nextEnd.offset === 0) {
+            nextEnd =
+              Editor.before(editor, nextEnd, {
+                distance: 1,
+                unit: 'offset',
+              }) ?? nextEnd
+          }
+
+          target = { anchor: nextStart, focus: nextEnd }
+        }
+
+        if (options.at == null) {
+          transforms.select(target)
+        }
       }
-    }
 
-    const roots = Array.from(
-      Editor.nodes(editor, {
-        at,
-        match: editor.isInline(element)
-          ? (n) => Node.isElement(n) && Editor.isBlock(editor, n)
-          : (n) => Node.isEditor(n),
-        mode: 'lowest',
-        voids,
-      })
-    )
-
-    for (const [, rootPath] of roots) {
-      const a = Location.isRange(at)
-        ? Range.intersection(at, Editor.range(editor, rootPath))
-        : at
-
-      if (!a) {
-        continue
-      }
-
-      const matches = Array.from(
-        Editor.nodes(editor, { at: a, match, mode, voids })
+      const roots = Array.from(
+        getNodes(editor, {
+          at: target,
+          match: getEditorSchema(editor).isInline(element)
+            ? (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
+            : (node) => NodeApi.isEditor(node),
+          mode: 'lowest',
+          voids,
+        })
       )
+      let nextSelection = LocationApi.isRange(target)
+        ? {
+            anchor: target.anchor,
+            focus: target.focus,
+          }
+        : null
 
-      if (matches.length > 0) {
+      for (const [, rootPath] of roots) {
+        const scopedTarget = LocationApi.isRange(target)
+          ? RangeApi.intersection(target, Editor.range(editor, rootPath))
+          : target
+
+        if (!scopedTarget) {
+          continue
+        }
+
+        const matches = Array.from(
+          getNodes(editor, { at: scopedTarget, match, mode, voids })
+        )
+
+        if (matches.length === 0) {
+          continue
+        }
+
         const [first] = matches
         const last = matches.at(-1)!
         const [, firstPath] = first
         const [, lastPath] = last
 
         if (firstPath.length === 0 && lastPath.length === 0) {
-          // if there's no matching parent - usually means the node is an editor - don't do anything
           continue
         }
 
-        const commonPath = Path.equals(firstPath, lastPath)
-          ? Path.parent(firstPath)
-          : Path.common(firstPath, lastPath)
-
-        const range = Editor.range(editor, firstPath, lastPath)
-        const commonNodeEntry = Editor.node(editor, commonPath)
-        const [commonNode] = commonNodeEntry
+        const commonPath = PathApi.equals(firstPath, lastPath)
+          ? PathApi.parent(firstPath)
+          : PathApi.common(firstPath, lastPath)
         const depth = commonPath.length + 1
-        const wrapperPath = Path.next(lastPath.slice(0, depth))
-        const wrapper = { ...element, children: [] }
-        Transforms.insertNodes(editor, wrapper, { at: wrapperPath, voids })
+        const wrapperPath = PathApi.next(lastPath.slice(0, depth))
+        const firstChildIndex = firstPath[commonPath.length]!
+        const lastChildIndex = lastPath[commonPath.length]!
+        const movePaths = Array.from(
+          { length: lastChildIndex - firstChildIndex + 1 },
+          (_, offset) => [...commonPath, firstChildIndex + offset]
+        )
+        const pathRefs = movePaths.map((path) => Editor.pathRef(editor, path))
 
-        Transforms.moveNodes(editor, {
-          at: range,
-          match: (n) =>
-            !Node.isText(commonNode) && commonNode.children.includes(n),
-          to: wrapperPath.concat(0),
-          voids,
-        })
+        transforms.insertNodes({ ...wrapper }, { at: wrapperPath, voids })
+        const wrapperRef = Editor.pathRef(editor, wrapperPath)
+
+        try {
+          pathRefs.forEach((pathRef, index) => {
+            const path = pathRef.current
+            const currentWrapperPath = wrapperRef.current
+
+            if (!path || !currentWrapperPath) {
+              return
+            }
+
+            moveNodes(editor, {
+              at: path,
+              to: currentWrapperPath.concat(index),
+            })
+          })
+
+          if (nextSelection && wrapperRef.current) {
+            const mapPoint = (point: Point) => {
+              const matchIndex = movePaths.findIndex((path) =>
+                PathApi.equals(path, point.path.slice(0, path.length))
+              )
+
+              if (matchIndex < 0) {
+                return point
+              }
+
+              const basePath = movePaths[matchIndex]!
+
+              return {
+                path: [
+                  ...wrapperRef.current!,
+                  matchIndex,
+                  ...point.path.slice(basePath.length),
+                ],
+                offset: point.offset,
+              }
+            }
+
+            nextSelection = {
+              anchor: mapPoint(nextSelection.anchor),
+              focus: mapPoint(nextSelection.focus),
+            }
+          }
+        } finally {
+          wrapperRef.unref()
+          for (const pathRef of pathRefs) {
+            pathRef.unref()
+          }
+        }
       }
-    }
+
+      if (nextSelection) {
+        transforms.select(nextSelection)
+      }
+    })
   })
 }

@@ -1,161 +1,211 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
+import { getEditorSchema } from '../core/editor-runtime'
+import {
+  applyOperation,
+  getEditorOperationRoot,
+  runEditorTransaction,
+} from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { updateDirtyPaths } from '../core/update-dirty-paths'
-import { type BaseInsertNodeOperation, Location } from '../interfaces'
+import { nodes as getNodes } from '../editor/nodes'
+import {
+  type BaseInsertNodeOperation,
+  type Descendant,
+  type Location,
+  LocationApi,
+  type Node,
+  NodeApi,
+  type Path,
+  PathApi,
+  RangeApi,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { getDefaultInsertLocation } from '../utils'
 
-export const insertNodes: NodeTransforms['insertNodes'] = (
+export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
   editor,
   nodes,
   options = {}
 ) => {
-  Editor.withoutNormalizing(editor, () => {
-    const {
-      hanging = false,
-      voids = false,
-      mode = 'lowest',
-      batchDirty = true,
-    } = options
-    let { at, match, select } = options
-    const targetNodes = Node.isNode(nodes) ? [nodes] : nodes
+  runEditorTransaction(editor, (tx) => {
+    Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
+      const {
+        hanging = false,
+        voids = false,
+        mode = 'lowest',
+        batchDirty = true,
+      } = options
+      let at: Location | undefined = options.at
+      let { match, select } = options
 
-    if (targetNodes.length === 0) {
-      return
-    }
+      const nextNodes = (NodeApi.isNode(nodes) ? [nodes] : nodes) as Node[]
 
-    const [node] = targetNodes
-
-    if (!at) {
-      at = getDefaultInsertLocation(editor)
-      if (select !== false) {
-        select = true
-      }
-    }
-
-    if (select == null) {
-      select = false
-    }
-
-    if (Location.isRange(at)) {
-      if (!hanging) {
-        at = Editor.unhangRange(editor, at, { voids })
+      if (nextNodes.length === 0) {
+        return
       }
 
-      if (Range.isCollapsed(at)) {
-        at = at.anchor
-      } else {
-        const [, end] = Range.edges(at)
-        const pointRef = Editor.pointRef(editor, end)
-        Transforms.delete(editor, { at })
-        at = pointRef.unref()!
-      }
-    }
+      const [node] = nextNodes
 
-    if (Location.isPoint(at)) {
-      if (match == null) {
-        if (Node.isText(node)) {
-          match = (n) => Node.isText(n)
-        } else if (editor.isInline(node)) {
-          match = (n) => Node.isText(n) || Editor.isInline(editor, n)
-        } else {
-          match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+      if (!at) {
+        const target = tx.resolveTarget()
+        if (target) {
+          at = target
+        }
+        if (!at && tx.getModelSelection() == null) {
+          at = getDefaultInsertLocation(editor)
+        }
+        if (!at) {
+          return
+        }
+        if (select !== false) {
+          select = true
         }
       }
 
-      const [entry] = Editor.nodes(editor, {
-        at: at.path,
-        match,
-        mode,
-        voids,
-      })
+      if (select == null) {
+        select = false
+      }
 
-      if (entry) {
+      if (LocationApi.isRange(at)) {
+        if (!hanging) {
+          at = Editor.unhangRange(editor, at, { voids })
+        }
+
+        if (RangeApi.isCollapsed(at)) {
+          at = at.anchor
+        } else {
+          const [, end] = RangeApi.edges(at)
+          const pointRef = Editor.pointRef(editor, end)
+          transforms.delete({ at })
+          at = pointRef.unref()!
+        }
+      }
+
+      if (LocationApi.isPoint(at)) {
+        if (match == null) {
+          if (NodeApi.isText(node)) {
+            match = (n) => NodeApi.isText(n)
+          } else if (
+            NodeApi.isElement(node) &&
+            getEditorSchema(editor).isInline(node)
+          ) {
+            match = (n) =>
+              NodeApi.isText(n) ||
+              (NodeApi.isElement(n) && Editor.isInline(editor, n))
+          } else {
+            match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
+          }
+        }
+
+        const [entry] = getNodes(editor, {
+          at: at.path,
+          match,
+          mode,
+          voids,
+        })
+
+        if (!entry) {
+          return
+        }
+
         const [, matchPath] = entry
         const pathRef = Editor.pathRef(editor, matchPath)
         const isAtEnd = Editor.isEnd(editor, at, matchPath)
-        Transforms.splitNodes(editor, { at, match, mode, voids })
+        transforms.splitNodes({ at, match, mode, voids })
         const path = pathRef.unref()!
-        at = isAtEnd ? Path.next(path) : path
-      } else {
+        at = isAtEnd ? PathApi.next(path) : path
+      }
+
+      if (LocationApi.isPath(at) && at.length === 0) {
+        throw new Error('Cannot insert into the editor root.')
+      }
+
+      const parentPath = PathApi.parent(at)
+      let index = at.at(-1)!
+
+      if (!voids && Editor.void(editor, { at: parentPath })) {
         return
       }
-    }
 
-    const parentPath = Path.parent(at)
-    let index = at.at(-1)!
+      if (batchDirty) {
+        const batchedOps: BaseInsertNodeOperation[] = []
+        const newDirtyPaths: Path[] = PathApi.levels(parentPath)
+        const root = getEditorOperationRoot(editor)
 
-    if (!voids && Editor.void(editor, { at: parentPath })) {
-      return
-    }
+        batchDirtyPaths(
+          editor,
+          () => {
+            for (const child of nextNodes as Node[]) {
+              const path = parentPath.concat(index)
+              index++
 
-    if (batchDirty) {
-      // PERF: batch update dirty paths
-      // batched ops used to transform existing dirty paths
-      const batchedOps: BaseInsertNodeOperation[] = []
-      const newDirtyPaths: Path[] = Path.levels(parentPath)
-      batchDirtyPaths(
-        editor,
-        () => {
-          for (const node of targetNodes as Node[]) {
-            const path = parentPath.concat(index)
-            index++
+              const op: BaseInsertNodeOperation = {
+                type: 'insert_node',
+                path,
+                node: child as Descendant,
+              }
 
-            const op: BaseInsertNodeOperation = {
-              type: 'insert_node',
-              path,
-              node,
-            }
-            editor.apply(op)
-            at = Path.next(at as Path)
+              applyOperation(editor, op)
+              at = PathApi.next(at as Path)
+              batchedOps.push(op)
 
-            batchedOps.push(op)
-            if (Node.isText(node)) {
-              newDirtyPaths.push(path)
-            } else {
-              newDirtyPaths.push(
-                ...Array.from(Node.nodes(node), ([, p]) => path.concat(p))
-              )
-            }
-          }
-        },
-        () => {
-          updateDirtyPaths(editor, newDirtyPaths, (p) => {
-            let newPath: Path | null = p
-            for (const op of batchedOps) {
-              if (Path.operationCanTransformPath(op)) {
-                newPath = Path.transform(newPath, op)
-                if (!newPath) {
-                  return null
-                }
+              if (NodeApi.isText(child)) {
+                newDirtyPaths.push(path)
+              } else {
+                newDirtyPaths.push(
+                  ...Array.from(NodeApi.nodes(child), ([, childPath]) =>
+                    path.concat(childPath)
+                  )
+                )
               }
             }
-            return newPath
+          },
+          () => {
+            updateDirtyPaths(
+              editor,
+              newDirtyPaths,
+              (path) => {
+                let nextPath: Path | null = path
+
+                for (const op of batchedOps) {
+                  nextPath = PathApi.transform(nextPath, op)
+
+                  if (!nextPath) {
+                    return null
+                  }
+                }
+
+                return nextPath
+              },
+              { root }
+            )
+          }
+        )
+      } else {
+        for (const child of nextNodes as Node[]) {
+          const path = parentPath.concat(index)
+          index++
+
+          applyOperation(editor, {
+            type: 'insert_node',
+            path,
+            node: child as Descendant,
           })
+          at = PathApi.next(at as Path)
         }
-      )
-    } else {
-      for (const node of targetNodes as Node[]) {
-        const path = parentPath.concat(index)
-        index++
-
-        editor.apply({ type: 'insert_node', path, node })
-        at = Path.next(at as Path)
       }
-    }
 
-    at = Path.previous(at)
+      at = PathApi.previous(at)
 
-    if (select) {
-      const point = Editor.end(editor, at)
+      if (select) {
+        const point = Editor.point(editor, at, { edge: 'end' })
 
-      if (point) {
-        Transforms.select(editor, point)
+        if (point) {
+          transforms.select(point)
+        }
       }
-    }
+    })
   })
 }

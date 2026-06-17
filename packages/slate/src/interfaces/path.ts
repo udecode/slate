@@ -4,6 +4,8 @@ import type {
   MoveNodeOperation,
   Operation,
   RemoveNodeOperation,
+  ReplaceChildrenOperation,
+  ReplaceFragmentOperation,
   SplitNodeOperation,
 } from '..'
 import type { TextDirection } from '../types/types'
@@ -48,7 +50,7 @@ export interface PathInterface {
    *
    * Note: Two paths of unequal length can still receive a `0` result if one is
    * directly above or below the other. If you want exact matching, use
-   * [[Path.equals]] instead.
+   * [[PathApi.equals]] instead.
    */
   compare: (path: Path, another: Path) => -1 | 0 | 1
 
@@ -115,7 +117,7 @@ export interface PathInterface {
   /**
    * Check is a value implements the `Path` interface.
    */
-  isPath: (value: any) => value is Path
+  isPath: (value: unknown) => value is Path
 
   /**
    * Check if a path is a sibling of another.
@@ -124,7 +126,7 @@ export interface PathInterface {
 
   /**
    * Get a list of paths at every level down to a path. Note: this is the same
-   * as `Path.ancestors`, but including the path itself.
+   * as `PathApi.ancestors`, but including the path itself.
    *
    * The paths are sorted from shallowest to deepest. However, if the `reverse:
    * true` option is passed, they are reversed.
@@ -151,6 +153,8 @@ export interface PathInterface {
     | MergeNodeOperation
     | SplitNodeOperation
     | MoveNodeOperation
+    | ReplaceChildrenOperation
+    | ReplaceFragmentOperation
 
   /**
    * Given a path, return a new path referring to the parent node above it.
@@ -178,10 +182,10 @@ export interface PathInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Path: PathInterface = {
+export const PathApi: PathInterface = {
   ancestors(path: Path, options: PathAncestorsOptions = {}): Path[] {
     const { reverse = false } = options
-    let paths = Path.levels(path, options)
+    let paths = PathApi.levels(path, options)
 
     if (reverse) {
       paths = paths.slice(1)
@@ -230,14 +234,14 @@ export const Path: PathInterface = {
     const bs = another.slice(0, i)
     const av = path[i]
     const bv = another[i]
-    return Path.equals(as, bs) && av > bv
+    return PathApi.equals(as, bs) && av > bv
   },
 
   endsAt(path: Path, another: Path): boolean {
     const i = path.length
     const as = path.slice(0, i)
     const bs = another.slice(0, i)
-    return Path.equals(as, bs)
+    return PathApi.equals(as, bs)
   },
 
   endsBefore(path: Path, another: Path): boolean {
@@ -246,7 +250,7 @@ export const Path: PathInterface = {
     const bs = another.slice(0, i)
     const av = path[i]
     const bv = another[i]
-    return Path.equals(as, bs) && av < bv
+    return PathApi.equals(as, bs) && av < bv
   },
 
   equals(path: Path, another: Path): boolean {
@@ -260,38 +264,38 @@ export const Path: PathInterface = {
   },
 
   isAfter(path: Path, another: Path): boolean {
-    return Path.compare(path, another) === 1
+    return PathApi.compare(path, another) === 1
   },
 
   isAncestor(path: Path, another: Path): boolean {
-    return path.length < another.length && Path.compare(path, another) === 0
+    return path.length < another.length && PathApi.compare(path, another) === 0
   },
 
   isBefore(path: Path, another: Path): boolean {
-    return Path.compare(path, another) === -1
+    return PathApi.compare(path, another) === -1
   },
 
   isChild(path: Path, another: Path): boolean {
     return (
-      path.length === another.length + 1 && Path.compare(path, another) === 0
+      path.length === another.length + 1 && PathApi.compare(path, another) === 0
     )
   },
 
   isCommon(path: Path, another: Path): boolean {
-    return path.length <= another.length && Path.compare(path, another) === 0
+    return path.length <= another.length && PathApi.compare(path, another) === 0
   },
 
   isDescendant(path: Path, another: Path): boolean {
-    return path.length > another.length && Path.compare(path, another) === 0
+    return path.length > another.length && PathApi.compare(path, another) === 0
   },
 
   isParent(path: Path, another: Path): boolean {
     return (
-      path.length + 1 === another.length && Path.compare(path, another) === 0
+      path.length + 1 === another.length && PathApi.compare(path, another) === 0
     )
   },
 
-  isPath(value: any): value is Path {
+  isPath(value: unknown): value is Path {
     return Array.isArray(value) && value.every((n) => typeof n === 'number')
   },
 
@@ -304,7 +308,7 @@ export const Path: PathInterface = {
     const bs = another.slice(0, -1)
     const al = path.at(-1)!
     const bl = another.at(-1)!
-    return al !== bl && Path.equals(as, bs)
+    return al !== bl && PathApi.equals(as, bs)
   },
 
   levels(path: Path, options: PathLevelsOptions = {}): Path[] {
@@ -338,6 +342,8 @@ export const Path: PathInterface = {
   ): operation is
     | InsertNodeOperation
     | RemoveNodeOperation
+    | ReplaceFragmentOperation
+    | ReplaceChildrenOperation
     | MergeNodeOperation
     | SplitNodeOperation
     | MoveNodeOperation {
@@ -347,6 +353,8 @@ export const Path: PathInterface = {
       case 'merge_node':
       case 'split_node':
       case 'move_node':
+      case 'replace_children':
+      case 'replace_fragment':
         return true
       default:
         return false
@@ -380,7 +388,10 @@ export const Path: PathInterface = {
   },
 
   relative(path: Path, ancestor: Path): Path {
-    if (!Path.isAncestor(ancestor, path) && !Path.equals(path, ancestor)) {
+    if (
+      !PathApi.isAncestor(ancestor, path) &&
+      !PathApi.equals(path, ancestor)
+    ) {
       throw new Error(
         `Cannot get the relative path of [${path}] inside ancestor [${ancestor}], because it is not above or equal to the path.`
       )
@@ -410,9 +421,9 @@ export const Path: PathInterface = {
         const { path: op } = operation
 
         if (
-          Path.equals(op, p) ||
-          Path.endsBefore(op, p) ||
-          Path.isAncestor(op, p)
+          PathApi.equals(op, p) ||
+          PathApi.endsBefore(op, p) ||
+          PathApi.isAncestor(op, p)
         ) {
           p[op.length - 1] += 1
         }
@@ -423,22 +434,59 @@ export const Path: PathInterface = {
       case 'remove_node': {
         const { path: op } = operation
 
-        if (Path.equals(op, p) || Path.isAncestor(op, p)) {
+        if (PathApi.equals(op, p) || PathApi.isAncestor(op, p)) {
           return null
         }
-        if (Path.endsBefore(op, p)) {
+        if (PathApi.endsBefore(op, p)) {
           p[op.length - 1] -= 1
         }
 
         break
       }
 
+      case 'replace_fragment': {
+        const { path: op } = operation
+
+        if (PathApi.isAncestor(op, p)) {
+          return null
+        }
+
+        break
+      }
+
+      case 'replace_children': {
+        const { children, index, newChildren, path: parentPath } = operation
+
+        if (!PathApi.isAncestor(parentPath, p)) {
+          break
+        }
+
+        const childIndex = p[parentPath.length]
+
+        if (childIndex == null) {
+          break
+        }
+
+        if (childIndex < index) {
+          break
+        }
+
+        const end = index + children.length
+
+        if (childIndex < end) {
+          return null
+        }
+
+        p[parentPath.length] += newChildren.length - children.length
+        break
+      }
+
       case 'merge_node': {
         const { path: op, position } = operation
 
-        if (Path.equals(op, p) || Path.endsBefore(op, p)) {
+        if (PathApi.equals(op, p) || PathApi.endsBefore(op, p)) {
           p[op.length - 1] -= 1
-        } else if (Path.isAncestor(op, p)) {
+        } else if (PathApi.isAncestor(op, p)) {
           p[op.length - 1] -= 1
           p[op.length] += position
         }
@@ -449,7 +497,7 @@ export const Path: PathInterface = {
       case 'split_node': {
         const { path: op, position } = operation
 
-        if (Path.equals(op, p)) {
+        if (PathApi.equals(op, p)) {
           if (affinity === 'forward') {
             p[p.length - 1]! += 1
           } else if (affinity === 'backward') {
@@ -457,9 +505,9 @@ export const Path: PathInterface = {
           } else {
             return null
           }
-        } else if (Path.endsBefore(op, p)) {
+        } else if (PathApi.endsBefore(op, p)) {
           p[op.length - 1] += 1
-        } else if (Path.isAncestor(op, p) && path[op.length] >= position) {
+        } else if (PathApi.isAncestor(op, p) && path[op.length] >= position) {
           p[op.length - 1] += 1
           p[op.length] -= position
         }
@@ -471,40 +519,40 @@ export const Path: PathInterface = {
         const { path: op, newPath: onp } = operation
 
         // If the old and new path are the same, it's a no-op.
-        if (Path.equals(op, onp)) {
+        if (PathApi.equals(op, onp)) {
           return p
         }
 
-        if (Path.isAncestor(op, p) || Path.equals(op, p)) {
+        if (PathApi.isAncestor(op, p) || PathApi.equals(op, p)) {
           const copy = onp.slice()
 
-          if (Path.endsBefore(op, onp) && op.length < onp.length) {
+          if (PathApi.endsBefore(op, onp) && op.length < onp.length) {
             copy[op.length - 1] -= 1
           }
 
           return copy.concat(p.slice(op.length))
         }
         if (
-          Path.isSibling(op, onp) &&
-          (Path.isAncestor(onp, p) || Path.equals(onp, p))
+          PathApi.isSibling(op, onp) &&
+          (PathApi.isAncestor(onp, p) || PathApi.equals(onp, p))
         ) {
-          if (Path.endsBefore(op, p)) {
+          if (PathApi.endsBefore(op, p)) {
             p[op.length - 1] -= 1
           } else {
             p[op.length - 1] += 1
           }
         } else if (
-          Path.endsBefore(onp, p) ||
-          Path.equals(onp, p) ||
-          Path.isAncestor(onp, p)
+          PathApi.endsBefore(onp, p) ||
+          PathApi.equals(onp, p) ||
+          PathApi.isAncestor(onp, p)
         ) {
-          if (Path.endsBefore(op, p)) {
+          if (PathApi.endsBefore(op, p)) {
             p[op.length - 1] -= 1
           }
 
           p[onp.length - 1] += 1
-        } else if (Path.endsBefore(op, p)) {
-          if (Path.equals(onp, p)) {
+        } else if (PathApi.endsBefore(op, p)) {
+          if (PathApi.equals(onp, p)) {
             p[onp.length - 1] += 1
           }
 

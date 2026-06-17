@@ -1,183 +1,377 @@
 # Transforms API
 
-Transforms are helper functions operating on the document. They can be used in defining your own commands.
+Transforms are transaction helpers used inside `editor.update(...)`.
+
+```javascript
+editor.update(tx => {
+  tx.text.insert('Hello')
+})
+```
 
 - [Node options](transforms.md#node-options)
-- [Static methods](transforms.md#static-methods)
-  - [Node transforms](transforms.md#node-transforms)
-  - [Selection transforms](transforms.md#selection-transforms)
-  - [Text transforms](transforms.md#text-transforms)
-  - [Editor transforms](transforms.md#editor-transforms)
+- [Node methods](transforms.md#node-methods)
+- [Break methods](transforms.md#break-methods)
+- [Fragment methods](transforms.md#fragment-methods)
+- [Text methods](transforms.md#text-methods)
+- [Selection methods](transforms.md#selection-methods)
+- [Mark methods](transforms.md#mark-methods)
+- [Value and root methods](transforms.md#value-and-root-methods)
+- [State field methods](transforms.md#state-field-methods)
+- [Normalization methods](transforms.md#normalization-methods)
+- [Operation methods](transforms.md#operation-methods)
 
 ## Node options
 
-All transforms support a parameter `options`. This includes options specific to the transform and general `NodeOptions` to specify which Nodes in the document the transform is applied to.
+Node methods accept method-specific `options` objects. These options appear
+across most node methods:
 
 ```typescript
-interface NodeOptions {
+type NodeSelectorOptions = {
   at?: Location
-  match?: (node: Node, path: Location) => boolean
-  mode?: 'highest' | 'lowest'
+  match?: (node: Node, path: Path) => boolean
+  mode?: 'highest' | 'lowest' | 'all'
   voids?: boolean
 }
 ```
 
-- The `at` option selects a [Location](../concepts/03-locations.md) in the editor. It defaults to the user's current selection. [Learn more about the `at` option](../concepts/04-transforms.md#the-at-option)
+- `at?: Location`: The explicit location to change. When omitted inside
+  `editor.update(...)`, selection-sensitive methods use the transaction target.
+- `match?: (node, path) => boolean`: Filters which nodes are changed.
+- `mode?: 'highest' | 'lowest'`: Controls which matching node level is used.
+  Methods documented with `mode?: 'highest' | 'lowest' | 'all'` also accept
+  `all`.
+- `voids?: boolean`: Includes void elements when `true`.
 
-- The `match` option filters the set of Nodes with a custom function. [Learn more about the `match` option](../concepts/04-transforms.md#the-match-option)
+## Node methods
 
-- The `mode` option also filters the set of nodes.
+Use node methods from `tx.nodes`.
 
-- When `voids` is false, [void Elements](./nodes/editor.md#schema-specific-instance-methods-to-override) are filtered out.
+#### `tx.nodes.insert(nodes: Node | Node[], options?)`
 
-## Static methods
+Insert nodes at `options.at` or the transaction target.
 
-### Node transforms
+Options: `at`, `match`, `mode`, `hanging`, `select`, `voids`, `batchDirty`.
 
-These transforms operate on nodes.
-
-#### `Transforms.insertFragment(editor: Editor, fragment: Node[], options?)`
-
-Insert a fragment of nodes at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options: `{at?: Location, hanging?: boolean, voids?: boolean}`
-
-#### `Transforms.insertNodes(editor: Editor, nodes: Node | Node[], options?)`
-
-Atomically inserts `nodes` at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options supported: `NodeOptions & {hanging?: boolean, select?: boolean}`.
-
-For example, to insert at the very end, without replacing the current selection and regardless of block nesting, use
+- `hanging?: boolean`: Preserve hanging range edges.
+- `select?: boolean`: Select the inserted nodes.
+- `batchDirty?: boolean`: Batch dirty-path work for a multi-node insert.
 
 ```javascript
-Transforms.insertNodes(
-  editor,
-  { type: targetType, children: [{ text: '' }] },
-  { at: [editor.children.length] }
-)
-```
-
-#### `Transforms.removeNodes(editor: Editor, options?)`
-
-Remove nodes at the specified location in the document. If no location is specified, remove the nodes in the selection.
-
-Options supported: `NodeOptions & {hanging?: boolean}`
-
-#### `Transforms.mergeNodes(editor: Editor, options?)`
-
-Merge a node at the specified location with the previous node at the same depth. If no location is specified, use the selection. Resulting empty container nodes are removed.
-
-Options supported: `NodeOptions & {hanging?: boolean}`
-
-#### `Transforms.splitNodes(editor: Editor, options?)`
-
-Split nodes at the specified location. If no location is specified, split the selection.
-
-Options supported: `NodeOptions & {height?: number, always?: boolean}`
-
-#### `Transforms.wrapNodes(editor: Editor, element: Element, options?)`
-
-Wrap nodes at the specified location in the `element` container. If no location is specified, wrap the selection.
-
-Options supported: `NodeOptions & {split?: boolean}`.
-
-- `options.mode`: `'all'` is also supported.
-- `options.split` indicates that it's okay to split a node in order to wrap the location. For example, if `ipsum` was selected in a `Text` node with `lorem ipsum dolar`, `split: true` would wrap the word `ipsum` only, resulting in splitting the `Text` node. If `split: false`, the entire `Text` node `lorem ipsum dolar` would be wrapped.
-
-#### `Transforms.unwrapNodes(editor: Editor, options?)`
-
-Unwrap nodes at the specified location. If necessary, the parent node is split. If no location is specified, use the selection.
-
-Options supported: `NodeOptions & {split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.setNodes(editor: Editor, props: Partial<Node>, options?)`
-
-Set properties of nodes at the specified location. If no location is specified, use the selection.
-
-If `props` contains `undefined` values, the node's corresponding property will also be set to `undefined` as opposed to ignored.
-
-Options supported: `NodeOptions & {hanging?: boolean, split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.unsetNodes(editor: Editor, props: string | string[], options?)`
-
-Unset properties of nodes at the specified location. If no location is specified, use the selection.
-
-Options supported: `NodeOptions & {hanging?: boolean, split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.liftNodes(editor: Editor, options?)`
-
-Lift nodes at the specified location upwards in the document tree. If necessary, the parent node is split. If no location is specified, use the selection.
-
-Options supported: `NodeOptions`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.moveNodes(editor: Editor, options)`
-
-Move the nodes from an origin to a destination. A destination must be specified in the `options`. If no origin is specified, move the selection.
-
-Options supported: `NodeOptions & {to: Path}`. For `options.mode`, `'all'` is also supported.
-
-### Selection transforms
-
-Transforms that operate on the document's selection.
-
-#### `Transforms.collapse(editor: Editor, options?)`
-
-Collapse the selection to a single point.
-
-Options: `{edge?: 'anchor' | 'focus' | 'start' | 'end'}`
-
-#### `Transforms.select(editor: Editor, target: Location)`
-
-Set the selection to a new value specified by `target`. When a selection already exists, this method is just a proxy for `setSelection` and will update the existing value.
-
-For example, to set the selection to the entire contents of the editor:
-
-```javascript
-Transforms.select(editor, {
-  anchor: Editor.start(editor, []),
-  focus: Editor.end(editor, []),
+editor.update(tx => {
+  tx.nodes.insert(
+    { type: targetType, children: [{ text: '' }] },
+    { at: [0] }
+  )
 })
 ```
 
-#### `Transforms.deselect(editor: Editor)`
+#### `tx.nodes.remove(options?)`
 
-Unset the selection.
+Remove nodes at `options.at` or the transaction target.
 
-#### `Transforms.move(editor: Editor, options?)`
+Options: `at`, `match`, `mode`, `hanging`, `voids`.
 
-Move the selection's point forward or backward.
+#### `tx.nodes.merge(options?)`
 
-Options: `{distance?: number, unit?: 'offset' | 'character' | 'word' | 'line', reverse?: boolean, edge?: 'anchor' | 'focus' | 'start' | 'end'}`
+Merge a node with the previous node at the same depth.
 
-#### `Transforms.setPoint(editor: Editor, props: Partial<Point>, options?)`
+Options: `at`, `match`, `mode`, `hanging`, `voids`.
 
-Set new properties on one of the selection's points.
+#### `tx.nodes.split(options?)`
 
-Options: `{edge?: 'anchor' | 'focus' | 'start' | 'end'}`
+Split nodes at a location.
 
-#### `Transforms.setSelection(editor: Editor, props: Partial<Range>)`
+Options: `at`, `match`, `mode`, `always`, `height`, `position`, `voids`.
 
-Set new properties on an active selection. Since the value is a `Partial<Range>`, this method can only handle updates to an existing selection. If there is no active selection the operation will be void. Use `select` if you'd like to create a selection when there is none.
+- `always?: boolean`: Split even when the target is already at an edge.
+- `height?: number`: Split at an ancestor height.
+- `position?: number`: Split at an explicit child position.
 
-### Text transforms
+#### `tx.nodes.wrap(element: Element, options?)`
 
-Transforms that operate on text.
+Wrap matching nodes in `element`.
 
-#### `Transforms.delete(editor: Editor, options?)`
+Options: `at`, `match`, `mode`, `split`, `voids`.
 
-Delete text in the document.
+#### `tx.nodes.unwrap(options?)`
 
-Options: `{at?: Location, distance?: number, unit?: 'character' | 'word' | 'line' | 'block', reverse?: boolean, hanging?: boolean, voids?: boolean}`
+Unwrap matching nodes.
 
-#### `Transforms.insertText(editor: Editor, text: string, options?)`
+Options: `at`, `match`, `mode`, `split`, `voids`.
 
-Insert a string of text at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
+#### `tx.nodes.set(props: Partial<Node>, options?)`
 
-Options: `{at?: Location, voids?: boolean}`
+Set properties on matching nodes.
 
-### Editor transforms
+Options: `at`, `match`, `mode`, `hanging`, `split`, `voids`, `compare`,
+`merge`.
 
-#### `Transforms.transform(editor: Editor, transform: Transform)`
+- `compare?: PropsCompare`: Decide whether a property should be written.
+- `merge?: PropsMerge`: Merge incoming and existing property values.
 
-Transform the `editor` by an `operation`.
+#### `tx.nodes.unset(props: string | string[], options?)`
+
+Unset properties on matching nodes.
+
+Options: `at`, `match`, `mode`, `hanging`, `split`, `voids`.
+
+#### `tx.nodes.lift(options?)`
+
+Lift matching nodes upward in the document tree.
+
+Options: `at`, `match`, `mode`, `voids`.
+
+#### `tx.nodes.move(options)`
+
+Move nodes from `options.at` to `options.to`.
+
+Options: `at`, `match`, `mode`, `to`, `voids`.
+
+- `to: Path`: Destination path for the moved nodes.
+
+## Break methods
+
+Use break methods from `tx.break`.
+
+#### `tx.break.insert()`
+
+Insert a block break at the transaction target.
+
+#### `tx.break.insertSoft()`
+
+Insert a soft break at the transaction target.
+
+## Fragment methods
+
+Use fragment methods from `tx.fragment`.
+
+#### `tx.fragment.get(options?)`
+
+Read the fragment at `options.at` or the current selection.
+
+Options:
+
+- `at?: Range`: Range to read. Defaults to the active selection.
+
+#### `tx.fragment.insert(fragment: Node[], options?)`
+
+Insert a fragment at `options.at` or the transaction target.
+Slate's default insertion policy is structural. When a fragment contains nested
+blocks that match the active structural container, the first compatible source
+block can merge into the active block and later source siblings stay as inserted
+siblings. Product-specific positional behavior, such as multi-cell table-grid
+paste, belongs in an extension clipboard/fragment policy.
+
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow insertion into void elements.
+- `batchDirty?: boolean`: Batch dirty-path work for the fragment insert.
+
+#### `tx.fragment.delete(options?)`
+
+Delete the fragment at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete. Defaults to the transaction target.
+- `direction?: 'forward' | 'backward'`: Direction used for collapsed deletion.
+
+## Text methods
+
+#### `tx.text.insert(text: string, options?)`
+
+Insert text at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `voids?: boolean`: Allow insertion into void elements.
+
+When `at` is an expanded range, the inserted text replaces the range and the
+selection moves after the inserted text.
+
+#### `tx.text.delete(options?)`
+
+Delete text at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete from. Defaults to the transaction target.
+- `distance?: number`: Number of units to delete. Defaults to one unit.
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit used for collapsed
+  deletion.
+- `reverse?: boolean`: Delete before the target instead of after it.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow deletion inside void elements.
+
+```javascript
+editor.update(tx => {
+  tx.text.delete({ reverse: true, unit: 'word' })
+})
+```
+
+#### `tx.text.deleteBackward(options?)`
+
+Delete before the transaction target.
+
+Options:
+
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit to delete. Defaults
+  to one character.
+
+#### `tx.text.deleteForward(options?)`
+
+Delete after the transaction target.
+
+Options:
+
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit to delete. Defaults
+  to one character.
+
+## Selection methods
+
+#### `tx.selection.set(target: Location | null)`
+
+Set the selection to a new target.
+
+```javascript
+editor.update(tx => {
+  tx.selection.set({
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+```
+
+#### `tx.selection.clear()`
+
+Clear the selection.
+
+#### `tx.selection.collapse(options?)`
+
+Collapse the selection to a single point.
+
+Options:
+
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Edge to collapse to.
+
+#### `tx.selection.move(options?)`
+
+Move the selection by offset, character, word, line, or block.
+
+Options:
+
+- `distance?: number`: Number of units to move.
+- `unit?: 'offset' | 'character' | 'word' | 'line'`: Unit used for movement.
+- `reverse?: boolean`: Move backward.
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Selection edge to move.
+
+#### `tx.selection.setPoint(props: Partial<Point>, options?)`
+
+Set properties on one selection point.
+
+Options:
+
+- `edge?: 'anchor' | 'focus' | 'start' | 'end'`: Selection edge to update.
+
+#### `tx.selection.setRange(props: Partial<Range>)`
+
+Set properties on an active selection.
+
+## Mark methods
+
+#### `tx.marks.get()`
+
+Return the active marks for the transaction.
+
+#### `tx.marks.add(key: string, value: unknown)`
+
+Add a mark to the current selection or pending marks.
+
+#### `tx.marks.remove(key: string)`
+
+Remove a mark from the current selection or pending marks.
+
+#### `tx.marks.toggle(key: string, value?)`
+
+Toggle a mark for the current selection or pending marks.
+
+## Value and root methods
+
+Use value and root methods for whole-root or whole-document replacement. Normal
+typing commands should use `tx.text`, `tx.nodes`, `tx.fragment`, or
+`tx.selection`.
+
+#### `tx.value.replace(input: SnapshotInput)`
+
+Replace the active root or complete snapshot.
+
+```javascript
+editor.update(tx => {
+  tx.value.replace({
+    children: [{ type: 'paragraph', children: [{ text: 'Imported' }] }],
+    selection: null,
+  })
+})
+```
+
+Pass `roots` in the input when replacing multiple roots at once.
+
+#### `tx.roots.create(root: RootKey, children: Node[])`
+
+Create a named root.
+
+#### `tx.roots.replace(root: RootKey, children: Node[])`
+
+Replace an existing named root.
+
+#### `tx.roots.delete(root: RootKey)`
+
+Delete an extra root. The primary document is not deleted through `tx.roots`.
+
+## State field methods
+
+#### `tx.setField(field, value)`
+
+Write a registered state field.
+
+```javascript
+editor.update(tx => {
+  tx.setField(documentTitle, 'Q3 Launch Brief')
+})
+```
+
+State-field writes appear in `commit.statePatches`.
+
+#### `tx.statePatches.replay(statePatches)`
+
+Replay accepted state-field patches through the transaction boundary.
+
+Filter remote or collaborative patches before replaying them.
+
+## Normalization methods
+
+#### `tx.normalize(options?)`
+
+Run editor normalization inside the active transaction.
+
+#### `tx.withoutNormalizing(fn)`
+
+Run several writes without normalizing between each write, then let the
+transaction normalize afterward.
+
+## Operation methods
+
+#### `tx.operations.replay(operations: Operation[], options?)`
+
+Replay operations through the transaction boundary.
+
+```javascript
+editor.update(tx => {
+  tx.operations.replay(remoteOperations, {
+    tag: 'remote-import',
+  })
+})
+```

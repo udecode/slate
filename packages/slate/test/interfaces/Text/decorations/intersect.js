@@ -1,4 +1,4 @@
-import { Text } from 'slate'
+import { TextApi } from 'slate'
 
 export const input = [
   {
@@ -48,7 +48,7 @@ export const input = [
 ]
 
 export const test = (decorations) => {
-  return Text.decorations({ text: 'abcdef', mark: 'mark' }, decorations)
+  return TextApi.decorations({ text: 'abcdef', mark: 'mark' }, decorations)
 }
 
 export const output = [

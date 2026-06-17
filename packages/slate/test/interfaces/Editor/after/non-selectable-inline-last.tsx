@@ -1,10 +1,9 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
-
-import { Editor } from 'slate'
 
 // This is invalid due to the lack of a text node after the inline, but this
 // case can arise prior to normalization so it needs to be handled anyway.

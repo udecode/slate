@@ -1,59 +1,72 @@
-import { css } from '@emotion/css'
-import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
-import { createEditor, type Descendant, Editor, Range } from 'slate'
-import { withHistory } from 'slate-history'
+import { type MouseEvent, type PointerEvent, useEffect, useRef } from 'react'
+import { RangeApi } from 'slate'
 import {
   Editable,
   type RenderLeafProps,
   Slate,
-  useFocused,
-  useSlate,
-  withReact,
+  useEditor,
+  useEditorFocused,
+  useEditorSelection,
+  useEditorSelector,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Menu, Portal } from './components'
-import type { CustomEditor, CustomTextKey } from './custom-types.d'
+import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
+import { isMarkActive, toggleMark } from './mark-utils'
 
 const HoveringMenuExample = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
+        },
+        { text: 'bold', bold: true },
+        { text: ', ' },
+        { text: 'italic', italic: true },
+        { text: ', or anything else you might want to do!' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: 'Try it out yourself! Just ' },
+        {
+          text: 'select any piece of text and the menu will appear',
+          bold: true,
+        },
+        { text: '.' },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <HoveringToolbar />
       <Editable
-        onDOMBeforeInput={(event: InputEvent) => {
+        onDOMBeforeInput={(event) => {
           switch (event.inputType) {
             case 'formatBold':
-              event.preventDefault()
-              return toggleMark(editor, 'bold')
+              toggleMark(editor, 'bold')
+              return true
             case 'formatItalic':
-              event.preventDefault()
-              return toggleMark(editor, 'italic')
+              toggleMark(editor, 'italic')
+              return true
             case 'formatUnderline':
-              event.preventDefault()
-              return toggleMark(editor, 'underline')
+              toggleMark(editor, 'underline')
+              return true
           }
         }}
         placeholder="Enter some text..."
-        renderLeaf={(props) => <Leaf {...props} />}
+        renderLeaf={Leaf}
       />
     </Slate>
   )
-}
-
-const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  const isActive = isMarkActive(editor, format)
-
-  if (isActive) {
-    Editor.removeMark(editor, format)
-  } else {
-    Editor.addMark(editor, format, true)
-  }
-}
-
-const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = Editor.marks(editor)
-  return marks ? marks[format] === true : false
 }
 
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
@@ -74,12 +87,12 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
 
 const HoveringToolbar = () => {
   const ref = useRef<HTMLDivElement | null>(null)
-  const editor = useSlate()
-  const inFocus = useFocused()
+  const editor = useEditor<CustomEditor>()
+  const inFocus = useEditorFocused()
+  const selection = useEditorSelection()
 
   useEffect(() => {
     const el = ref.current
-    const { selection } = editor
 
     if (!el) {
       return
@@ -88,38 +101,32 @@ const HoveringToolbar = () => {
     if (
       !selection ||
       !inFocus ||
-      Range.isCollapsed(selection) ||
-      Editor.string(editor, selection) === ''
+      RangeApi.isCollapsed(selection) ||
+      editor.read((state) => state.text.string(selection)) === ''
     ) {
       el.removeAttribute('style')
       return
     }
 
     const domSelection = window.getSelection()
-    const domRange = domSelection!.getRangeAt(0)
+    if (!domSelection || domSelection.rangeCount === 0) {
+      el.removeAttribute('style')
+      return
+    }
+
+    const domRange = domSelection.getRangeAt(0)
     const rect = domRange.getBoundingClientRect()
     el.style.opacity = '1'
     el.style.top = `${rect.top + window.pageYOffset - el.offsetHeight}px`
     el.style.left = `${
       rect.left + window.pageXOffset - el.offsetWidth / 2 + rect.width / 2
     }px`
-  })
+  }, [editor, inFocus, selection])
 
   return (
     <Portal>
       <Menu
-        className={css`
-          padding: 8px 7px 6px;
-          position: absolute;
-          z-index: 1;
-          top: -10000px;
-          left: -10000px;
-          margin-top: -6px;
-          opacity: 0;
-          background-color: #222;
-          border-radius: 4px;
-          transition: opacity 0.75s;
-        `}
+        className="slate-hovering-toolbar-menu"
         onMouseDown={(e: MouseEvent) => {
           // prevent toolbar from taking focus away from editor
           e.preventDefault()
@@ -139,40 +146,43 @@ interface FormatButtonProps {
   icon: string
 }
 
+const handleToolbarButtonClick = (
+  event: MouseEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  if (event.detail === 0) {
+    command()
+  }
+}
+
+const handleToolbarButtonPointerDown = (
+  event: PointerEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  event.preventDefault()
+  command()
+}
+
 const FormatButton = ({ format, icon }: FormatButtonProps) => {
-  const editor = useSlate()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector((editor: CustomEditor) =>
+    isMarkActive(editor, format)
+  )
+  const runCommand = () => toggleMark(editor, format)
+
   return (
     <Button
-      active={isMarkActive(editor, format)}
-      onClick={() => toggleMark(editor, format)}
+      active={active}
+      data-test-id={`hovering-toolbar-button-${format}`}
+      onClick={(event) => handleToolbarButtonClick(event, runCommand)}
+      onPointerDown={(event) =>
+        handleToolbarButtonPointerDown(event, runCommand)
+      }
       reversed
     >
       <Icon>{icon}</Icon>
     </Button>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
-      },
-      { text: 'bold', bold: true },
-      { text: ', ' },
-      { text: 'italic', italic: true },
-      { text: ', or anything else you might want to do!' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try it out yourself! Just ' },
-      { text: 'select any piece of text and the menu will appear', bold: true },
-      { text: '.' },
-    ],
-  },
-]
 
 export default HoveringMenuExample

@@ -1,4 +1,16 @@
-import { type Descendant, type Editor, Element, Node, Range, Text } from 'slate'
+import {
+  type Descendant,
+  type Editor,
+  type Element,
+  ElementApi,
+  type Node,
+  NodeApi,
+  type Range,
+  RangeApi,
+  type Text,
+  TextApi,
+} from 'slate'
+import { setEditorChildren } from 'slate/internal'
 import {
   AnchorToken,
   addAnchorToken,
@@ -10,14 +22,14 @@ import {
 } from './tokens'
 
 /**
- * Resolve the descedants of a node by normalizing the children that can be
+ * Resolve the descendants of a node by normalizing the children that can be
  * passed into a hyperscript creator function.
  */
 
 const STRINGS: WeakSet<Text> = new WeakSet()
 
 const resolveDescendants = (children: any[]): Descendant[] => {
-  const nodes: Node[] = []
+  const nodes: Descendant[] = []
 
   const addChild = (child: Node | Token): void => {
     if (child == null) {
@@ -33,25 +45,25 @@ const resolveDescendants = (children: any[]): Descendant[] => {
       normalizedChild = text
     }
 
-    if (Text.isText(normalizedChild)) {
-      const c = normalizedChild // HACK: fix typescript complaining
+    if (TextApi.isText(normalizedChild)) {
+      const textChild = normalizedChild
 
       if (
-        Text.isText(prev) &&
+        TextApi.isText(prev) &&
         STRINGS.has(prev) &&
-        STRINGS.has(c) &&
-        Text.equals(prev, c, { loose: true })
+        STRINGS.has(textChild) &&
+        TextApi.equals(prev, textChild, { loose: true })
       ) {
-        prev.text += c.text
+        prev.text += textChild.text
       } else {
-        nodes.push(c)
+        nodes.push(textChild)
       }
-    } else if (Element.isElement(normalizedChild)) {
+    } else if (ElementApi.isElement(normalizedChild)) {
       nodes.push(normalizedChild)
     } else if (normalizedChild instanceof Token) {
       let n = nodes.at(-1)
 
-      if (!Text.isText(n)) {
+      if (!TextApi.isText(n)) {
         addChild('')
         n = nodes.at(-1) as Text
       }
@@ -106,7 +118,7 @@ export function createElement(
   attributes: { [key: string]: any },
   children: any[]
 ): Element {
-  return { ...attributes, children: resolveDescendants(children) }
+  return { ...attributes, children: resolveDescendants(children) } as Element
 }
 
 /**
@@ -158,6 +170,7 @@ export function createSelection(
   }
 
   return {
+    ...attributes,
     anchor: {
       offset: anchor.offset,
       path: anchor.path,
@@ -166,7 +179,6 @@ export function createSelection(
       offset: focus.offset,
       path: focus.path,
     },
-    ...attributes,
   }
 }
 
@@ -193,13 +205,12 @@ export function createText(
     node = { text: '' }
   }
 
-  if (!Text.isText(node)) {
+  if (!TextApi.isText(node)) {
     throw new Error(`
     The <text> hyperscript tag can only contain text content as children.`)
   }
 
-  // COMPAT: If they used the <text> tag we want to guarantee that it won't be
-  // merge with other string children.
+  // Explicit <text> tags stay distinct from adjacent string children.
   STRINGS.delete(node)
 
   Object.assign(node, attributes)
@@ -221,7 +232,7 @@ export const createEditor =
     let selectionChild: Range | undefined
 
     for (const child of children) {
-      if (Range.isRange(child)) {
+      if (RangeApi.isRange(child)) {
         selectionChild = child
       } else {
         otherChildren.push(child)
@@ -232,11 +243,12 @@ export const createEditor =
     const selection: Partial<Range> = {}
     const editor = makeEditor()
     Object.assign(editor, attributes)
-    editor.children = descendants as Element[]
 
     // Search the document's texts to see if any of them have tokens associated
     // that need incorporated into the selection.
-    for (const [node, path] of Node.texts(editor)) {
+    for (const [node, path] of NodeApi.texts({
+      children: descendants,
+    } as Node)) {
       const anchor = getAnchorOffset(node)
       const focus = getFocusOffset(node)
 
@@ -263,10 +275,16 @@ export const createEditor =
       )
     }
 
-    if (selectionChild != null) {
-      editor.selection = selectionChild
-    } else if (Range.isRange(selection)) {
-      editor.selection = selection
+    if (selectionChild != null || RangeApi.isRange(selection)) {
+      editor.update((tx) => {
+        tx.value.replace({
+          children: descendants,
+          selection: selectionChild ?? (selection as Range),
+          marks: null,
+        })
+      })
+    } else {
+      setEditorChildren(editor, descendants as Element[])
     }
 
     return editor

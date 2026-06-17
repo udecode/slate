@@ -220,7 +220,10 @@ enum CodepointType {
   LV = 1 << 8,
   LVT = 1 << 9,
   ExtPict = 1 << 10,
-  Any = 1 << 11,
+  CR = 1 << 11,
+  LF = 1 << 12,
+  Control = 1 << 13,
+  Any = 1 << 14,
 }
 
 const reExtend = /^[\p{Gr_Ext}\p{EMod}]$/u
@@ -239,6 +242,20 @@ const reExtPict = /^\p{ExtPict}$/u
 
 const getCodepointType = (char: string, code: number): CodepointType => {
   let type = CodepointType.Any
+  if (code === 0x0d) {
+    type |= CodepointType.CR
+  }
+  if (code === 0x0a) {
+    type |= CodepointType.LF
+  }
+  if (
+    (code >= 0x00 && code <= 0x09) ||
+    (code >= 0x0b && code <= 0x0c) ||
+    (code >= 0x0e && code <= 0x1f) ||
+    (code >= 0x7f && code <= 0x9f)
+  ) {
+    type |= CodepointType.Control
+  }
   if (char.search(reExtend) !== -1) {
     type |= CodepointType.Extend
   }
@@ -303,6 +320,22 @@ const NonBoundaryPairs: [CodepointType, CodepointType][] = [
 ]
 
 function isBoundaryPair(left: CodepointType, right: CodepointType) {
+  if (
+    intersects(left, CodepointType.CR) &&
+    intersects(right, CodepointType.LF)
+  ) {
+    return false
+  }
+
+  if (
+    intersects(
+      left | right,
+      CodepointType.CR | CodepointType.LF | CodepointType.Control
+    )
+  ) {
+    return true
+  }
+
   return (
     NonBoundaryPairs.findIndex(
       (r) => intersects(left, r[0]) && intersects(right, r[1])

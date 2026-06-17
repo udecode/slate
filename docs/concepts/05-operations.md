@@ -1,36 +1,47 @@
 # Operations
 
-Operations are the granular, low-level actions that occur while invoking transforms. A single transform could result in many low-level operations being applied to the editor.
+Operations are the granular, low-level actions that occur while invoking editor methods. One method call can produce many operations.
 
 Slate's core defines all of the possible operations that can occur on a richtext document. For example:
 
 ```javascript
-editor.apply({
-  type: 'insert_text',
-  path: [0, 0],
-  offset: 15,
-  text: 'A new string of text to be inserted.',
-})
-
-editor.apply({
-  type: 'remove_node',
-  path: [0, 0],
-  node: {
-    text: 'A line of text!',
-  },
-})
-
-editor.apply({
-  type: 'set_selection',
-  properties: {
-    anchor: { path: [0, 0], offset: 0 },
-  },
-  newProperties: {
-    anchor: { path: [0, 0], offset: 15 },
-  },
+editor.update(tx => {
+  tx.operations.replay([
+    {
+      type: 'insert_text',
+      path: [0, 0],
+      offset: 15,
+      text: 'A new string of text to be inserted.',
+    },
+    {
+      type: 'remove_node',
+      path: [0, 0],
+      node: {
+        text: 'A line of text!',
+      },
+    },
+    {
+      type: 'set_selection',
+      properties: {
+        anchor: { path: [0, 0], offset: 0 },
+      },
+      newProperties: {
+        anchor: { path: [0, 0], offset: 15 },
+      },
+    },
+  ])
 })
 ```
 
-Under the covers Slate converts complex transforms into the low-level operations and applies them to the editor automatically. So you rarely have to think about operations unless you're implementing collaborative editing.
+Slate converts editor method calls into low-level operations and applies them
+automatically. You usually think about operations when implementing
+operation replay, history, or import/export tooling.
 
-> 🤖 Slate's editing behaviors being defined as operations is what makes things like collaborative editing possible, because each change is easily define-able, apply-able, compose-able and even undo-able!
+Bulk edits can still be one operation. For example, paste can produce a
+`replace_fragment` operation that replaces a child slice and moves the model
+selection to the end of the inserted fragment. Sync adapters can replay that
+operation directly, or translate it into their own representation at the
+adapter boundary.
+
+Operations are the replay boundary. They make changes portable enough for
+history, sync adapters, tests, and persistence tools to inspect or replay.

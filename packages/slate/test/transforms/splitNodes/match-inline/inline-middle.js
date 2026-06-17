@@ -1,10 +1,11 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
-import { Editor, Element, Transforms } from 'slate'
+import { ElementApi } from 'slate'
 
 export const run = (editor) => {
-  Transforms.splitNodes(editor, {
-    match: (n) => Element.isElement(n) && Editor.isInline(editor, n),
+  editor.nodes.split({
+    match: (n) => ElementApi.isElement(n) && Editor.isInline(editor, n),
   })
 }
 

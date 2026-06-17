@@ -1,13 +1,22 @@
-import { useContext } from 'react'
+import { createContext, useContext } from 'react'
+import type { Editor } from 'slate'
+import type { ReactEditorContextValue } from '../plugin/with-react'
 
-import { EditorContext } from './use-slate-static'
+/**
+ * A React context for sharing the editor object.
+ */
+
+export const EditorContext = createContext<ReactEditorContextValue<any> | null>(
+  null
+)
 
 /**
  * Get the current editor object from the React context.
- * @deprecated Use useSlateStatic instead.
  */
 
-export const useEditor = () => {
+export const useEditor = <
+  TEditor extends Editor<any> = ReactEditorContextValue<any>,
+>(): TEditor => {
   const editor = useContext(EditorContext)
 
   if (!editor) {
@@ -16,5 +25,5 @@ export const useEditor = () => {
     )
   }
 
-  return editor
+  return editor as unknown as TEditor
 }

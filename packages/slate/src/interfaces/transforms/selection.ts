@@ -16,7 +16,7 @@ export interface SelectionSetPointOptions {
   edge?: SelectionEdge
 }
 
-export interface SelectionTransforms {
+export interface SelectionMutationMethods {
   /**
    * Collapse the selection.
    */
@@ -50,26 +50,4 @@ export interface SelectionTransforms {
    * Set new properties on the selection.
    */
   setSelection: (editor: Editor, props: Partial<Range>) => void
-}
-
-// eslint-disable-next-line no-redeclare
-export const SelectionTransforms: SelectionTransforms = {
-  collapse(editor, options) {
-    editor.collapse(options)
-  },
-  deselect(editor) {
-    editor.deselect()
-  },
-  move(editor, options) {
-    editor.move(options)
-  },
-  select(editor, target) {
-    editor.select(target)
-  },
-  setPoint(editor, props, options) {
-    editor.setPoint(props, options)
-  },
-  setSelection(editor, props) {
-    editor.setSelection(props)
-  },
 }

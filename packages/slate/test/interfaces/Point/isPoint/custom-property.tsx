@@ -1,4 +1,6 @@
-import { Point } from 'slate'
+/** @jsx jsx */
+
+import { PointApi } from 'slate'
 
 export const input = {
   path: [0, 1],
@@ -6,6 +8,6 @@ export const input = {
   custom: 'value',
 }
 export const test = (value) => {
-  return Point.isPoint(value)
+  return PointApi.isPoint(value)
 }
 export const output = true

@@ -1,4 +1,11 @@
-import { Path, Point, Range } from '..'
+import {
+  type Path,
+  PathApi,
+  type Point,
+  PointApi,
+  type Range,
+  RangeApi,
+} from '..'
 
 /**
  * The `Location` interface is a union of the ways to refer to a specific
@@ -15,7 +22,7 @@ export interface LocationInterface {
   /**
    * Check if a value implements the `Location` interface.
    */
-  isLocation: (value: any) => value is Location
+  isLocation: (value: unknown) => value is Location
 
   /**
    * Check if a location is a `Path`.
@@ -39,9 +46,13 @@ export interface LocationInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Location: LocationInterface = {
-  isLocation(value: any): value is Location {
-    return Path.isPath(value) || Point.isPoint(value) || Range.isRange(value)
+export const LocationApi: LocationInterface = {
+  isLocation(value: unknown): value is Location {
+    return (
+      PathApi.isPath(value) ||
+      PointApi.isPoint(value) ||
+      RangeApi.isRange(value)
+    )
   },
 
   isPath(at: Location): at is Path {
@@ -72,14 +83,14 @@ export interface SpanInterface {
   /**
    * Check if a value implements the `Span` interface.
    */
-  isSpan: (value: any) => value is Span
+  isSpan: (value: unknown) => value is Span
 }
 
 // eslint-disable-next-line no-redeclare
-export const Span: SpanInterface = {
-  isSpan(value: any): value is Span {
+export const SpanApi: SpanInterface = {
+  isSpan(value: unknown): value is Span {
     return (
-      Array.isArray(value) && value.length === 2 && value.every(Path.isPath)
+      Array.isArray(value) && value.length === 2 && value.every(PathApi.isPath)
     )
   },
 }

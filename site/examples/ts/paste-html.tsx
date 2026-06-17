@@ -1,169 +1,91 @@
-import { css } from '@emotion/css'
 import type React from 'react'
-import { useCallback, useMemo } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
-import { withHistory } from 'slate-history'
-import { jsx } from 'slate-hyperscript'
+import { useMemo } from 'react'
+import type { Element as SlateElement } from 'slate'
 import {
   Editable,
   type RenderElementProps,
   type RenderLeafProps,
+  type RenderTextProps,
+  type RenderVoidProps,
   Slate,
-  useFocused,
-  useSelected,
-  withReact,
+  useEditorFocused,
+  useElementSelected,
+  useSlateEditor,
 } from 'slate-react'
 
+import { cn } from '@/utils/cn'
+
 import type {
-  CustomEditor,
   CustomElement,
-  CustomElementType,
+  CustomText,
   ImageElement as ImageElementType,
-  RenderElementPropsFor,
 } from './custom-types.d'
-
-interface ElementAttributes {
-  type: CustomElementType
-  url?: string
-}
-
-const ELEMENT_TAGS: Record<string, (el: HTMLElement) => ElementAttributes> = {
-  A: (el) => ({ type: 'link', url: el.getAttribute('href')! }),
-  BLOCKQUOTE: () => ({ type: 'block-quote' }),
-  H1: () => ({ type: 'heading-one' }),
-  H2: () => ({ type: 'heading-two' }),
-  H3: () => ({ type: 'heading-three' }),
-  H4: () => ({ type: 'heading-four' }),
-  H5: () => ({ type: 'heading-five' }),
-  H6: () => ({ type: 'heading-six' }),
-  IMG: (el) => ({ type: 'image', url: el.getAttribute('src')! }),
-  LI: () => ({ type: 'list-item' }),
-  OL: () => ({ type: 'numbered-list' }),
-  P: () => ({ type: 'paragraph' }),
-  PRE: () => ({ type: 'code-block' }),
-  UL: () => ({ type: 'bulleted-list' }),
-}
-
-// COMPAT: `B` is omitted here because Google Docs uses `<b>` in weird ways.
-interface TextAttributes {
-  code?: boolean
-  strikethrough?: boolean
-  italic?: boolean
-  bold?: boolean
-  underline?: boolean
-}
-
-const TEXT_TAGS: Record<string, () => TextAttributes> = {
-  CODE: () => ({ code: true }),
-  DEL: () => ({ strikethrough: true }),
-  EM: () => ({ italic: true }),
-  I: () => ({ italic: true }),
-  S: () => ({ strikethrough: true }),
-  STRONG: () => ({ bold: true }),
-  U: () => ({ underline: true }),
-}
-
-export const deserialize = (el: HTMLElement | ChildNode): any => {
-  if (el.nodeType === 3) {
-    return el.textContent
-  }
-  if (el.nodeType !== 1) {
-    return null
-  }
-  if (el.nodeName === 'BR') {
-    return '\n'
-  }
-
-  const { nodeName } = el
-  let parent = el
-
-  if (
-    nodeName === 'PRE' &&
-    el.childNodes[0] &&
-    el.childNodes[0].nodeName === 'CODE'
-  ) {
-    parent = el.childNodes[0]
-  }
-  let children = Array.from(parent.childNodes).flatMap(deserialize)
-
-  if (children.length === 0) {
-    children = [{ text: '' }]
-  }
-
-  if (el.nodeName === 'BODY') {
-    return jsx('fragment', {}, children)
-  }
-
-  if (ELEMENT_TAGS[nodeName]) {
-    const attrs = ELEMENT_TAGS[nodeName](el as HTMLElement)
-    return jsx('element', attrs, children)
-  }
-
-  if (TEXT_TAGS[nodeName]) {
-    const attrs = TEXT_TAGS[nodeName]()
-    return children.map((child) => jsx('text', attrs, child))
-  }
-
-  return children
-}
+import { html } from './paste-html-import'
 
 const PasteHtmlExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-  const editor = useMemo(
-    () => withHtml(withReact(withHistory(createEditor()))) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor({
+    extensions: [html()],
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: "By default, pasting content into a Slate editor will use the clipboard's ",
+          },
+          { text: "'text/plain'", code: true },
+          {
+            text: " data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle ",
+          },
+          { text: "'text/html'", code: true },
+          { text: ' data. ' },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is an example of doing exactly that!' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and its formatting should be preserved.',
+          },
+        ],
+      },
+    ],
+  })
+
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         placeholder="Paste in some HTML..."
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
+        renderElement={Element}
+        renderLeaf={Leaf}
+        renderText={FontSizeText}
+        renderVoid={({ element }) => {
+          switch (element.type) {
+            case 'image':
+              return <ImageElement element={element} />
+            default:
+              return null
+          }
+        }}
       />
     </Slate>
   )
 }
 
-const withHtml = (editor: CustomEditor) => {
-  const { insertData, isInline, isVoid } = editor
-
-  editor.isInline = (element: CustomElement) => {
-    return element.type === 'link' ? true : isInline(element)
-  }
-
-  editor.isVoid = (element: CustomElement) => {
-    return element.type === 'image' ? true : isVoid(element)
-  }
-
-  editor.insertData = (data) => {
-    const html = data.getData('text/html')
-
-    if (html) {
-      const parsed = new DOMParser().parseFromString(html, 'text/html')
-      const fragment = deserialize(parsed.body)
-      Transforms.insertFragment(editor, fragment)
-      return
-    }
-
-    insertData(data)
-  }
-
-  return editor
-}
-
-const Element = (props: RenderElementProps) => {
+const Element = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
+  const style = getElementStyle(element)
 
   switch (element.type) {
     case 'block-quote':
-      return <blockquote {...attributes}>{children}</blockquote>
+      return (
+        <blockquote style={style} {...attributes}>
+          {children}
+        </blockquote>
+      )
     case 'code-block':
       return (
         <pre>
@@ -171,34 +93,95 @@ const Element = (props: RenderElementProps) => {
         </pre>
       )
     case 'bulleted-list':
-      return <ul {...attributes}>{children}</ul>
+      return (
+        <ul style={style} {...attributes}>
+          {children}
+        </ul>
+      )
     case 'heading-one':
-      return <h1 {...attributes}>{children}</h1>
+      return (
+        <h1 style={style} {...attributes}>
+          {children}
+        </h1>
+      )
     case 'heading-two':
-      return <h2 {...attributes}>{children}</h2>
+      return (
+        <h2 style={style} {...attributes}>
+          {children}
+        </h2>
+      )
     case 'heading-three':
-      return <h3 {...attributes}>{children}</h3>
+      return (
+        <h3 style={style} {...attributes}>
+          {children}
+        </h3>
+      )
     case 'heading-four':
-      return <h4 {...attributes}>{children}</h4>
+      return (
+        <h4 style={style} {...attributes}>
+          {children}
+        </h4>
+      )
     case 'heading-five':
-      return <h5 {...attributes}>{children}</h5>
+      return (
+        <h5 style={style} {...attributes}>
+          {children}
+        </h5>
+      )
     case 'heading-six':
-      return <h6 {...attributes}>{children}</h6>
+      return (
+        <h6 style={style} {...attributes}>
+          {children}
+        </h6>
+      )
     case 'list-item':
-      return <li {...attributes}>{children}</li>
+      return (
+        <li style={style} {...attributes}>
+          {children}
+        </li>
+      )
     case 'numbered-list':
-      return <ol {...attributes}>{children}</ol>
+      return (
+        <ol style={style} {...attributes}>
+          {children}
+        </ol>
+      )
+    case 'table':
+      return (
+        <table>
+          <tbody {...attributes}>{children}</tbody>
+        </table>
+      )
+    case 'table-cell':
+      return <td {...attributes}>{children}</td>
+    case 'table-row':
+      return <tr {...attributes}>{children}</tr>
     case 'link':
       return (
         <SafeLink attributes={attributes} href={element.url}>
           {children}
         </SafeLink>
       )
-    case 'image':
-      return <ImageElement {...props} />
     default:
-      return <p {...attributes}>{children}</p>
+      return (
+        <p style={style} {...attributes}>
+          {children}
+        </p>
+      )
   }
+}
+
+const getElementStyle = (
+  element: SlateElement
+): React.CSSProperties | undefined => {
+  const align =
+    'align' in element && typeof element.align === 'string'
+      ? element.align
+      : undefined
+
+  return align
+    ? { textAlign: align as React.CSSProperties['textAlign'] }
+    : undefined
 }
 
 const allowedSchemes = ['http:', 'https:', 'mailto:', 'tel:']
@@ -214,7 +197,6 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
     let parsedUrl: URL | null = null
     try {
       parsedUrl = new URL(href)
-      // eslint-disable-next-line no-empty
     } catch {}
     if (parsedUrl && allowedSchemes.includes(parsedUrl.protocol)) {
       return parsedUrl.href
@@ -229,80 +211,66 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
   )
 }
 
-const ImageElement = ({
-  attributes,
-  children,
-  element,
-}: RenderElementPropsFor<ImageElementType>) => {
-  const selected = useSelected()
-  const focused = useFocused()
+const ImageElement = ({ element }: RenderVoidProps<ImageElementType>) => {
+  const focused = useEditorFocused()
+  const selected = useElementSelected()
+
   return (
-    <div {...attributes}>
-      {children}
-      <img
-        className={css`
-          display: block;
-          max-width: 100%;
-          max-height: 20em;
-          box-shadow: ${selected && focused ? '0 0 0 2px blue;' : 'none'};
-        `}
-        src={element.url}
-      />
-    </div>
+    <img
+      className={cn(
+        'slate-paste-html-image',
+        selected && focused && 'is-selected'
+      )}
+      src={element.url}
+    />
   )
 }
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
   if (leaf.bold) {
     children = <strong>{children}</strong>
   }
-
   if (leaf.code) {
     children = <code>{children}</code>
   }
-
   if (leaf.italic) {
     children = <em>{children}</em>
   }
-
   if (leaf.underline) {
     children = <u>{children}</u>
   }
-
   if (leaf.strikethrough) {
     children = <del>{children}</del>
+  }
+  if (leaf.superscript) {
+    children = <sup>{children}</sup>
+  }
+  if (leaf.subscript) {
+    children = <sub>{children}</sub>
   }
 
   return <span {...attributes}>{children}</span>
 }
 
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: "By default, pasting content into a Slate editor will use the clipboard's ",
-      },
-      { text: "'text/plain'", code: true },
-      {
-        text: " data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle ",
-      },
-      { text: "'text/html'", code: true },
-      { text: ' data. ' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'This is an example of doing exactly that!' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved.",
-      },
-    ],
-  },
-]
+const FontSizeText = ({ attributes, children, text }: RenderTextProps) => {
+  const backgroundColor =
+    typeof text.backgroundColor === 'string' ? text.backgroundColor : undefined
+  const color = typeof text.color === 'string' ? text.color : undefined
+  const fontSize = typeof text.fontSize === 'string' ? text.fontSize : undefined
+  const style =
+    backgroundColor || color || fontSize
+      ? {
+          backgroundColor,
+          color,
+          fontSize,
+        }
+      : undefined
+
+  return (
+    <span {...attributes} style={style}>
+      {children}
+    </span>
+  )
+}
 
 export default PasteHtmlExample

@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -9,9 +9,9 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Array.from(Node.ancestors(value, [0, 0], { reverse: true }))
+  return Array.from(NodeApi.ancestors(value, [0, 0], { reverse: true }))
 }
 export const output = [
-  [input.children[0], [0]],
+  [NodeApi.get(input, [0]), [0]],
   [input, []],
 ]

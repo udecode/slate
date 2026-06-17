@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 export const input = (
   <element>
     <text />

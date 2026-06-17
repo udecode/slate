@@ -1,7 +1,8 @@
 # Slate History
 
-This sub-library tracks changes to the Slate value state over time, and enables undo and redo functionality.
+This sub-library tracks document operations and state-field patches so editors
+can undo and redo user actions.
 
-- [withHistory](./with-history.md)
-- [HistoryEditor](./history-editor.md)
+- [History Extension Setup](./history-extension-setup.md)
+- [History Editor API](./history-editor.md)
 - [History](./history.md)

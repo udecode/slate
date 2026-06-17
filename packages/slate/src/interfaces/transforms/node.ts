@@ -1,4 +1,14 @@
-import type { Editor, Element, Location, Node, Path } from '../../index'
+import type {
+  Editor,
+  ElementIn,
+  ElementOrTextIn,
+  Location,
+  Node,
+  NodeIn,
+  NodeProps,
+  Path,
+  Value,
+} from '../../index'
 import type { MaximizeMode, RangeMode } from '../../types/types'
 import type { NodeMatch, PropsCompare, PropsMerge } from '../editor'
 
@@ -12,14 +22,14 @@ export interface NodeInsertNodesOptions<T extends Node> {
   batchDirty?: boolean
 }
 
-export interface NodeTransforms {
+export interface NodeMutationMethods<V extends Value = Value> {
   /**
    * Insert nodes in the editor
    * at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
    */
-  insertNodes: <T extends Node>(
-    editor: Editor,
-    nodes: Node | Node[],
+  insertNodes: <T extends ElementOrTextIn<V>>(
+    editor: Editor<V>,
+    nodes: T | T[],
     options?: NodeInsertNodesOptions<T>
   ) => void
 
@@ -27,8 +37,8 @@ export interface NodeTransforms {
    * Lift nodes at a specific location upwards in the document tree, splitting
    * their parent in two if necessary.
    */
-  liftNodes: <T extends Node>(
-    editor: Editor,
+  liftNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -41,8 +51,8 @@ export interface NodeTransforms {
    * Merge a node at a location with the previous node of the same depth,
    * removing any empty containing nodes after the merge if necessary.
    */
-  mergeNodes: <T extends Node>(
-    editor: Editor,
+  mergeNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -55,8 +65,8 @@ export interface NodeTransforms {
   /**
    * Move the nodes at a location to a new location.
    */
-  moveNodes: <T extends Node>(
-    editor: Editor,
+  moveNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options: {
       at?: Location
       match?: NodeMatch<T>
@@ -69,8 +79,8 @@ export interface NodeTransforms {
   /**
    * Remove the nodes at a specific location in the document.
    */
-  removeNodes: <T extends Node>(
-    editor: Editor,
+  removeNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -83,9 +93,9 @@ export interface NodeTransforms {
   /**
    * Set new properties on the nodes at a location.
    */
-  setNodes: <T extends Node>(
-    editor: Editor,
-    props: Partial<T>,
+  setNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
+    props: Partial<NodeProps<T>>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -101,14 +111,15 @@ export interface NodeTransforms {
   /**
    * Split the nodes at a specific location.
    */
-  splitNodes: <T extends Node>(
-    editor: Editor,
+  splitNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
       mode?: RangeMode
       always?: boolean
       height?: number
+      position?: number
       voids?: boolean
     }
   ) => void
@@ -116,8 +127,8 @@ export interface NodeTransforms {
   /**
    * Unset properties on the nodes at a location.
    */
-  unsetNodes: <T extends Node>(
-    editor: Editor,
+  unsetNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     props: string | string[],
     options?: {
       at?: Location
@@ -133,8 +144,8 @@ export interface NodeTransforms {
    * Unwrap the nodes at a location from a parent node, splitting the parent if
    * necessary to ensure that only the content in the range is unwrapped.
    */
-  unwrapNodes: <T extends Node>(
-    editor: Editor,
+  unwrapNodes: <T extends NodeIn<V>>(
+    editor: Editor<V>,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -148,9 +159,9 @@ export interface NodeTransforms {
    * Wrap the nodes at a location in a new container node, splitting the edges
    * of the range first to ensure that only the content in the range is wrapped.
    */
-  wrapNodes: <T extends Node>(
-    editor: Editor,
-    element: Element,
+  wrapNodes: <T extends NodeIn<V>, E extends ElementIn<V>>(
+    editor: Editor<V>,
+    element: E,
     options?: {
       at?: Location
       match?: NodeMatch<T>
@@ -159,38 +170,4 @@ export interface NodeTransforms {
       voids?: boolean
     }
   ) => void
-}
-
-// eslint-disable-next-line no-redeclare
-export const NodeTransforms: NodeTransforms = {
-  insertNodes(editor, nodes, options) {
-    editor.insertNodes(nodes, options)
-  },
-  liftNodes(editor, options) {
-    editor.liftNodes(options)
-  },
-  mergeNodes(editor, options) {
-    editor.mergeNodes(options)
-  },
-  moveNodes(editor, options) {
-    editor.moveNodes(options)
-  },
-  removeNodes(editor, options) {
-    editor.removeNodes(options)
-  },
-  setNodes(editor, props, options) {
-    editor.setNodes(props, options)
-  },
-  splitNodes(editor, options) {
-    editor.splitNodes(options)
-  },
-  unsetNodes(editor, props, options) {
-    editor.unsetNodes(props, options)
-  },
-  unwrapNodes(editor, options) {
-    editor.unwrapNodes(options)
-  },
-  wrapNodes(editor, element, options) {
-    editor.wrapNodes(element, options)
-  },
 }

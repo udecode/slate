@@ -2,8 +2,8 @@
  * Types.
  */
 
-// COMPAT: Keep explicit aliases so Slate can talk about DOM types without
-// colliding with its own exported node/range names.
+// Keep DOM type names explicit so Slate can talk about browser nodes and
+// ranges without colliding with its own exported node/range names.
 type DOMNode = globalThis.Node
 type DOMComment = globalThis.Comment
 type DOMElement = globalThis.Element
@@ -14,6 +14,8 @@ type DOMStaticRange = globalThis.StaticRange
 
 const DOMNode = globalThis.Node
 const DOMText = globalThis.Text
+const DOCUMENT_POSITION_PRECEDING = 2
+const DOCUMENT_POSITION_FOLLOWING = 4
 
 import { DOMEditor } from '../plugin/dom-editor'
 
@@ -42,15 +44,23 @@ export type DOMPoint = [Node, number]
  * Returns the host window of a DOM node
  */
 
-export const getDefaultView = (value: any): Window | null => {
-  return value?.ownerDocument?.defaultView || null
+export const getDefaultView = (value: unknown): Window | null => {
+  if (value == null || typeof value !== 'object') {
+    return null
+  }
+
+  const { ownerDocument } = value as {
+    ownerDocument?: { defaultView?: Window | null }
+  }
+
+  return ownerDocument?.defaultView ?? null
 }
 
 /**
  * Check if a DOM node is a comment node.
  */
 
-export const isDOMComment = (value: any): value is DOMComment => {
+export const isDOMComment = (value: unknown): value is DOMComment => {
   return isDOMNode(value) && value.nodeType === 8
 }
 
@@ -58,7 +68,7 @@ export const isDOMComment = (value: any): value is DOMComment => {
  * Check if a DOM node is an element node.
  */
 
-export const isDOMElement = (value: any): value is DOMElement => {
+export const isDOMElement = (value: unknown): value is DOMElement => {
   return isDOMNode(value) && value.nodeType === 1
 }
 
@@ -66,25 +76,34 @@ export const isDOMElement = (value: any): value is DOMElement => {
  * Check if a value is a DOM node.
  */
 
-export const isDOMNode = (value: any): value is DOMNode => {
+export const isDOMNode = (value: unknown): value is DOMNode => {
   const window = getDefaultView(value)
-  return !!window && value instanceof window.Node
+  const Node = window?.Node
+
+  return typeof Node === 'function' && value instanceof Node
 }
 
 /**
  * Check if a value is a DOM selection.
  */
 
-export const isDOMSelection = (value: any): value is DOMSelection => {
-  const window = value?.anchorNode && getDefaultView(value.anchorNode)
-  return !!window && value instanceof window.Selection
+export const isDOMSelection = (value: unknown): value is DOMSelection => {
+  if (value == null || typeof value !== 'object') {
+    return false
+  }
+
+  const { anchorNode } = value as { anchorNode?: unknown }
+  const window = anchorNode ? getDefaultView(anchorNode) : null
+  const Selection = window?.Selection
+
+  return typeof Selection === 'function' && value instanceof Selection
 }
 
 /**
  * Check if a DOM node is an element node.
  */
 
-export const isDOMText = (value: any): value is DOMText => {
+export const isDOMText = (value: unknown): value is DOMText => {
   return isDOMNode(value) && value.nodeType === 3
 }
 
@@ -238,7 +257,10 @@ export const getPlainText = (domNode: DOMNode) => {
       text += getPlainText(childNode)
     }
 
-    const display = getComputedStyle(domNode).getPropertyValue('display')
+    const display =
+      getDefaultView(domNode)
+        ?.getComputedStyle(domNode)
+        .getPropertyValue('display') ?? ''
 
     if (display === 'block' || display === 'list' || domNode.tagName === 'BR') {
       text += '\n'
@@ -248,16 +270,35 @@ export const getPlainText = (domNode: DOMNode) => {
   return text
 }
 
+const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+const catchSlateFragment = /data-slate-fragment="(.+?)"/m
+const catchSlateFragmentFormat = /data-slate-fragment-format="(.+?)"/m
+
 /**
  * Get x-slate-fragment attribute from data-slate-fragment
  */
-const catchSlateFragment = /data-slate-fragment="(.+?)"/m
 export const getSlateFragmentAttribute = (
-  dataTransfer: DataTransfer
+  dataTransfer: DataTransfer,
+  clipboardFormatKey = DEFAULT_CLIPBOARD_FORMAT_KEY
 ): string | void => {
   const htmlData = dataTransfer.getData('text/html')
   const [, fragment] = htmlData.match(catchSlateFragment) || []
-  return fragment
+
+  if (!fragment) {
+    return
+  }
+
+  const [, fragmentFormat] = htmlData.match(catchSlateFragmentFormat) || []
+
+  if (fragmentFormat) {
+    return fragmentFormat === clipboardFormatKey ? fragment : undefined
+  }
+
+  if (clipboardFormatKey === DEFAULT_CLIPBOARD_FORMAT_KEY) {
+    return fragment
+  }
+
+  return
 }
 
 /**
@@ -266,10 +307,10 @@ export const getSlateFragmentAttribute = (
  */
 export const getClipboardData = (
   dataTransfer: DataTransfer,
-  clipboardFormatKey = 'x-slate-fragment'
+  clipboardFormatKey = DEFAULT_CLIPBOARD_FORMAT_KEY
 ): DataTransfer => {
   if (!dataTransfer.getData(`application/${clipboardFormatKey}`)) {
-    const fragment = getSlateFragmentAttribute(dataTransfer)
+    const fragment = getSlateFragmentAttribute(dataTransfer, clipboardFormatKey)
     if (fragment) {
       const clipboardData = new DataTransfer()
       dataTransfer.types.forEach((type) => {
@@ -286,9 +327,13 @@ export const getClipboardData = (
  * Get the dom selection from Shadow Root if possible, otherwise from the document
  */
 export const getSelection = (root: Document | ShadowRoot): Selection | null => {
-  if (root.getSelection != null) {
-    return root.getSelection()
+  const getRootSelection = (root as { getSelection?: () => Selection | null })
+    .getSelection
+
+  if (getRootSelection) {
+    return getRootSelection.call(root)
   }
+
   return document.getSelection()
 }
 
@@ -352,19 +397,23 @@ export const getActiveElement = () => {
  * @returns `true` if `otherNode` is before `node` in the document; otherwise, `false`.
  */
 export const isBefore = (node: DOMNode, otherNode: DOMNode): boolean =>
-  Boolean(
-    node.compareDocumentPosition(otherNode) &
-      DOMNode.DOCUMENT_POSITION_PRECEDING
-  )
+  Boolean(node.compareDocumentPosition(otherNode) & getPositionPreceding(node))
 
 /**
  * @returns `true` if `otherNode` is after `node` in the document; otherwise, `false`.
  */
 export const isAfter = (node: DOMNode, otherNode: DOMNode): boolean =>
-  Boolean(
-    node.compareDocumentPosition(otherNode) &
-      DOMNode.DOCUMENT_POSITION_FOLLOWING
-  )
+  Boolean(node.compareDocumentPosition(otherNode) & getPositionFollowing(node))
+
+const getPositionPreceding = (node: DOMNode) =>
+  getDefaultView(node)
+    ? DOCUMENT_POSITION_PRECEDING
+    : node.DOCUMENT_POSITION_PRECEDING
+
+const getPositionFollowing = (node: DOMNode) =>
+  getDefaultView(node)
+    ? DOCUMENT_POSITION_FOLLOWING
+    : node.DOCUMENT_POSITION_FOLLOWING
 
 /**
  * Shadow DOM-aware version of Element.closest()

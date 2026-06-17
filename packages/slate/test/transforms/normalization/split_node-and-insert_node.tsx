@@ -4,8 +4,6 @@ import { jsx } from '../..'
 
 jsx
 
-import { Editor } from 'slate'
-
 export const input = (
   <editor>
     <block>
@@ -21,7 +19,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Editor.withoutNormalizing(editor, () => {
+  editor.withoutNormalizing(() => {
     const operations = [
       {
         type: 'split_node',
@@ -55,7 +53,7 @@ export const run = (editor) => {
       },
       { type: 'insert_node', path: [2, 1], node: { text: '' } },
     ]
-    operations.forEach(editor.apply)
+    editor.operations.replay(operations)
   })
 }
 export const output = (

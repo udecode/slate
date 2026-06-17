@@ -1,7 +1,7 @@
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
-export const unsetNodes: NodeTransforms['unsetNodes'] = (
+export const unsetNodes: NodeMutationMethods['unsetNodes'] = (
   editor,
   props,
   options = {}
@@ -14,5 +14,5 @@ export const unsetNodes: NodeTransforms['unsetNodes'] = (
     obj[key] = null
   }
 
-  Transforms.setNodes(editor, obj, options)
+  getEditorTransformRegistry(editor).setNodes(obj, options)
 }

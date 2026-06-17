@@ -1,61 +1,175 @@
-import { Location } from '../interfaces'
+import { runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
+import {
+  type Ancestor,
+  LocationApi,
+  NodeApi,
+  type Operation,
+  RangeApi,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { type Ancestor, Node, type NodeEntry } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import { type Path, PathApi } from '../interfaces/path'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 
-export const liftNodes: NodeTransforms['liftNodes'] = (
+const getChildren = (editor: Editor, node: Ancestor) =>
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
+
+export const liftNodes: NodeMutationMethods['liftNodes'] = (
   editor,
   options = {}
 ) => {
-  Editor.withoutNormalizing(editor, () => {
-    const { at = editor.selection, mode = 'lowest', voids = false } = options
-    let { match } = options
+  const liftNodeAtPath = (
+    path: Path,
+    tx: { apply: (operation: Operation) => void }
+  ) => {
+    const transforms = getEditorTransformRegistry(editor)
+    const [node] = getNode(editor, path)
 
-    if (!at) {
+    if (NodeApi.isText(node)) {
       return
     }
 
-    if (match == null) {
-      match = Location.isPath(at)
-        ? matchPath(editor, at)
-        : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+    if (path.length < 2) {
+      return
     }
 
-    const matches = Editor.nodes(editor, { at, match, mode, voids })
-    const pathRefs = Array.from(matches, ([, p]) => Editor.pathRef(editor, p))
+    const parentPath = path.slice(0, -1)
+    const [parent] = getNode(editor, parentPath)
 
-    for (const pathRef of pathRefs) {
-      const path = pathRef.unref()!
-
-      if (path.length < 2) {
-        throw new Error(
-          `Cannot lift node at a path [${path}] because it has a depth of less than \`2\`.`
-        )
-      }
-
-      const parentNodeEntry = Editor.node(editor, Path.parent(path))
-      const [parent, parentPath] = parentNodeEntry as NodeEntry<Ancestor>
-      const index = path.at(-1)!
-      const { length } = parent.children
-
-      if (length === 1) {
-        const toPath = Path.next(parentPath)
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-        Transforms.removeNodes(editor, { at: parentPath, voids })
-      } else if (index === 0) {
-        Transforms.moveNodes(editor, { at: path, to: parentPath, voids })
-      } else if (index === length - 1) {
-        const toPath = Path.next(parentPath)
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-      } else {
-        const splitPath = Path.next(path)
-        const toPath = Path.next(parentPath)
-        Transforms.splitNodes(editor, { at: splitPath, voids })
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-      }
+    if (NodeApi.isText(parent)) {
+      return
     }
+
+    const index = path.at(-1)!
+    const childCount = getChildren(editor, parent).length
+
+    if (childCount === 1) {
+      transforms.moveNodes({
+        at: path,
+        to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+      })
+      transforms.removeNodes({ at: parentPath })
+      return
+    }
+
+    if (index === 0) {
+      transforms.moveNodes({
+        at: path,
+        to: parentPath,
+      })
+      return
+    }
+
+    if (index === childCount - 1) {
+      transforms.moveNodes({
+        at: path,
+        to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+      })
+      return
+    }
+
+    tx.apply({
+      type: 'split_node',
+      path: parentPath,
+      position: index + 1,
+      properties:
+        PathApi.equals(parentPath, []) || NodeApi.isEditor(parent)
+          ? {}
+          : NodeApi.extractProps(parent),
+    })
+
+    transforms.moveNodes({
+      at: path,
+      to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+    })
+  }
+
+  runEditorTransaction(editor, (tx) => {
+    const target = tx.resolveTarget({ at: options.at })
+    const selectionBefore = tx.getModelSelection()
+    const mode = options.mode ?? 'lowest'
+    const voids = options.voids ?? false
+    let { match } = options
+
+    if (!target) {
+      return
+    }
+
+    if (match != null || !LocationApi.isRange(target)) {
+      if (match == null) {
+        match = LocationApi.isPath(target)
+          ? matchPath(editor, target)
+          : (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
+      }
+
+      if (LocationApi.isPath(target) && options.match == null) {
+        liftNodeAtPath(target, tx)
+
+        if (selectionBefore == null) {
+          getEditorTransformRegistry(editor).deselect()
+        }
+
+        return
+      }
+
+      const pathRefs = Array.from(
+        getNodes(editor, { at: target, match, mode, voids }),
+        ([, path]) => Editor.pathRef(editor, path)
+      )
+
+      for (const pathRef of pathRefs) {
+        const path = pathRef.unref()
+
+        if (path) {
+          liftNodeAtPath(path, tx)
+        }
+      }
+
+      return
+    }
+
+    const [start, end] = RangeApi.edges(target)
+    const startChildPath = start.path.slice(0, -1)
+    const endChildPath = end.path.slice(0, -1)
+    const startParentPath = startChildPath.slice(0, -1)
+    const endParentPath = endChildPath.slice(0, -1)
+
+    if (
+      startParentPath.length !== 1 ||
+      endParentPath.length !== 1 ||
+      PathApi.compare(startParentPath, endParentPath) !== 0
+    ) {
+      return
+    }
+
+    const startIndex = startChildPath.at(-1)
+    const endIndex = endChildPath.at(-1)
+
+    if (startIndex == null || endIndex == null) {
+      return
+    }
+
+    const wrapperIndex = startParentPath[0]!
+    const selectedBaseIndex = wrapperIndex + (startIndex > 0 ? 1 : 0)
+
+    for (let childIndex = endIndex; childIndex >= startIndex; childIndex -= 1) {
+      liftNodeAtPath([...startParentPath, childIndex], tx)
+    }
+
+    const mapPoint = (point: typeof start) => ({
+      path: [
+        selectedBaseIndex + (point.path[1]! - startIndex),
+        ...point.path.slice(2),
+      ],
+      offset: point.offset,
+    })
+
+    getEditorTransformRegistry(editor).select({
+      anchor: mapPoint(start),
+      focus: mapPoint(end),
+    })
   })
 }

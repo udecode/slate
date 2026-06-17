@@ -1,7 +1,7 @@
 /** @jsx jsx  */
 
 import { cloneDeep } from 'lodash'
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -11,6 +11,6 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Node.ancestor(value, [0])
+  return NodeApi.ancestor(value, [0])
 }
-export const output = cloneDeep(input.children[0])
+export const output = cloneDeep(NodeApi.get(input, [0]))

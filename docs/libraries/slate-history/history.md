@@ -1,12 +1,33 @@
 # History
 
-The `History` object contains the undo and redo history for the editor.
-
-It can be accessed from an `Editor` instance as the property `history`.
-
-This property is only available on the `Editor` if the editor was instantiated using the `withHistory` method which adds undo/redo functionality to the Slate editor.
+The `history()` extension tracks undo and redo batches for an editor.
 
 ```typescript
+import { createEditor } from 'slate'
+import { history } from 'slate-history'
+
+const editor = createEditor({
+  extensions: [history()],
+})
+
+editor.read((state) => state.history.undos())
+
+editor.update((tx) => {
+  tx.history.undo()
+})
+
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('draft')
+  })
+})
+```
+
+## History Object
+
+```typescript
+import type { EditorStatePatch, Operation, Range } from 'slate'
+
 export interface History {
   redos: Batch[]
   undos: Batch[]
@@ -15,13 +36,87 @@ export interface History {
 interface Batch {
   operations: Operation[]
   selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
 }
 ```
 
-- [Static Methods](history.md#static-methods)
-
 ## Static Methods
 
-#### `History.isHistory(value: any): value is History`
+#### `History.isHistory(value: unknown): value is History`
 
-Returns `true` if the passed in `value` is a `History` object and also acts as a type guard for `History`.
+Returns `true` if the passed in `value` is a `History` object and acts as a
+type guard.
+
+## Editor API
+
+#### `state.history.get(): History`
+
+Read the current undo and redo stacks.
+
+#### `state.history.undos(): Batch[]`
+
+Read the undo stack.
+
+#### `state.history.redos(): Batch[]`
+
+Read the redo stack.
+
+#### `tx.history.undo(): void`
+
+Undo the previous history batch.
+
+#### `tx.history.redo(): void`
+
+Redo the next history batch.
+
+#### `editor.api.history.withMerging(fn: () => void): void`
+
+Run updates that merge into the previous history batch.
+
+#### `editor.api.history.withNewBatch(fn: () => void): void`
+
+Run updates where the first operation starts a new history batch.
+
+#### `editor.api.history.withoutMerging(fn: () => void): void`
+
+Run updates without merging the new operations into the previous batch.
+
+#### `editor.api.history.withoutSaving(fn: () => void): void`
+
+Run updates without saving operations to history.
+
+#### `editor.api.history.isMerging(): boolean | undefined`
+
+Read the current merge flag.
+
+#### `editor.api.history.isSaving(): boolean | undefined`
+
+Read the current saving flag.
+
+## Controlled Previews
+
+Render proposed edits from local state, decorations, or sidecar UI until the
+user accepts them. Do not mutate document content for a preview and then try to
+make that preview history later.
+
+Use a local `defineStateField` with `persist: false` and `history: 'skip'` for
+preview state. Cancel by clearing that field. Accept by clearing the preview and
+applying the real document edit in one normal update.
+
+```tsx
+const previewReplacement = defineStateField<string | null>({
+  key: 'local.preview.replacement',
+  history: 'skip',
+  initial: () => null,
+  persist: false,
+})
+
+editor.update((tx) => {
+  tx.setField(previewReplacement, null)
+  tx.text.delete({ at: selectedRange })
+  tx.text.insert(acceptedText)
+})
+```
+
+Undo then restores the document content without resurrecting preview UI.

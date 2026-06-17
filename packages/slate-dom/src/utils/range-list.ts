@@ -1,4 +1,5 @@
-import { type Ancestor, type DecoratedRange, Editor, Range } from 'slate'
+import { type DecoratedRange, type Range, RangeApi } from 'slate'
+import { Editor } from 'slate/internal'
 import { DOMEditor } from '../plugin/dom-editor'
 import { PLACEHOLDER_SYMBOL } from './weak-maps'
 
@@ -16,7 +17,8 @@ const isDecorationFlagsEqual = (range: Range, other: Range) => {
   const { anchor: otherAnchor, focus: otherFocus, ...otherOwnProps } = other
 
   return (
-    range[PLACEHOLDER_SYMBOL] === other[PLACEHOLDER_SYMBOL] &&
+    (range as unknown as Record<PropertyKey, unknown>)[PLACEHOLDER_SYMBOL] ===
+      (other as unknown as Record<PropertyKey, unknown>)[PLACEHOLDER_SYMBOL] &&
     shallowCompare(rangeOwnProps, otherOwnProps)
   )
 }
@@ -49,7 +51,10 @@ export const isElementDecorationsEqual = (
     const range = list[i]
     const other = another[i]
 
-    if (!Range.equals(range, other) || !isDecorationFlagsEqual(range, other)) {
+    if (
+      !RangeApi.equals(range, other) ||
+      !isDecorationFlagsEqual(range, other)
+    ) {
       return false
     }
   }
@@ -107,38 +112,45 @@ export const isTextDecorationsEqual = (
  */
 
 export const splitDecorationsByChild = (
-  editor: Editor,
-  node: Ancestor,
+  editor: import('../plugin/dom-editor').DOMEditor,
+  node: import('slate').Ancestor,
   decorations: DecoratedRange[]
 ): DecoratedRange[][] => {
-  const decorationsByChild = Array.from(
-    node.children,
-    (): DecoratedRange[] => []
-  )
+  const children = Editor.isEditor(node)
+    ? editor.read((state) => state.nodes.children())
+    : node.children
+  const decorationsByChild = Array.from(children, (): DecoratedRange[] => [])
 
   if (decorations.length === 0) {
     return decorationsByChild
   }
 
-  const path = DOMEditor.findPath(editor, node)
-  const level = path.length
-  const ancestorRange = Editor.range(editor, path)
+  const path = DOMEditor.resolvePath(editor, node)
 
-  const cachedChildRanges = new Array<Range | undefined>(node.children.length)
+  if (!path) {
+    return decorationsByChild
+  }
+
+  const level = path.length
+  const ancestorRange = editor.read((state) => state.ranges.get(path))
+
+  const cachedChildRanges = new Array<Range | undefined>(children.length)
 
   const getChildRange = (index: number) => {
     const cachedRange = cachedChildRanges[index]
     if (cachedRange) return cachedRange
-    const childRange = Editor.range(editor, [...path, index])
+    const childRange = editor.read((state) =>
+      state.ranges.get([...path, index])
+    )
     cachedChildRanges[index] = childRange
     return childRange
   }
 
   for (const decoration of decorations) {
-    const decorationRange = Range.intersection(ancestorRange, decoration)
+    const decorationRange = RangeApi.intersection(ancestorRange, decoration)
     if (!decorationRange) continue
 
-    const [startPoint, endPoint] = Range.edges(decorationRange)
+    const [startPoint, endPoint] = RangeApi.edges(decorationRange)
     const startIndex = startPoint.path[level]
     const endIndex = endPoint.path[level]
 
@@ -147,7 +159,7 @@ export const splitDecorationsByChild = (
       if (!ds) continue
 
       const childRange = getChildRange(i)
-      const childDecorationRange = Range.intersection(childRange, decoration)
+      const childDecorationRange = RangeApi.intersection(childRange, decoration)
       if (!childDecorationRange) continue
 
       ds.push({

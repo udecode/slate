@@ -1,11 +1,6 @@
-import {
-  type Ancestor,
-  type Descendant,
-  type ExtendedType,
-  isObject,
-  Node,
-  type Path,
-} from '..'
+import { type Ancestor, type Descendant, NodeApi, type Path } from '..'
+import { isObject } from '../utils/is-object'
+import type { BaseEditor } from './editor'
 
 /**
  * `Element` objects are a type of node in a Slate document that contain other
@@ -15,9 +10,34 @@ import {
 
 export interface BaseElement {
   children: Descendant[]
+  type: string
+  [key: string]: unknown
 }
 
-export type Element = ExtendedType<'Element', BaseElement>
+export type Element = BaseElement
+
+export type ElementIn<V extends readonly unknown[]> = ElementOf<V[number]>
+
+export type ElementOf<N> = Element extends N
+  ? Element
+  : N extends BaseEditor<infer V>
+    ? ElementIn<V>
+    : N extends { getChildren: () => infer V }
+      ? V extends readonly (infer Child)[]
+        ? Extract<Child, Element> | ElementOf<Child>
+        : never
+      : N extends Element
+        ?
+            | N
+            | Extract<N['children'][number], Element>
+            | ElementOf<N['children'][number]>
+        : never
+
+export type ElementOrTextOf<E> = ElementOf<E> | import('./text').TextOf<E>
+
+export type ElementOrTextIn<V extends readonly unknown[]> =
+  | ElementIn<V>
+  | import('./text').TextIn<V>
 
 export interface ElementIsElementOptions {
   deep?: boolean
@@ -27,35 +47,40 @@ export interface ElementInterface {
   /**
    * Check if a value implements the 'Ancestor' interface.
    */
-  isAncestor: (
-    value: any,
+  isAncestor: <T extends Ancestor = Ancestor>(
+    value: unknown,
     options?: ElementIsElementOptions
-  ) => value is Ancestor
+  ) => value is T
 
   /**
    * Check if a value implements the `Element` interface.
    */
-  isElement: (value: any, options?: ElementIsElementOptions) => value is Element
+  isElement: <T extends Element = Element>(
+    value: unknown,
+    options?: ElementIsElementOptions
+  ) => value is T
 
   /**
    * Check if a value is an array of `Element` objects.
    */
-  isElementList: (
-    value: any,
+  isElementList: <T extends Element = Element>(
+    value: unknown,
     options?: ElementIsElementOptions
-  ) => value is Element[]
+  ) => value is T[]
 
   /**
    * Check if a set of props is a partial of Element.
    */
-  isElementProps: (props: any) => props is Partial<Element>
+  isElementProps: <T extends Element = Element>(
+    props: unknown
+  ) => props is Partial<T>
 
   /**
    * Check if a value implements the `Element` interface and has elementKey with selected value.
    * Default it check to `type` key value
    */
   isElementType: <T extends Element>(
-    value: any,
+    value: unknown,
     elementVal: string,
     elementKey?: string
   ) => value is T
@@ -66,56 +91,66 @@ export interface ElementInterface {
    * Note: this checks custom properties, and it does not ensure that any
    * children are equivalent.
    */
-  matches: (element: Element, props: Partial<Element>) => boolean
+  matches: <T extends Element = Element>(
+    element: T,
+    props: Partial<T>
+  ) => boolean
 }
 
 /**
  * Shared the function with isElementType utility
  */
 const isElement = (
-  value: any,
+  value: unknown,
   { deep = false }: ElementIsElementOptions = {}
 ): value is Element => {
   if (!isObject(value)) return false
 
-  // PERF: No need to use the full Editor.isEditor here
-  const isEditor = typeof value.apply === 'function'
-  if (isEditor) return false
+  if (
+    Array.isArray(value.children) &&
+    Array.isArray(value.operations) &&
+    'selection' in value &&
+    'marks' in value
+  ) {
+    return false
+  }
 
   const isChildrenValid = deep
-    ? Node.isNodeList(value.children)
+    ? NodeApi.isNodeList(value.children)
     : Array.isArray(value.children)
 
   return isChildrenValid
 }
 
 // eslint-disable-next-line no-redeclare
-export const Element: ElementInterface = {
-  isAncestor(
-    value: any,
+export const ElementApi: ElementInterface = {
+  isAncestor<T extends Ancestor = Ancestor>(
+    value: unknown,
     { deep = false }: ElementIsElementOptions = {}
-  ): value is Ancestor {
-    return isObject(value) && Node.isNodeList(value.children, { deep })
+  ): value is T {
+    return isObject(value) && NodeApi.isNodeList(value.children, { deep })
   },
 
-  isElement,
+  isElement: isElement as ElementInterface['isElement'],
 
-  isElementList(
-    value: any,
+  isElementList<T extends Element = Element>(
+    value: unknown,
     { deep = false }: ElementIsElementOptions = {}
-  ): value is Element[] {
+  ): value is T[] {
     return (
       Array.isArray(value) &&
-      value.every((val) => Element.isElement(val, { deep }))
+      value.every((val) => ElementApi.isElement(val, { deep }))
     )
   },
 
-  isElementProps(props: any): props is Partial<Element> {
+  isElementProps<T extends Element = Element>(
+    props: unknown
+  ): props is Partial<T> {
     return (props as Partial<Element>).children !== undefined
   },
 
   isElementType: <T extends Element>(
-    value: any,
+    value: unknown,
     elementVal: string,
     elementKey = 'type'
   ): value is T => {
@@ -125,7 +160,7 @@ export const Element: ElementInterface = {
     )
   },
 
-  matches(element: Element, props: Partial<Element>): boolean {
+  matches<T extends Element = Element>(element: T, props: Partial<T>): boolean {
     for (const key in props) {
       if (key === 'children') {
         continue
@@ -144,4 +179,4 @@ export const Element: ElementInterface = {
  * `ElementEntry` objects refer to an `Element` and the `Path` where it can be
  * found inside a root node.
  */
-export type ElementEntry = [Element, Path]
+export type ElementEntry<N = Element> = [ElementOf<N>, Path]

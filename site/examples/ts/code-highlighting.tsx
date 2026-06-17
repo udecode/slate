@@ -1,5 +1,3 @@
-import { css } from '@emotion/css'
-import isHotkey from 'is-hotkey'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-java'
 import 'prismjs/components/prism-javascript'
@@ -11,31 +9,25 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-tsx'
 import 'prismjs/components/prism-typescript'
 import type React from 'react'
+import type { ChangeEvent, PointerEvent } from 'react'
 import {
-  type ChangeEvent,
-  type PointerEvent,
-  useCallback,
-  useState,
-} from 'react'
-import {
-  createEditor,
-  type DecoratedRange,
-  Editor,
-  Node,
-  type NodeEntry,
-  type Element as SlateElement,
-  Transforms,
+  type Descendant,
+  type EditorSnapshot,
+  NodeApi,
+  type RuntimeId,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { isHotkey } from 'slate-dom'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
-  type RenderLeafProps,
   Slate,
-  useSlateStatic,
-  withReact,
+  type SlateRangeDecoration,
+  useEditor,
+  useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { cn } from '@/utils/cn'
 import { Button, Icon, Toolbar } from './components'
 import type {
   CodeBlockElement,
@@ -43,56 +35,148 @@ import type {
   CustomEditor,
   CustomElement,
   CustomText,
+  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
 const ParagraphType = 'paragraph'
 const CodeBlockType = 'code-block'
 const CodeLineType = 'code-line'
+const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
-  const [editor] = useState(() => withHistory(withReact(createEditor())))
+  const initialValue: CustomValue = [
+    {
+      type: ParagraphType,
+      children: toChildren(
+        "Here's one containing a single paragraph block with some text in it:"
+      ),
+    },
+    {
+      type: CodeBlockType,
+      language: 'jsx',
+      children: toCodeLines(`// Add the initial value.
+const initialValue = [
+  {
+    type: 'paragraph',
+    children: [{ text: 'A line of text in a paragraph.' }]
+  }
+]
 
-  const decorate = useDecorate()
-  const onKeyDown = useOnKeydown(editor)
+const App = () => {
+  const editor = useSlateEditor({
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
+      <Editable />
+    </Slate>
+  )
+}`),
+    },
+    {
+      type: ParagraphType,
+      children: toChildren(
+        'If you are using TypeScript, create the editor from the final value shape and pass extension factories at creation time. The example below includes the custom types required for the rest of this example.'
+      ),
+    },
+    {
+      type: CodeBlockType,
+      language: 'typescript',
+      children: toCodeLines(`// TypeScript users only add this code
+import { Descendant } from 'slate'
+import { useSlateEditor } from 'slate-react'
+
+type CustomElement = { type: 'paragraph'; children: CustomText[] }
+type CustomText = { text: string }
+type CustomValue = CustomElement[]
+
+const editor = useSlateEditor<CustomValue>({ initialValue })`),
+    },
+    {
+      type: ParagraphType,
+      children: toChildren('There you have it!'),
+    },
+  ]
+  const editor = useSlateEditor({ initialValue })
+
+  const codeHighlightingSource = useSlateRangeDecorationSource(editor, {
+    id: 'code-highlighting',
+    dirtiness: ['text', 'node'],
+    read: ({ snapshot }) => collectCodeRanges(snapshot.children),
+    runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
+  })
+
+  return (
+    <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
       <ExampleToolbar />
       <Editable
-        decorate={decorate}
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => {
+          if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+            convertSelectionToCodeBlock(editor)
+            return true
+          }
+
+          if (preventLeadingCodeBlockBackspace(editor, event)) {
+            return true
+          }
+
+          const isTab = isHotkey('tab', event)
+          const isShiftTab = isHotkey('shift+tab', event)
+
+          if (!isTab && !isShiftTab) {
+            return
+          }
+
+          const handledCodeLines = updateSelectedCodeLines(
+            editor,
+            isShiftTab ? 'outdent' : 'indent'
+          )
+
+          if (!handledCodeLines && isTab) {
+            editor.update((tx) => {
+              tx.text.insert(CodeIndent)
+            })
+          }
+
+          return true
+        }}
         renderElement={ElementWrapper}
-        renderLeaf={renderLeaf}
+        renderSegment={CodeSegment}
       />
-      <style>{prismThemeCss}</style>
+      <style>{prismThemeStyles}</style>
     </Slate>
   )
 }
 
-const ElementWrapper = (props: RenderElementProps) => {
+const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
-  const editor = useSlateStatic()
+  const editor = useEditor<CustomEditor>()
 
   if (element.type === CodeBlockType) {
     const setLanguage = (language: string) => {
-      const path = ReactEditor.findPath(editor, element)
-      Transforms.setNodes(editor, { language }, { at: path })
+      editor.update((tx) => {
+        const entry = tx.nodes.find({
+          at: [],
+          match: (node) => node === element,
+        })
+
+        if (!entry) {
+          return
+        }
+
+        const [, path] = entry
+
+        tx.nodes.set({ language }, { at: path })
+      })
     }
 
     return (
       <div
         {...attributes}
-        className={css(`
-        font-family: monospace;
-        font-size: 16px;
-        line-height: 20px;
-        margin-top: 0;
-        background: rgba(0, 20, 60, .03);
-        padding: 5px 13px;
-      `)}
+        className="slate-code-highlighting-block slate-code-highlighting-positioned"
         spellCheck={false}
-        style={{ position: 'relative' }}
       >
         <LanguageSelect
           onChange={(e) => setLanguage(e.target.value)}
@@ -105,17 +189,43 @@ const ElementWrapper = (props: RenderElementProps) => {
 
   if (element.type === CodeLineType) {
     return (
-      <div {...attributes} style={{ position: 'relative' }}>
+      <div {...attributes} className="slate-code-highlighting-positioned">
         {children}
       </div>
     )
   }
 
-  const Tag = editor.isInline(element) ? 'span' : 'div'
+  const Tag = editor.read((state) => state.schema.isInline(element))
+    ? 'span'
+    : 'div'
   return (
-    <Tag {...attributes} style={{ position: 'relative' }}>
+    <Tag {...attributes} className="slate-code-highlighting-positioned">
       {children}
     </Tag>
+  )
+}
+
+const CodeSegment: NonNullable<
+  React.ComponentProps<
+    typeof Editable<CustomText, CustomElement>
+  >['renderSegment']
+> = (segment, children) => {
+  const data = Object.assign(
+    {},
+    ...segment.slices.map((slice) => slice.data ?? {})
+  )
+  const hasTokenClass = Object.values(data).some((value) => value === true)
+
+  return hasTokenClass ? (
+    <span
+      className={cn(
+        Object.entries(data).map(([key, value]) => value === true && key)
+      )}
+    >
+      {children}
+    </span>
+  ) : (
+    children
   )
 }
 
@@ -128,28 +238,13 @@ const ExampleToolbar = () => {
 }
 
 const CodeBlockButton = () => {
-  const editor = useSlateStatic()
-  const handleClick = () => {
-    Transforms.wrapNodes(
-      editor,
-      { type: CodeBlockType, language: 'html', children: [] },
-      {
-        match: (n) => Node.isElement(n) && n.type === ParagraphType,
-        split: true,
-      }
-    )
-    Transforms.setNodes<SlateElement>(
-      editor,
-      { type: CodeLineType },
-      { match: (n) => Node.isElement(n) && n.type === ParagraphType }
-    )
-  }
+  const editor = useEditor<CustomEditor>()
 
   return (
     <Button
       active
       data-test-id="code-block-button"
-      onClick={handleClick}
+      onClick={() => convertSelectionToCodeBlock(editor)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()
       }}
@@ -159,41 +254,107 @@ const CodeBlockButton = () => {
   )
 }
 
-const renderLeaf = (props: RenderLeafProps) => {
-  const { attributes, children, leaf } = props
-  const { text, ...rest } = leaf
-
-  return (
-    <span {...attributes} className={Object.keys(rest).join(' ')}>
-      {children}
-    </span>
-  )
+const convertSelectionToCodeBlock = (editor: CustomEditor) => {
+  editor.update((tx) => {
+    tx.nodes.wrap(
+      { type: CodeBlockType, language: 'html', children: [] },
+      {
+        match: (node) => NodeApi.isElement(node) && node.type === ParagraphType,
+        split: true,
+      }
+    )
+    tx.nodes.set(
+      { type: CodeLineType },
+      {
+        match: (node) => NodeApi.isElement(node) && node.type === ParagraphType,
+      }
+    )
+  })
 }
 
-const useDecorate = () => {
-  return useCallback(([node, path]: NodeEntry) => {
-    if (Node.isElement(node) && node.type === CodeBlockType) {
-      return decorateCodeBlock([node, path])
+const collectCodeRanges = (
+  nodes: readonly Descendant[],
+  path: number[] = [],
+  language: string | undefined = undefined
+): SlateRangeDecoration<Record<string, true>>[] => {
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
+
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+    const nodeLanguage =
+      NodeApi.isElement(node) && node.type === CodeBlockType
+        ? (node as CodeBlockElement).language
+        : language
+
+    if (NodeApi.isText(node) && nodeLanguage) {
+      ranges.push(...collectCodeTextRanges(node.text, nodePath, nodeLanguage))
     }
 
-    return []
-  }, [])
+    if (NodeApi.isElement(node)) {
+      ranges.push(...collectCodeRanges(node.children, nodePath, nodeLanguage))
+    }
+  })
+
+  return ranges
 }
 
-const decorateCodeBlock = ([
-  block,
-  blockPath,
-]: NodeEntry<CodeBlockElement>): DecoratedRange[] => {
-  const text = block.children.map((line) => Node.string(line)).join('\n')
-  const tokens = Prism.tokenize(text, Prism.languages[block.language])
-  const normalizedTokens = normalizeTokens(tokens) // make tokens flat and grouped by line
-  const decorations: DecoratedRange[] = []
+const collectCodeRuntimeScope = (
+  snapshot: EditorSnapshot,
+  nodes: readonly Descendant[] = snapshot.children,
+  path: number[] = [],
+  language: string | undefined = undefined
+): RuntimeId[] => {
+  const runtimeIds: RuntimeId[] = []
 
-  for (let index = 0; index < normalizedTokens.length; index++) {
-    const tokens = normalizedTokens[index]
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+    const nodeLanguage =
+      NodeApi.isElement(node) && node.type === CodeBlockType
+        ? (node as CodeBlockElement).language
+        : language
 
-    let start = 0
-    for (const token of tokens) {
+    if (NodeApi.isText(node) && nodeLanguage) {
+      const runtimeId = snapshot.index.pathToId[nodePath.join('.')]
+
+      if (runtimeId) {
+        runtimeIds.push(runtimeId)
+      }
+      return
+    }
+
+    if (NodeApi.isElement(node)) {
+      runtimeIds.push(
+        ...collectCodeRuntimeScope(
+          snapshot,
+          node.children,
+          nodePath,
+          nodeLanguage
+        )
+      )
+    }
+  })
+
+  return runtimeIds
+}
+
+const collectCodeTextRanges = (
+  text: string,
+  path: number[],
+  language = 'jsx'
+): SlateRangeDecoration<Record<string, true>>[] => {
+  const grammar = Prism.languages[language]
+
+  if (!grammar) {
+    return []
+  }
+
+  const tokens = Prism.tokenize(text, grammar)
+  const normalizedTokens = normalizeTokens(tokens)
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
+  let start = 0
+
+  normalizedTokens.forEach((lineTokens, lineIndex) => {
+    for (const token of lineTokens) {
       const length = token.content.length
       if (!length) {
         continue
@@ -201,69 +362,317 @@ const decorateCodeBlock = ([
 
       const end = start + length
 
-      const path = [...blockPath, index, 0]
-
-      decorations.push({
-        anchor: { path, offset: start },
-        focus: { path, offset: end },
-        token: true,
-        ...Object.fromEntries(token.types.map((type) => [type, true])),
+      ranges.push({
+        data: {
+          token: true,
+          ...Object.fromEntries(token.types.map((type) => [type, true])),
+        },
+        key: `code:${path.join('.')}:${start}:${end}`,
+        range: {
+          anchor: { path, offset: start },
+          focus: { path, offset: end },
+        },
       })
 
       start = end
     }
+
+    if (lineIndex < normalizedTokens.length - 1) {
+      start += 1
+    }
+  })
+
+  return ranges
+}
+
+type CodeIndentAction = 'indent' | 'outdent'
+
+type EditorPoint = {
+  path: number[]
+  offset: number
+}
+
+type EditorRange = {
+  anchor: EditorPoint
+  focus: EditorPoint
+}
+
+const preventLeadingCodeBlockBackspace = (
+  editor: CustomEditor,
+  event: React.KeyboardEvent
+) => {
+  if (!isHotkey('backspace', event)) {
+    return false
   }
 
-  return decorations
+  const snapshot = editor.read((state) => ({
+    children: state.runtime.snapshot().children,
+    selection: state.selection.get(),
+  }))
+  const selection = snapshot.selection
+
+  if (
+    !selection ||
+    !isSamePoint(selection.anchor, selection.focus) ||
+    selection.anchor.offset !== 0
+  ) {
+    return false
+  }
+
+  const codeLinePath = getCodeLinePath(snapshot.children, selection.anchor.path)
+
+  if (!codeLinePath || codeLinePath.at(-1) !== 0) {
+    return false
+  }
+
+  const codeBlockPath = codeLinePath.slice(0, -1)
+  const codeBlock = getDescendant(snapshot.children, codeBlockPath)
+
+  if (
+    !codeBlock ||
+    !NodeApi.isElement(codeBlock) ||
+    codeBlock.type !== CodeBlockType
+  ) {
+    return false
+  }
+
+  event.preventDefault()
+
+  return true
 }
 
-const useOnKeydown = (editor: CustomEditor) => {
-  const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = useCallback(
-    (e) => {
-      if (isHotkey('tab', e)) {
-        // handle tab key, insert spaces
-        e.preventDefault()
+const updateSelectedCodeLines = (
+  editor: CustomEditor,
+  action: CodeIndentAction
+) => {
+  const snapshot = editor.read((state) => ({
+    children: state.runtime.snapshot().children,
+    selection: state.selection.get(),
+  }))
+  const selection = snapshot.selection
 
-        Editor.insertText(editor, '  ')
+  if (!selection) {
+    return false
+  }
+
+  const isCollapsed = isSamePoint(selection.anchor, selection.focus)
+
+  if (isCollapsed && action === 'indent') {
+    return false
+  }
+
+  const codeLinePaths = getSelectedCodeLinePaths(snapshot.children, selection)
+
+  if (!codeLinePaths.length) {
+    return false
+  }
+
+  editor.update((tx) => {
+    for (const linePath of [...codeLinePaths].reverse()) {
+      const textPath = getFirstTextPath(snapshot.children, linePath)
+
+      if (!textPath) {
+        continue
       }
-    },
-    [editor]
-  )
 
-  return onKeyDown
+      if (action === 'indent') {
+        tx.text.insert(CodeIndent, { at: { path: textPath, offset: 0 } })
+        continue
+      }
+
+      const outdentWidth = getOutdentWidth(snapshot.children, textPath)
+
+      if (outdentWidth > 0) {
+        tx.text.delete({
+          at: {
+            anchor: { path: textPath, offset: 0 },
+            focus: { path: textPath, offset: outdentWidth },
+          },
+        })
+      }
+    }
+  })
+
+  return true
 }
+
+const getSelectedCodeLinePaths = (
+  children: readonly Descendant[],
+  selection: EditorRange
+) => {
+  const [start, end] = getOrderedPoints(selection)
+  const startLinePath = getCodeLinePath(children, start.path)
+  const endLinePath = getCodeLinePath(children, end.path)
+
+  if (!startLinePath || !endLinePath) {
+    return []
+  }
+
+  const startCodeBlockPath = startLinePath.slice(0, -1)
+  const endCodeBlockPath = endLinePath.slice(0, -1)
+
+  if (!isSamePath(startCodeBlockPath, endCodeBlockPath)) {
+    return []
+  }
+
+  const codeBlock = getDescendant(children, startCodeBlockPath)
+  const startIndex = startLinePath.at(-1)
+  const endIndex = endLinePath.at(-1)
+
+  if (
+    startIndex == null ||
+    endIndex == null ||
+    !codeBlock ||
+    !NodeApi.isElement(codeBlock) ||
+    codeBlock.type !== CodeBlockType
+  ) {
+    return []
+  }
+
+  const codeLinePaths: number[][] = []
+
+  codeBlock.children.slice(startIndex, endIndex + 1).forEach((node, index) => {
+    if (NodeApi.isElement(node) && node.type === CodeLineType) {
+      codeLinePaths.push([...startCodeBlockPath, startIndex + index])
+    }
+  })
+
+  return codeLinePaths
+}
+
+const getCodeLinePath = (
+  children: readonly Descendant[],
+  path: readonly number[]
+) => {
+  const node = getDescendant(children, path)
+
+  if (node && NodeApi.isElement(node) && node.type === CodeLineType) {
+    return [...path]
+  }
+
+  const parentPath = path.slice(0, -1)
+  const parent = getDescendant(children, parentPath)
+
+  if (parent && NodeApi.isElement(parent) && parent.type === CodeLineType) {
+    return parentPath
+  }
+
+  return null
+}
+
+const getFirstTextPath = (
+  children: readonly Descendant[],
+  linePath: readonly number[]
+) => {
+  const line = getDescendant(children, linePath)
+
+  if (!line || !NodeApi.isElement(line)) {
+    return null
+  }
+
+  const textIndex = line.children.findIndex((child) => NodeApi.isText(child))
+
+  return textIndex === -1 ? null : [...linePath, textIndex]
+}
+
+const getOutdentWidth = (
+  children: readonly Descendant[],
+  textPath: readonly number[]
+) => {
+  const textNode = getDescendant(children, textPath)
+
+  if (!textNode || !NodeApi.isText(textNode)) {
+    return 0
+  }
+
+  if (textNode.text.startsWith(CodeIndent)) {
+    return CodeIndent.length
+  }
+
+  if (textNode.text.startsWith('\t') || textNode.text.startsWith(' ')) {
+    return 1
+  }
+
+  return 0
+}
+
+const getDescendant = (
+  children: readonly Descendant[],
+  path: readonly number[]
+): Descendant | null => {
+  let descendants = children
+  let node: Descendant | null = null
+
+  for (const index of path) {
+    node = descendants[index] ?? null
+
+    if (!node) {
+      return null
+    }
+
+    descendants = NodeApi.isElement(node) ? node.children : []
+  }
+
+  return node
+}
+
+const getOrderedPoints = ({ anchor, focus }: EditorRange) =>
+  comparePoints(anchor, focus) <= 0 ? [anchor, focus] : [focus, anchor]
+
+const comparePoints = (point: EditorPoint, another: EditorPoint) => {
+  const pathComparison = comparePaths(point.path, another.path)
+
+  return pathComparison === 0 ? point.offset - another.offset : pathComparison
+}
+
+const comparePaths = (path: readonly number[], another: readonly number[]) => {
+  const length = Math.min(path.length, another.length)
+
+  for (let index = 0; index < length; index++) {
+    const left = path[index]
+    const right = another[index]
+
+    if (left !== right) {
+      return left < right ? -1 : 1
+    }
+  }
+
+  return path.length - another.length
+}
+
+const isSamePoint = (point: EditorPoint, another: EditorPoint) =>
+  point.offset === another.offset && isSamePath(point.path, another.path)
+
+const isSamePath = (path: readonly number[], another: readonly number[]) =>
+  path.length === another.length &&
+  path.every((segment, index) => segment === another[index])
 
 interface LanguageSelectProps
-  extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   value?: string
   onChange: (event: ChangeEvent<HTMLSelectElement>) => void
 }
 
 const LanguageSelect = (props: LanguageSelectProps) => {
   return (
-    <select
-      className={css`
-        position: absolute;
-        right: 5px;
-        top: 5px;
-        z-index: 1;
-      `}
+    <NativeSelect
+      className="absolute top-[5px] right-[5px] z-10"
       contentEditable={false}
       data-test-id="language-select"
       {...props}
     >
-      <option value="css">CSS</option>
-      <option value="html">HTML</option>
-      <option value="java">Java</option>
-      <option value="javascript">JavaScript</option>
-      <option value="jsx">JSX</option>
-      <option value="markdown">Markdown</option>
-      <option value="php">PHP</option>
-      <option value="python">Python</option>
-      <option value="sql">SQL</option>
-      <option value="tsx">TSX</option>
-      <option value="typescript">TypeScript</option>
-    </select>
+      <NativeSelectOption value="css">CSS</NativeSelectOption>
+      <NativeSelectOption value="html">HTML</NativeSelectOption>
+      <NativeSelectOption value="java">Java</NativeSelectOption>
+      <NativeSelectOption value="javascript">JavaScript</NativeSelectOption>
+      <NativeSelectOption value="jsx">JSX</NativeSelectOption>
+      <NativeSelectOption value="markdown">Markdown</NativeSelectOption>
+      <NativeSelectOption value="php">PHP</NativeSelectOption>
+      <NativeSelectOption value="python">Python</NativeSelectOption>
+      <NativeSelectOption value="sql">SQL</NativeSelectOption>
+      <NativeSelectOption value="tsx">TSX</NativeSelectOption>
+      <NativeSelectOption value="typescript">TypeScript</NativeSelectOption>
+    </NativeSelect>
   )
 }
 
@@ -273,68 +682,10 @@ const toCodeLines = (content: string): CodeLineElement[] =>
     .split('\n')
     .map((line) => ({ type: CodeLineType, children: toChildren(line) }))
 
-const initialValue: CustomElement[] = [
-  {
-    type: ParagraphType,
-    children: toChildren(
-      "Here's one containing a single paragraph block with some text in it:"
-    ),
-  },
-  {
-    type: CodeBlockType,
-    language: 'jsx',
-    children: toCodeLines(`// Add the initial value.
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }]
-  }
-]
-
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable />
-    </Slate>
-  )
-}`),
-  },
-  {
-    type: ParagraphType,
-    children: toChildren(
-      'If you are using TypeScript, you will also need to extend the Editor with ReactEditor and add annotations as per the documentation on TypeScript. The example below also includes the custom types required for the rest of this example.'
-    ),
-  },
-  {
-    type: CodeBlockType,
-    language: 'typescript',
-    children: toCodeLines(`// TypeScript users only add this code
-import { BaseEditor, Descendant } from 'slate'
-import { ReactEditor } from 'slate-react'
-
-type CustomElement = { type: 'paragraph'; children: CustomText[] }
-type CustomText = { text: string }
-
-declare module 'slate' {
-  interface CustomTypes {
-    Editor: BaseEditor & ReactEditor
-    Element: CustomElement
-    Text: CustomText
-  }
-}`),
-  },
-  {
-    type: ParagraphType,
-    children: toChildren('There you have it!'),
-  },
-]
-
-// Prismjs theme stored as a string instead of emotion css function.
+// Prismjs theme stored as a string for copy/pasting alternate themes.
 // It is useful for copy/pasting different themes. Also lets keeping simpler Leaf implementation
 // In the real project better to use just css file
-const prismThemeCss = `
+const prismThemeStyles = `
 /**
  * prism.js default theme for JavaScript, CSS and HTML
  * Based on dabblet (http://dabblet.com)

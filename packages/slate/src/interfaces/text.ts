@@ -1,6 +1,18 @@
-import { isObject, Range } from '..'
-import type { ExtendedType } from '../types/custom-types'
+import { type Range, RangeApi } from '..'
 import { isDeepEqual } from '../utils/deep-equal'
+import { isObject } from '../utils/is-object'
+import type { BaseEditor } from './editor'
+import type { Element } from './element'
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {}
+
+type UnionToIntersection<U> = (
+  U extends unknown
+    ? (value: U) => void
+    : never
+) extends (value: infer I) => void
+  ? I
+  : never
 
 /**
  * `Text` objects represent the nodes that contain the actual text content of a
@@ -10,9 +22,48 @@ import { isDeepEqual } from '../utils/deep-equal'
 
 export interface BaseText {
   text: string
+  [key: string]: unknown
 }
 
-export type Text = ExtendedType<'Text', BaseText>
+export type Text = BaseText
+
+export type TextIn<V extends readonly unknown[]> = TextOf<V[number]>
+
+export type TextOf<N> = N extends Text
+  ? N
+  : Text extends N
+    ? Text
+    : N extends BaseEditor<infer V>
+      ? TextIn<V>
+      : Element extends N
+        ? Text
+        : N extends { getChildren: () => infer V }
+          ? V extends readonly (infer Child)[]
+            ? TextOf<Child>
+            : never
+          : N extends Element
+            ?
+                | Extract<N['children'][number], Text>
+                | TextOf<N['children'][number]>
+            : never
+
+type TextProps<T> = T extends Text ? Omit<T, 'text'> : never
+
+export type MarksOf<N> = Simplify<UnionToIntersection<TextProps<TextOf<N>>>>
+
+export type MarksIn<V extends readonly unknown[]> = MarksOf<V[number]>
+
+export type MarkKeysOf<N> = {} extends MarksOf<N> ? unknown : keyof MarksOf<N>
+
+type BooleanKeys<T> = {
+  [K in keyof T]-?: Exclude<T[K], undefined> extends boolean ? K : never
+}[keyof T]
+
+export type BooleanMarkKeysOf<N> = Extract<BooleanKeys<MarksOf<N>>, string>
+
+export type BooleanMarksOf<N> = Partial<
+  Pick<MarksOf<N>, BooleanMarkKeysOf<N> & keyof MarksOf<N>>
+>
 
 export interface LeafPosition {
   start: number
@@ -45,17 +96,17 @@ export interface TextInterface {
   /**
    * Check if a value implements the `Text` interface.
    */
-  isText: (value: any) => value is Text
+  isText: <N extends Text = Text>(value: unknown) => value is N
 
   /**
    * Check if a value is a list of `Text` objects.
    */
-  isTextList: (value: any) => value is Text[]
+  isTextList: <N extends Text = Text>(value: unknown) => value is N[]
 
   /**
    * Check if some props are a partial of Text.
    */
-  isTextProps: (props: any) => props is Partial<Text>
+  isTextProps: <N extends Text = Text>(props: unknown) => props is Partial<N>
 
   /**
    * Check if an text matches set of properties.
@@ -63,7 +114,7 @@ export interface TextInterface {
    * Note: this is for matching custom properties, and it does not ensure that
    * the `text` property are two nodes equal.
    */
-  matches: (text: Text, props: Partial<Text>) => boolean
+  matches: <N extends Text = Text>(text: N, props: Partial<N>) => boolean
 
   /**
    * Get the leaves for a text node given decorations.
@@ -75,7 +126,7 @@ export interface TextInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Text: TextInterface = {
+export const TextApi: TextInterface = {
   equals(text: Text, another: Text, options: TextEqualsOptions = {}): boolean {
     const { loose = false } = options
 
@@ -91,19 +142,19 @@ export const Text: TextInterface = {
     )
   },
 
-  isText(value: any): value is Text {
+  isText<N extends Text = Text>(value: unknown): value is N {
     return isObject(value) && typeof value.text === 'string'
   },
 
-  isTextList(value: any): value is Text[] {
-    return Array.isArray(value) && value.every((val) => Text.isText(val))
+  isTextList<N extends Text = Text>(value: unknown): value is N[] {
+    return Array.isArray(value) && value.every((val) => TextApi.isText(val))
   },
 
-  isTextProps(props: any): props is Partial<Text> {
-    return (props as Partial<Text>).text !== undefined
+  isTextProps<N extends Text = Text>(props: unknown): props is Partial<N> {
+    return isObject(props) && Object.hasOwn(props, 'text')
   },
 
-  matches(text: Text, props: Partial<Text>): boolean {
+  matches<N extends Text = Text>(text: N, props: Partial<N>): boolean {
     for (const key in props) {
       if (key === 'text') {
         continue
@@ -130,7 +181,7 @@ export const Text: TextInterface = {
 
     for (const dec of decorations) {
       const { anchor, focus, merge: mergeDecoration, ...rest } = dec
-      const [start, end] = Range.edges(dec)
+      const [start, end] = RangeApi.edges(dec)
       const next: Array<{ leaf: Text; position?: LeafPosition }> = []
       let leafEnd = 0
       const decorationStart = start.offset

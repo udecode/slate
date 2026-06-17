@@ -1,10 +1,11 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Text } from 'slate'
+import { TextApi } from 'slate'
 
 export const input = (
   <editor>
@@ -13,6 +14,6 @@ export const input = (
   </editor>
 )
 export const test = (editor) => {
-  return Editor.previous(editor, { at: [1], match: Text.isText })
+  return Editor.previous(editor, { at: [1], match: TextApi.isText })
 }
 export const output = [<text>one</text>, [0, 0]]

@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.insertText(editor, 'x', { at: { path: [0, 0], offset: 0 } })
+  editor.text.insert('x', { at: { path: [0, 0], offset: 0 } })
 }
 export const input = (
   <editor>

@@ -1,8 +1,8 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
+import { NodeApi } from '../interfaces/node'
 
-export const hasInlines: EditorInterface['hasInlines'] = (editor, element) => {
+export const hasInlines: EditorStaticApi['hasInlines'] = (editor, element) => {
   return element.children.some(
-    (n) => Node.isText(n) || Editor.isInline(editor, n)
+    (n) => NodeApi.isText(n) || Editor.isInline(editor, n)
   )
 }

@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.wrapNodes(editor, <block a />, { at: [0] })
+  editor.nodes.wrap(<block a />, { at: [0] })
 }
 export const input = (
   <editor>

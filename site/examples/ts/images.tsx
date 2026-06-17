@@ -1,161 +1,258 @@
-import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
-import isHotkey from 'is-hotkey'
 import isUrl from 'is-url'
-import { type PointerEvent, useMemo } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
-import { withHistory } from 'slate-history'
+import { parseAsStringLiteral, useQueryState } from 'nuqs'
+import type { PointerEvent } from 'react'
+import { defineEditorExtension } from 'slate'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
+  type RenderVoidProps,
   Slate,
-  useFocused,
-  useSelected,
-  useSlateStatic,
-  withReact,
+  useEditor,
+  useEditorFocused,
+  useElementSelected,
+  useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Button, Icon, Toolbar } from './components'
 import type {
   CustomEditor,
+  CustomElement,
   ImageElement,
   ParagraphElement,
-  RenderElementPropsFor,
 } from './custom-types.d'
+import { replaceQueryOptions } from './query-controls'
+
+const imageExampleCases = ['default', 'adjacent-voids', 'edge-voids'] as const
+
+type ImageExampleCase = (typeof imageExampleCases)[number]
+
+const createInitialValue = (exampleCase: ImageExampleCase): CustomElement[] => {
+  if (exampleCase === 'adjacent-voids') {
+    return [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Before adjacent images.' }],
+      },
+      {
+        type: 'image',
+        url: 'https://source.unsplash.com/kFrdX5IeQzI',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'image',
+        url: 'https://source.unsplash.com/zOwZKwZOZq8',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'image',
+        url: 'https://source.unsplash.com/photo-1575936123452-b67c3203c357',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'After adjacent images.' }],
+      },
+    ]
+  }
+
+  if (exampleCase === 'edge-voids') {
+    return [
+      {
+        type: 'image',
+        url: 'https://source.unsplash.com/kFrdX5IeQzI',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Between edge images.' }],
+      },
+      {
+        type: 'image',
+        url: 'https://source.unsplash.com/zOwZKwZOZq8',
+        children: [{ text: '' }],
+      },
+    ]
+  }
+
+  return [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'In addition to nodes that contain editable text, you can also create other types of nodes, like images or videos.',
+        },
+      ],
+    },
+    {
+      type: 'image',
+      url: 'https://source.unsplash.com/kFrdX5IeQzI',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This example shows images in action. It features two ways to add images. You can either add an image via the toolbar icon above, or if you want in on a little secret, copy an image URL to your clipboard and paste it anywhere in the editor!',
+        },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'You can delete images with the cross in the top left. Try deleting this sheep:',
+        },
+      ],
+    },
+    {
+      type: 'image',
+      url: 'https://source.unsplash.com/zOwZKwZOZq8',
+      children: [{ text: '' }],
+    },
+  ]
+}
 
 const ImagesExample = () => {
-  const editor = useMemo(
-    () => withImages(withHistory(withReact(createEditor()))) as CustomEditor,
-    []
+  const [exampleCase] = useQueryState(
+    'case',
+    parseAsStringLiteral(imageExampleCases)
+      .withDefault('default')
+      .withOptions(replaceQueryOptions)
   )
 
+  return <ImagesEditor exampleCase={exampleCase} key={exampleCase} />
+}
+
+const ImagesEditor = ({ exampleCase }: { exampleCase: ImageExampleCase }) => {
+  const editor = useSlateEditor({
+    extensions: [image()],
+    initialValue: createInitialValue(exampleCase),
+  })
+
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <InsertImageButton />
       </Toolbar>
       <Editable
-        onKeyDown={(event) => {
-          if (isHotkey('mod+a', event)) {
-            event.preventDefault()
-            Transforms.select(editor, [])
-          }
-        }}
         placeholder="Enter some text..."
-        renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderElement={renderElement}
+        renderVoid={renderVoid}
       />
     </Slate>
   )
 }
 
-const withImages = (editor: CustomEditor) => {
-  const { insertData, isVoid } = editor
+const image = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'image',
+    clipboard: {
+      insertData(data, { editor, next }) {
+        const text = data.getData('text/plain')
+        const imageFiles = Array.from(data.files ?? []).filter(
+          (file) => file.type.split('/')[0] === 'image'
+        )
 
-  editor.isVoid = (element) => {
-    return element.type === 'image' ? true : isVoid(element)
-  }
+        if (imageFiles.length > 0) {
+          imageFiles.forEach((file) => {
+            const reader = new FileReader()
 
-  editor.insertData = (data) => {
-    const text = data.getData('text/plain')
-    const { files } = data
+            reader.addEventListener('load', () => {
+              const url = reader.result
+              insertImage(editor, url as string)
+            })
 
-    if (files && files.length > 0) {
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader()
-        const [mime] = file.type.split('/')
-
-        if (mime === 'image') {
-          reader.addEventListener('load', () => {
-            const url = reader.result
-            insertImage(editor, url as string)
+            reader.readAsDataURL(file)
           })
-
-          reader.readAsDataURL(file)
+          return true
         }
-      })
-    } else if (isImageUrl(text)) {
-      insertImage(editor, text)
-    } else {
-      insertData(data)
-    }
-  }
 
-  return editor
+        if (isImageUrl(text)) {
+          insertImage(editor, text)
+          return true
+        }
+        return next()
+      },
+    },
+    elements: [{ type: 'image', void: 'block' }],
+  })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return <Paragraph {...(props as RenderElementProps<ParagraphElement>)} />
+    default:
+      return <p {...props.attributes}>{props.children}</p>
+  }
+}
+
+const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
+  switch (element.type) {
+    case 'image':
+      return <Image element={element as ImageElement} />
+    default:
+      return null
+  }
 }
 
 const insertImage = (editor: CustomEditor, url: string) => {
-  const text = { text: '' }
-  const image: ImageElement = { type: 'image', url, children: [text] }
-  Transforms.insertNodes(editor, image)
-  const paragraph: ParagraphElement = {
-    type: 'paragraph',
-    children: [{ text: '' }],
-  }
-  Transforms.insertNodes(editor, paragraph)
+  editor.update((tx) => {
+    tx.nodes.insert({ type: 'image', url, children: [{ text: '' }] })
+    tx.nodes.insert({ type: 'paragraph', children: [{ text: '' }] })
+  })
 }
 
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-
-  switch (element.type) {
-    case 'image':
-      return <Image {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
-}
-
-const Image = ({
+const Paragraph = ({
   attributes,
   children,
-  element,
-}: RenderElementPropsFor<ImageElement>) => {
-  const editor = useSlateStatic()
-  const path = ReactEditor.findPath(editor, element)
-  const selected = useSelected()
-  const focused = useFocused()
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
+
+const Image = ({ element }: RenderVoidProps<ImageElement>) => {
+  const editor = useEditor<CustomEditor>()
+  const focused = useEditorFocused()
+  const selected = useElementSelected({ mode: 'collapsed' })
+
   return (
-    <div {...attributes}>
-      {children}
-      <div
-        className={css`
-          position: relative;
-        `}
-        contentEditable={false}
+    <div className="slate-images-figure">
+      <img
+        className={cn(
+          'slate-images-image',
+          selected && focused && 'is-selected'
+        )}
+        src={element.url}
+      />
+      <Button
+        active
+        className={cn(
+          'slate-images-remove-button',
+          selected && focused && 'is-visible'
+        )}
+        onClick={() => {
+          const path = editor.api.dom.resolvePath(element)
+
+          if (!path) {
+            return
+          }
+
+          editor.update((tx) => {
+            tx.nodes.remove({ at: path, voids: true })
+          })
+        }}
+        onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
+          event.preventDefault()
+        }}
       >
-        <img
-          className={css`
-            display: block;
-            max-width: 100%;
-            max-height: 20em;
-            box-shadow: ${selected && focused ? '0 0 0 3px #B4D5FF' : 'none'};
-          `}
-          src={element.url}
-        />
-        <Button
-          active
-          className={css`
-            display: ${selected && focused ? 'inline' : 'none'};
-            position: absolute;
-            top: 0.5em;
-            left: 0.5em;
-            background-color: white;
-          `}
-          onClick={() => Transforms.removeNodes(editor, { at: path })}
-          onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
-            event.preventDefault()
-          }}
-        >
-          <Icon>delete</Icon>
-        </Button>
-      </div>
+        <Icon>delete</Icon>
+      </Button>
     </div>
   )
 }
 
 const InsertImageButton = () => {
-  const editor = useSlateStatic()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
       onClick={() => {
@@ -181,42 +278,5 @@ const isImageUrl = (url: string): boolean => {
   const ext = new URL(url).pathname.split('.').pop()
   return imageExtensions.includes(ext!)
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In addition to nodes that contain editable text, you can also create other types of nodes, like images or videos.',
-      },
-    ],
-  },
-  {
-    type: 'image',
-    url: 'https://source.unsplash.com/kFrdX5IeQzI',
-    children: [{ text: '' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows images in action. It features two ways to add images. You can either add an image via the toolbar icon above, or if you want in on a little secret, copy an image URL to your clipboard and paste it anywhere in the editor!',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'You can delete images with the cross in the top left. Try deleting this sheep:',
-      },
-    ],
-  },
-  {
-    type: 'image',
-    url: 'https://source.unsplash.com/zOwZKwZOZq8',
-    children: [{ text: '' }],
-  },
-]
 
 export default ImagesExample

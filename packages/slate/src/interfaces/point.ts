@@ -1,5 +1,7 @@
-import { type ExtendedType, isObject, type Operation, Path } from '..'
+import { type Operation, type Path, PathApi } from '..'
+import { getOperationRoot, getPointRoot } from '../internal/root-location'
 import type { TextDirection } from '../types/types'
+import { isObject } from '../utils/is-object'
 
 /**
  * `Point` objects refer to a specific location in a text node in a Slate
@@ -11,9 +13,10 @@ import type { TextDirection } from '../types/types'
 export interface BasePoint {
   path: Path
   offset: number
+  root?: string
 }
 
-export type Point = ExtendedType<'Point', BasePoint>
+export type Point = BasePoint
 
 export interface PointTransformOptions {
   affinity?: TextDirection | null
@@ -44,7 +47,7 @@ export interface PointInterface {
   /**
    * Check if a value implements the `Point` interface.
    */
-  isPoint: (value: any) => value is Point
+  isPoint: (value: unknown) => value is Point
 
   /**
    * Transform a point by an operation.
@@ -57,9 +60,16 @@ export interface PointInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Point: PointInterface = {
+export const PointApi: PointInterface = {
   compare(point: Point, another: Point): -1 | 0 | 1 {
-    const result = Path.compare(point.path, another.path)
+    const pointRoot = getPointRoot(point).root
+    const anotherRoot = getPointRoot(another).root
+
+    if (pointRoot !== anotherRoot) {
+      return pointRoot < anotherRoot ? -1 : 1
+    }
+
+    const result = PathApi.compare(point.path, another.path)
 
     if (result === 0) {
       if (point.offset < another.offset) return -1
@@ -71,25 +81,28 @@ export const Point: PointInterface = {
   },
 
   isAfter(point: Point, another: Point): boolean {
-    return Point.compare(point, another) === 1
+    return PointApi.compare(point, another) === 1
   },
 
   isBefore(point: Point, another: Point): boolean {
-    return Point.compare(point, another) === -1
+    return PointApi.compare(point, another) === -1
   },
 
   equals(point: Point, another: Point): boolean {
     // PERF: ensure the offsets are equal first since they are cheaper to check.
     return (
-      point.offset === another.offset && Path.equals(point.path, another.path)
+      point.offset === another.offset &&
+      getPointRoot(point).root === getPointRoot(another).root &&
+      PathApi.equals(point.path, another.path)
     )
   },
 
-  isPoint(value: any): value is Point {
+  isPoint(value: unknown): value is Point {
     return (
       isObject(value) &&
       typeof value.offset === 'number' &&
-      Path.isPath(value.path)
+      (value.root === undefined || typeof value.root === 'string') &&
+      PathApi.isPath(value.path)
     )
   },
 
@@ -105,16 +118,20 @@ export const Point: PointInterface = {
     const { affinity = 'forward' } = options
     let { path, offset } = point
 
+    if (getPointRoot(point).root !== getOperationRoot(op)) {
+      return point
+    }
+
     switch (op.type) {
       case 'insert_node':
       case 'move_node': {
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'insert_text': {
         if (
-          Path.equals(op.path, path) &&
+          PathApi.equals(op.path, path) &&
           (op.offset < offset ||
             (op.offset === offset && affinity === 'forward'))
         ) {
@@ -125,16 +142,16 @@ export const Point: PointInterface = {
       }
 
       case 'merge_node': {
-        if (Path.equals(op.path, path)) {
+        if (PathApi.equals(op.path, path)) {
           offset += op.position
         }
 
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'remove_text': {
-        if (Path.equals(op.path, path) && op.offset <= offset) {
+        if (PathApi.equals(op.path, path) && op.offset <= offset) {
           offset -= Math.min(offset - op.offset, op.text.length)
         }
 
@@ -142,16 +159,42 @@ export const Point: PointInterface = {
       }
 
       case 'remove_node': {
-        if (Path.equals(op.path, path) || Path.isAncestor(op.path, path)) {
+        if (
+          PathApi.equals(op.path, path) ||
+          PathApi.isAncestor(op.path, path)
+        ) {
           return null
         }
 
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
+        break
+      }
+
+      case 'replace_fragment': {
+        if (
+          PathApi.equals(op.path, path) ||
+          PathApi.isAncestor(op.path, path)
+        ) {
+          return null
+        }
+
+        path = PathApi.transform(path, op, options)!
+        break
+      }
+
+      case 'replace_children': {
+        const nextPath = PathApi.transform(path, op, options)
+
+        if (!nextPath) {
+          return null
+        }
+
+        path = nextPath
         break
       }
 
       case 'split_node': {
-        if (Path.equals(op.path, path)) {
+        if (PathApi.equals(op.path, path)) {
           if (op.position === offset && affinity == null) {
             return null
           }
@@ -161,13 +204,13 @@ export const Point: PointInterface = {
           ) {
             offset -= op.position
 
-            path = Path.transform(path, op, {
+            path = PathApi.transform(path, op, {
               ...options,
               affinity: 'forward',
             })!
           }
         } else {
-          path = Path.transform(path, op, options)!
+          path = PathApi.transform(path, op, options)!
         }
 
         break
@@ -177,7 +220,7 @@ export const Point: PointInterface = {
         return point
     }
 
-    return { path, offset }
+    return { ...point, path, offset }
   },
 }
 

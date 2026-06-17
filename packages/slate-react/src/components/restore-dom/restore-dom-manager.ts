@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { isTrackedMutation } from 'slate-dom'
-import type { ReactEditor } from '../../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../../plugin/react-editor'
 
 export type RestoreDOMManager = {
   registerMutations: (mutations: MutationRecord[]) => void
@@ -9,7 +9,7 @@ export type RestoreDOMManager = {
 }
 
 export const createRestoreDomManager = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   receivedUserInput: RefObject<boolean>
 ): RestoreDOMManager => {
   let bufferedMutations: MutationRecord[] = []
@@ -19,13 +19,17 @@ export const createRestoreDomManager = (
   }
 
   const registerMutations = (mutations: MutationRecord[]) => {
-    if (!receivedUserInput.current) {
-      return
-    }
-
     const trackedMutations = mutations.filter((mutation) =>
       isTrackedMutation(editor, mutation, mutations)
     )
+
+    if (trackedMutations.length === 0) {
+      return
+    }
+
+    if (!receivedUserInput.current) {
+      return
+    }
 
     bufferedMutations.push(...trackedMutations)
   }
@@ -40,11 +44,22 @@ export const createRestoreDomManager = (
         }
 
         mutation.removedNodes.forEach((node) => {
-          mutation.target.insertBefore(node, mutation.nextSibling)
+          if (node.parentNode === mutation.target) {
+            return
+          }
+
+          mutation.target.insertBefore(
+            node,
+            mutation.nextSibling?.parentNode === mutation.target
+              ? mutation.nextSibling
+              : null
+          )
         })
 
         mutation.addedNodes.forEach((node) => {
-          mutation.target.removeChild(node)
+          if (node.parentNode === mutation.target) {
+            mutation.target.removeChild(node)
+          }
         })
       })
 

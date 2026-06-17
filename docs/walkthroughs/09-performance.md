@@ -12,11 +12,14 @@ INP is easiest to measure in Chrome using the [Performance panel](https://develo
 
 ![Screenshot of the Stack Chart tab of the Firefox Profiler, annotated to show a breakdown of time spent in core Slate, React, and painting the DOM.](../images/performance/firefox-inp.png)
 
-There are three main areas that can be optimized:
+There are three areas that can be optimized:
 
-- [Slate core](#optimizing-slate-core)
-- [React](#optimizing-react)
-- [DOM painting](#optimizing-dom-painting)
+- [Improving Performance](#improving-performance)
+  - [Optimizing Slate Core](#optimizing-slate-core)
+  - [Optimizing React](#optimizing-react)
+    - [Reduce Renders](#reduce-renders)
+    - [DOM Strategy](#dom-strategy)
+  - [Optimizing DOM Painting](#optimizing-dom-painting)
 
 Before you start optimizing, make sure you know which of these areas is most responsible for any slowness you're seeing. The best way of doing this is to use your browser's profiler (see the example for Firefox above), but you can also use these heuristics to guess which area is most at fault:
 
@@ -38,11 +41,20 @@ Make sure you only normalize the node passed into `normalizeNode` and (occasiona
 
 The `renderElement` prop and any React component it returns will re-render every time the element or any of its descendants changes. This is unavoidable. However, sometimes custom logic can cause React components to re-render more often than this, which can have a detrimental effect on performance.
 
-Ensure that function props such as `renderElement`, `renderLeaf`, `renderChunk` and `decorate` do not change on every render. Either they should be defined at the top level of the file (not inside a component or hook), or they should be wrapped inside a `useCallback` and all dependencies should be properly memoized.
+Prefer stable renderer functions passed through `Editable` props. Define
+`renderElement`, `renderLeaf`, `renderText`, and `renderSegment` at module
+scope, or memoize them once when they need editor-local data. Avoid creating
+renderer functions inside the editor component during render.
 
 If unmodified elements are being re-rendered, check to see if they are subscribing to any contexts or hooks that are causing unnecessary re-renders. You can also apply these techniques to any toolbars or other non-element React components that may be re-rendering in response to changes in the editor.
 
-The `useSlate`, `useSlateSelection`, `useSlateSelector`, `useSelected` and `useFocused` hooks cause React components to re-render in various circumstances. If you're using `useSlate`, consider if you can use `useSlateStatic` (which does not cause re-renders) instead. If you're using `useSlateSelection`, consider using `editor.selection`. If you only care about some value derived from the editor (such as whether a given mark is active), use `useSlateSelector` to only re-render when this value changes.
+Hot editor UI should subscribe to the narrowest source it needs. Use
+`useEditor()` to access the editor object, `useEditorSelection()` for
+selection-aware toolbar UI, and `useEditorSelector()` for derived editor-level
+toolbar state. Inside rendered editor content, prefer target-scoped hooks such
+as `useElementSelected()`, `useNodeSelector()`, `useTextSelector()`, and
+`useDecorationSelector()` so selection or decoration changes dirty only the
+affected runtime targets.
 
 If your components depend on custom React contexts containing non-primitive values (such as objects or arrays), ensure that these values are properly memoized so that components only re-render when these values change. In some circumstances, you may instead want to consider passing a ref object or an unchanging getter function to retrieve the latest value.
 
@@ -61,19 +73,29 @@ const onClick = () => {
 }
 ```
 
-### Enable Chunking (experimental)
+### DOM Strategy
 
-Chunking is an internal optimization used by `slate-react`, and must be explicitly enabled. It works by splitting a node's children into nested "chunks", each of which is a separately memoized React component. This reduces the amount of work React needs to do when processing changes to the JSX, resulting in a 10x speed-up in ideal circumstances.
+`Editable` keeps large documents DOM-bounded by default. Use
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate groups off-DOM
+content behind model-backed coverage boundaries and mounts a small active window
+inside the opened group, leaving the surrounding range selectable and copyable
+through the model until it materializes. Use `domStrategy="staged"` only when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface while debugging.
 
-To enable chunking, you need to implement `editor.getChunkSize(node: Ancestor) => number | null`, which controls the number of nodes per lowest-level chunk for a given parent node. In most circumstances, setting the chunk size to 1000 for the editor and `null` for all other ancestors works well.
+Experimental virtualized rendering is a separate viewport-mounted stress path
+for pathological documents. Read
+[Experimental Virtualized Rendering](../libraries/slate-react/experimental-virtualized-rendering.md)
+when you need that research lane.
 
-```typescript
-editor.getChunkSize = node => (Editor.isEditor(node) ? 1000 : null)
-```
+For paginated documents, keep virtualization at the page boundary. See
+[Slate Layout](../libraries/slate-layout/README.md) for `PagedEditable` and
+page mount planning.
 
-Note that chunking can only be enabled for nodes whose children are all block elements. Attempting to enable chunking for leaf blocks (blocks containing inline nodes) will have no effect.
-
-By default, chunking has no effect on the DOM. You can override this by passing a `renderChunk` prop to `Editable`.
+Use projection sources for overlays instead of render-time decoration callbacks.
+Projection sources let decorations, annotations, widgets, diagnostics, and
+search results share the same range projection runtime without forcing
+everything through one `decorate` prop.
 
 ## Optimizing DOM Painting
 
@@ -81,22 +103,10 @@ In Chrome and Safari, painting large numbers of DOM nodes can be extremely slow,
 
 The best way of speeding up painting large documents is to use the [`content-visibility`](https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility) CSS property. When set to `auto`, this property instructs browsers not to paint content that is off-screen. However, it also comes with a performance overhead proportional to the number of DOM nodes it is applied to, which is especially bad in Safari. When rendering large documents in Safari, applying `content-visibility: auto` to each Slate element individually is often slower than not using it at all.
 
-The recommended solution is to enable [chunking](#enable-chunking-experimental) and apply `content-visibility: auto` on each lowest-level chunk by passing a `renderChunk` prop to `Editable`.
+For aggressive mounting control, use explicit virtualized rendering only when a
+pathological document needs a degraded viewport-mounted surface.
 
-```tsx
-const renderChunk = ({ attributes, lowest, children }: RenderChunkProps) => (
-  <div
-    {...attributes}
-    style={lowest ? { contentVisibility: 'auto' } : undefined}
-  >
-    {children}
-  </div>
-)
-```
-
-Note that this will modify the DOM structure of your editor, which may have adverse effects on its appearance. During development, it is recommended to set the chunk size to a small number such as 3 so that styling issues caused by nested chunks are easier to detect.
-
-If you previously had a CSS rule such as this to apply spacing between top-level blocks:
+Use a CSS rule like this to apply spacing between top-level blocks:
 
 ```css
 [data-slate-editor] > * + * {
@@ -104,14 +114,7 @@ If you previously had a CSS rule such as this to apply spacing between top-level
 }
 ```
 
-It should be changed to this:
-
-```css
-[data-slate-editor] > * + *,
-[data-slate-chunk] > * + * {
-  margin-top: 1em;
-}
-```
+Keep spacing rules attached to the current editor DOM, not to internal runtime structures.
 
 Also bear in mind this warning about `content-visibility: auto` from MDN:
 

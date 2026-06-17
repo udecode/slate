@@ -1,189 +1,246 @@
 import {
-  addMark,
-  deleteFragment,
-  type Editor,
+  apply,
+  extendEditor,
   getDirtyPaths,
   getFragment,
-  insertBreak,
-  insertFragment,
-  insertNode,
-  insertSoftBreak,
-  insertText,
+  isEditorExtensionInstalled,
   normalizeNode,
-  removeMark,
   shouldNormalize,
-} from './'
-import { apply } from './core'
+} from './core'
+import { createEditorQueryRuntime } from './core/editor-query-runtime'
 import {
-  above,
-  after,
-  before,
-  deleteBackward,
-  deleteForward,
-  edges,
-  elementReadOnly,
-  end,
-  first,
-  fragment,
-  getVoid,
-  hasBlocks,
-  hasInlines,
-  hasPath,
-  hasTexts,
-  isBlock,
-  isEdge,
-  isEmpty,
-  isEnd,
-  isNormalizing,
-  isStart,
-  last,
-  leaf,
-  levels,
-  marks,
-  next,
-  node,
-  nodes,
-  normalize,
-  parent,
-  path,
+  type InternalEditorExtensionRuntime,
+  type InternalEditorRefRuntime,
+  type InternalEditorRuntime,
+  type InternalEditorSnapshotRuntime,
+  type InternalEditorTransactionRuntime,
+  type InternalEditorTransformRuntime,
+  setEditorRuntime,
+} from './core/editor-runtime'
+import { createEditorSchema } from './core/editor-schema'
+import {
+  bindEditorMethod,
+  createEditorTransformRegistry,
+  type EditorMethod,
+} from './core/editor-transform-runtime'
+import { getExtensionRegistry } from './core/extension-registry'
+import {
+  getChildren,
+  getLastCommit,
+  getLiveSelection,
+  getOperationDirtiness,
+  getOperations,
+  getPathByRuntimeId,
+  getRuntimeId,
+  getSnapshot,
+  initializePublicState,
+  readEditor,
+  setBaseApply,
+  subscribe,
+  subscribeCommit,
+  subscribeSource,
+  updateEditor,
+} from './core/public-state'
+import { setEditorTransformRegistry } from './core/transform-registry'
+import {
   pathRef,
   pathRefs,
-  point,
   pointRef,
   pointRefs,
-  positions,
-  previous,
-  range,
   rangeRef,
   rangeRefs,
-  setNormalizing,
-  shouldMergeNodesRemovePrevNode,
-  start,
-  string,
-  unhangRange,
-  withoutNormalizing,
 } from './editor'
-import {
-  insertNodes,
-  liftNodes,
-  mergeNodes,
-  moveNodes,
-  removeNodes,
-  setNodes,
-  splitNodes,
-  unsetNodes,
-  unwrapNodes,
-  wrapNodes,
-} from './transforms-node'
-import {
-  collapse,
-  deselect,
-  move,
-  select,
-  setPoint,
-  setSelection,
-} from './transforms-selection'
-import { deleteText } from './transforms-text'
+import type {
+  CreateEditorOptions,
+  DescendantIn,
+  Editor,
+  EditorCommit,
+  EditorExtension,
+  EditorExtensionInput,
+  EditorSnapshot,
+  EditorUpdateContext,
+  EditorUpdateOptions,
+  EditorUpdateTransaction,
+  Operation,
+  Value,
+} from './interfaces'
 
 /**
- * Create a new Slate `Editor` object.
+ * Create a mutable Slate editor with schema, command, query, state, and
+ * extension runtime APIs installed.
  */
-export const createEditor = (): Editor => {
-  const editor: Editor = {
-    children: [],
-    operations: [],
-    selection: null,
-    marks: null,
-    isElementReadOnly: () => false,
-    isInline: () => false,
-    isSelectable: () => true,
-    isVoid: () => false,
-    markableVoid: () => false,
-    onChange: () => {},
+export function createEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(options?: CreateEditorOptions<V, TExtensions>): Editor<V, TExtensions>
 
-    // Core
-    apply: (...args) => apply(editor, ...args),
+export function createEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(options: CreateEditorOptions<V, TExtensions> = {}): Editor<V, TExtensions> {
+  let editor!: Editor<V, TExtensions>
+  const runtimeEditor = () => editor as Editor
+  const bind = <T extends EditorMethod>(method: T) =>
+    bindEditorMethod(runtimeEditor, method)
+  const schema = createEditorSchema(runtimeEditor)
 
-    // Editor
-    addMark: (...args) => addMark(editor, ...args),
-    deleteBackward: (...args) => deleteBackward(editor, ...args),
-    deleteForward: (...args) => deleteForward(editor, ...args),
-    deleteFragment: (...args) => deleteFragment(editor, ...args),
-    getFragment: (...args) => getFragment(editor, ...args),
-    insertBreak: (...args) => insertBreak(editor, ...args),
-    insertSoftBreak: (...args) => insertSoftBreak(editor, ...args),
-    insertFragment: (...args) => insertFragment(editor, ...args),
-    insertNode: (...args) => insertNode(editor, ...args),
-    insertText: (...args) => insertText(editor, ...args),
-    normalizeNode: (...args) => normalizeNode(editor, ...args),
-    removeMark: (...args) => removeMark(editor, ...args),
-    getDirtyPaths: (...args) => getDirtyPaths(editor, ...args),
-    shouldNormalize: (...args) => shouldNormalize(editor, ...args),
+  const extensionRuntime = {
+    schema,
+    extend: (extension) => extendEditor(editor, extension),
+  } satisfies InternalEditorExtensionRuntime<V>
 
-    // Editor interface
-    above: (...args) => above(editor, ...args),
-    after: (...args) => after(editor, ...args),
-    before: (...args) => before(editor, ...args),
-    collapse: (...args) => collapse(editor, ...args),
-    delete: (...args) => deleteText(editor, ...args),
-    deselect: (...args) => deselect(editor, ...args),
-    edges: (...args) => edges(editor, ...args),
-    elementReadOnly: (...args) => elementReadOnly(editor, ...args),
-    end: (...args) => end(editor, ...args),
-    first: (...args) => first(editor, ...args),
-    fragment: (...args) => fragment(editor, ...args),
-    getMarks: (...args) => marks(editor, ...args),
-    hasBlocks: (...args) => hasBlocks(editor, ...args),
-    hasInlines: (...args) => hasInlines(editor, ...args),
-    hasPath: (...args) => hasPath(editor, ...args),
-    hasTexts: (...args) => hasTexts(editor, ...args),
-    insertNodes: (...args) => insertNodes(editor, ...args),
-    isBlock: (...args) => isBlock(editor, ...args),
-    isEdge: (...args) => isEdge(editor, ...args),
-    isEmpty: (...args) => isEmpty(editor, ...args),
-    isEnd: (...args) => isEnd(editor, ...args),
-    isNormalizing: (...args) => isNormalizing(editor, ...args),
-    isStart: (...args) => isStart(editor, ...args),
-    last: (...args) => last(editor, ...args),
-    leaf: (...args) => leaf(editor, ...args),
-    levels: (...args) => levels(editor, ...args),
-    liftNodes: (...args) => liftNodes(editor, ...args),
-    mergeNodes: (...args) => mergeNodes(editor, ...args),
-    move: (...args) => move(editor, ...args),
-    moveNodes: (...args) => moveNodes(editor, ...args),
-    next: (...args) => next(editor, ...args),
-    node: (...args) => node(editor, ...args),
-    nodes: (...args) => nodes(editor, ...args),
-    normalize: (...args) => normalize(editor, ...args),
-    parent: (...args) => parent(editor, ...args),
-    path: (...args) => path(editor, ...args),
-    pathRef: (...args) => pathRef(editor, ...args),
-    pathRefs: (...args) => pathRefs(editor, ...args),
-    point: (...args) => point(editor, ...args),
-    pointRef: (...args) => pointRef(editor, ...args),
-    pointRefs: (...args) => pointRefs(editor, ...args),
-    positions: (...args) => positions(editor, ...args),
-    previous: (...args) => previous(editor, ...args),
-    range: (...args) => range(editor, ...args),
-    rangeRef: (...args) => rangeRef(editor, ...args),
-    rangeRefs: (...args) => rangeRefs(editor, ...args),
-    removeNodes: (...args) => removeNodes(editor, ...args),
-    select: (...args) => select(editor, ...args),
-    setNodes: (...args) => setNodes(editor, ...args),
-    setNormalizing: (...args) => setNormalizing(editor, ...args),
-    setPoint: (...args) => setPoint(editor, ...args),
-    setSelection: (...args) => setSelection(editor, ...args),
-    splitNodes: (...args) => splitNodes(editor, ...args),
-    start: (...args) => start(editor, ...args),
-    string: (...args) => string(editor, ...args),
-    unhangRange: (...args) => unhangRange(editor, ...args),
-    unsetNodes: (...args) => unsetNodes(editor, ...args),
-    unwrapNodes: (...args) => unwrapNodes(editor, ...args),
-    void: (...args) => getVoid(editor, ...args),
-    withoutNormalizing: (...args) => withoutNormalizing(editor, ...args),
-    wrapNodes: (...args) => wrapNodes(editor, ...args),
-    shouldMergeNodesRemovePrevNode: (...args) =>
-      shouldMergeNodesRemovePrevNode(editor, ...args),
+  const snapshotRuntime = {
+    getChildren: () => getChildren(editor),
+    getDirtyPaths: (operation) => getDirtyPaths(editor, operation),
+    getFragment: () => getFragment(editor) as DescendantIn<V>[],
+    getLastCommit: () => getLastCommit(editor) as EditorCommit<V> | null,
+    getOperationDirtiness: (operations, options) =>
+      getOperationDirtiness(editor, operations, options) as EditorCommit<V>,
+    getOperations: (startIndex) =>
+      getOperations(editor, startIndex) as readonly Operation<V>[],
+    getPathByRuntimeId: (runtimeId) => getPathByRuntimeId(editor, runtimeId),
+    getRuntimeId: (path) => getRuntimeId(editor, path),
+    getSelection: () => getLiveSelection(editor),
+    getSnapshot: () => getSnapshot(editor) as EditorSnapshot<V>,
+  } satisfies InternalEditorSnapshotRuntime<V>
+
+  const transactionRuntime = {
+    read: (fn) => readEditor(editor, fn),
+    subscribe: (listener) => subscribe(editor, listener),
+    subscribeCommit: (listener) => subscribeCommit(editor, listener),
+    subscribeSource: (source, listener) =>
+      subscribeSource(editor, source, listener),
+    update: (
+      fn: (
+        transaction: EditorUpdateTransaction<V>,
+        context: EditorUpdateContext<Editor<V>>
+      ) => void,
+      options?: EditorUpdateOptions
+    ) =>
+      updateEditor(
+        editor,
+        fn as (
+          transaction: EditorUpdateTransaction<V>,
+          context: EditorUpdateContext<Editor<V>>
+        ) => void,
+        options
+      ),
+  } satisfies InternalEditorTransactionRuntime<V>
+
+  const transformRuntime = {
+    normalizeNode: (entry, options) => normalizeNode(editor, entry, options),
+    shouldNormalize: (options) => shouldNormalize(editor, options),
+  } satisfies InternalEditorTransformRuntime<V>
+
+  const api = new Proxy(Object.create(null) as Record<string, unknown>, {
+    get(_target, property) {
+      if (typeof property !== 'string') {
+        return undefined
+      }
+
+      const capabilities = getExtensionRegistry(
+        editor as Editor
+      ).capabilities.get(property)
+
+      if (!capabilities || capabilities.length === 0) {
+        return undefined
+      }
+
+      if (capabilities.length === 1) {
+        return capabilities[0]
+      }
+
+      return Object.freeze(Object.assign({}, ...capabilities))
+    },
+  }) as Editor<V, TExtensions>['api']
+
+  const getApi = (extension: EditorExtension<any, any>) => {
+    if (!isEditorExtensionInstalled(editor as Editor, extension)) {
+      throw new Error(
+        `Editor extension "${extension.name}" is not installed on this editor.`
+      )
+    }
+
+    const apiNames = Object.keys(extension.api ?? {})
+    const capabilityName = apiNames.includes(extension.name)
+      ? extension.name
+      : (apiNames[0] ?? extension.name)
+
+    if (apiNames.length > 1 && !apiNames.includes(extension.name)) {
+      throw new Error(
+        `Editor extension "${extension.name}" must expose exactly one capability or a capability matching its extension name to be used with editor.getApi().`
+      )
+    }
+
+    const capability = api[capabilityName as keyof typeof api]
+
+    if (capability === undefined) {
+      throw new Error(
+        `Editor extension "${extension.name}" capability "${capabilityName}" is not installed.`
+      )
+    }
+
+    return capability
+  }
+
+  const baseEditor: Editor<V, TExtensions> = {
+    api,
+    getApi: getApi as Editor<V, TExtensions>['getApi'],
+    read: (fn) => readEditor(editor, fn),
+    subscribe: (listener) => subscribe(editor, listener),
+    subscribeCommit: (listener) => subscribeCommit(editor, listener),
+    update: (
+      fn: (
+        transaction: EditorUpdateTransaction<V, TExtensions>,
+        context: EditorUpdateContext<Editor<V, TExtensions>>
+      ) => void,
+      options
+    ) =>
+      updateEditor(
+        editor,
+        fn as (
+          transaction: EditorUpdateTransaction<V>,
+          context: EditorUpdateContext<Editor<V>>
+        ) => void,
+        options
+      ),
+    extend: (extension) => extendEditor(editor, extension),
+  }
+
+  editor = baseEditor
+
+  const queryRuntime = createEditorQueryRuntime(editor)
+
+  const refRuntime = {
+    pathRef: bind(pathRef),
+    pathRefs: bind(pathRefs),
+    pointRef: bind(pointRef),
+    pointRefs: bind(pointRefs),
+    rangeRef: bind(rangeRef),
+    rangeRefs: bind(rangeRefs),
+  } satisfies InternalEditorRefRuntime
+
+  const runtime = {
+    ...extensionRuntime,
+    ...queryRuntime,
+    ...refRuntime,
+    ...snapshotRuntime,
+    ...transactionRuntime,
+    ...transformRuntime,
+  } satisfies InternalEditorRuntime<V>
+
+  setEditorRuntime(editor, runtime)
+
+  setEditorTransformRegistry(
+    editor,
+    createEditorTransformRegistry(runtimeEditor)
+  )
+  setBaseApply(editor, (...args) => apply(editor, ...args))
+
+  initializePublicState(editor, options)
+
+  if (options.extensions) {
+    extendEditor(editor as Editor, options.extensions as EditorExtensionInput)
   }
 
   return editor

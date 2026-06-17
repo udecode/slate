@@ -1,68 +1,145 @@
-import { css, cx } from '@emotion/css'
+import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  ArrowLeftRight,
+  Bold,
+  CircleHelp,
+  Code,
+  Copy,
+  Heading1,
+  Heading2,
+  ImageIcon,
+  Italic,
+  LinkIcon,
+  List,
+  ListOrdered,
+  type LucideIcon,
+  MousePointerClick,
+  Plus,
+  Quote,
+  RemoveFormatting,
+  Search,
+  Trash2,
+  Underline,
+  Unlink,
+} from 'lucide-react'
 import type React from 'react'
 import type { ReactNode } from 'react'
 import ReactDOM from 'react-dom'
 
-type ButtonProps = React.ComponentPropsWithRef<'button'> & {
+import { Button as ShadcnButton } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
+
+type ButtonProps = React.ComponentProps<typeof ShadcnButton> & {
   active?: boolean
   reversed?: boolean
 }
 
-type SpanProps = React.ComponentPropsWithRef<'span'>
+type IconProps = Omit<React.ComponentPropsWithRef<'svg'>, 'children'> & {
+  children?: ReactNode
+}
 
 type DivProps = React.ComponentPropsWithRef<'div'>
+
+const iconComponents: Record<string, LucideIcon> = {
+  add: Plus,
+  code: Code,
+  content_copy: Copy,
+  delete: Trash2,
+  format_align_center: AlignCenter,
+  format_align_justify: AlignJustify,
+  format_align_left: AlignLeft,
+  format_align_right: AlignRight,
+  format_bold: Bold,
+  format_clear: RemoveFormatting,
+  format_italic: Italic,
+  format_list_bulleted: List,
+  format_list_numbered: ListOrdered,
+  format_quote: Quote,
+  format_underlined: Underline,
+  image: ImageIcon,
+  link: LinkIcon,
+  link_off: Unlink,
+  looks_one: Heading1,
+  looks_two: Heading2,
+  search: Search,
+  smart_button: MousePointerClick,
+  sync_alt: ArrowLeftRight,
+}
+
+const iconLabels: Record<string, string> = {
+  add: 'Add',
+  code: 'Code',
+  content_copy: 'Copy',
+  delete: 'Delete',
+  format_align_center: 'Align center',
+  format_align_justify: 'Justify',
+  format_align_left: 'Align left',
+  format_align_right: 'Align right',
+  format_bold: 'Bold',
+  format_clear: 'Clear formatting',
+  format_italic: 'Italic',
+  format_list_bulleted: 'Bulleted list',
+  format_list_numbered: 'Numbered list',
+  format_quote: 'Quote',
+  format_underlined: 'Underline',
+  image: 'Image',
+  link: 'Link',
+  link_off: 'Unlink',
+  looks_one: 'Heading one',
+  looks_two: 'Heading two',
+  search: 'Search',
+  smart_button: 'Button',
+  sync_alt: 'Sync',
+}
 
 export const Button = ({
   className,
   active,
   reversed,
   ref,
+  size = 'icon',
+  variant,
   ...props
 }: ButtonProps) => (
-  <button
+  <ShadcnButton
     {...props}
-    className={cx(
-      css`
-        border: none;
-        background: none;
-        padding: 0;
-        cursor: pointer;
-        color: ${reversed ? (active ? 'white' : '#aaa') : active ? 'black' : '#ccc'};
-      `,
+    className={cn(
+      'slate-example-button',
+      active && 'is-active',
+      reversed && 'is-reversed',
       className
     )}
     ref={ref}
+    size={size}
+    variant={variant ?? (active ? 'secondary' : 'ghost')}
   />
 )
 
-export const Icon = ({ className, ref, ...props }: SpanProps) => (
-  <span
-    {...props}
-    className={cx(
-      'material-icons',
-      className,
-      css`
-        font-size: 18px;
-        vertical-align: text-bottom;
-      `
-    )}
-    ref={ref}
-  />
-)
+export const Icon = ({ children, className, ref, ...props }: IconProps) => {
+  const iconName = typeof children === 'string' ? children : ''
+  const IconComponent = iconComponents[iconName] ?? CircleHelp
+  const label = iconLabels[iconName] ?? iconName
+
+  return (
+    <>
+      <IconComponent
+        {...props}
+        aria-hidden
+        className={cn('size-4', className)}
+        ref={ref}
+      />
+      {label ? <span className="sr-only">{label}</span> : null}
+    </>
+  )
+}
 
 export const Instruction = ({ className, ref, ...props }: DivProps) => (
   <div
     {...props}
-    className={cx(
-      className,
-      css`
-        white-space: pre-wrap;
-        margin: 0 -20px 10px;
-        padding: 10px 20px;
-        font-size: 14px;
-        background: #f8f8e8;
-      `
-    )}
+    className={cn('slate-example-instruction', className)}
     ref={ref}
   />
 )
@@ -70,18 +147,7 @@ export const Instruction = ({ className, ref, ...props }: DivProps) => (
 export const Menu = ({ className, ref, ...props }: DivProps) => (
   <div
     {...props}
-    className={cx(
-      className,
-      css`
-        & > * {
-          display: inline-block;
-        }
-
-        & > * + * {
-          margin-left: 15px;
-        }
-      `
-    )}
+    className={cn('slate-example-menu', className)}
     data-test-id="menu"
     ref={ref}
   />
@@ -96,16 +162,7 @@ export const Portal = ({ children }: { children?: ReactNode }) => {
 export const Toolbar = ({ className, ref, ...props }: DivProps) => (
   <Menu
     {...props}
-    className={cx(
-      className,
-      css`
-        position: relative;
-        padding: 1px 18px 17px;
-        margin: 0 -20px;
-        border-bottom: 2px solid #eee;
-        margin-bottom: 20px;
-      `
-    )}
+    className={cn('slate-example-toolbar', className)}
     ref={ref}
   />
 )

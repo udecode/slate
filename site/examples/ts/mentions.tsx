@@ -1,58 +1,118 @@
-import type React from 'react'
+import { cva } from 'class-variance-authority'
 import {
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Range,
-  type Element as SlateElement,
-  Transforms,
-} from 'slate'
-import { withHistory } from 'slate-history'
+import { defineEditorExtension, type Range, RangeApi } from 'slate'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   type RenderLeafProps,
+  type RenderVoidProps,
   Slate,
-  useFocused,
-  useSelected,
-  withReact,
+  useEditorFocused,
+  useElementSelected,
+  useSlateEditor,
 } from 'slate-react'
-
+import { cn } from '@/utils/cn'
 import { Portal } from './components'
 import type {
   CustomEditor,
+  CustomElement,
+  CustomText,
+  CustomValue,
   MentionElement,
-  RenderElementPropsFor,
+  ParagraphElement,
 } from './custom-types.d'
-import { IS_MAC } from './utils/environment'
+
+const mentionMenuItemVariants = cva('slate-mentions-menu-item', {
+  variants: {
+    active: {
+      false: null,
+      true: 'is-active',
+    },
+  },
+})
+
+const mentionVariants = cva('slate-mentions-mention', {
+  variants: {
+    bold: {
+      false: null,
+      true: 'is-bold',
+    },
+    italic: {
+      false: null,
+      true: 'is-italic',
+    },
+    selected: {
+      false: null,
+      true: 'is-selected',
+    },
+  },
+})
 
 const MentionExample = () => {
   const ref = useRef<HTMLDivElement | null>(null)
   const [target, setTarget] = useState<Range | null>(null)
   const [index, setIndex] = useState(0)
   const [search, setSearch] = useState('')
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-  const editor = useMemo(
-    () => withMentions(withReact(withHistory(createEditor()))) as CustomEditor,
-    []
-  )
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This example shows how you might implement a simple ',
+        },
+        {
+          text: '@-mentions',
+          bold: true,
+        },
+        {
+          text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
+        },
+        {
+          text: 'mentions',
+          bold: true,
+        },
+        {
+          text: ' are rendered as ',
+        },
+        {
+          text: 'void inline elements',
+          code: true,
+        },
+        {
+          text: ' inside the document.',
+        },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: 'Try mentioning characters, like ' },
+        {
+          type: 'mention',
+          character: 'R2-D2',
+          children: [{ text: '', bold: true }],
+        },
+        { text: ' or ' },
+        {
+          type: 'mention',
+          character: 'Mace Windu',
+          children: [{ text: '' }],
+        },
+        { text: '!' },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    extensions: [mention()],
+    initialValue,
+  })
 
   const chars = CHARACTERS.filter((c) =>
     c.toLowerCase().startsWith(search.toLowerCase())
@@ -63,28 +123,23 @@ const MentionExample = () => {
       if (target && chars.length > 0) {
         switch (event.key) {
           case 'ArrowDown': {
-            event.preventDefault()
             const prevIndex = index >= chars.length - 1 ? 0 : index + 1
             setIndex(prevIndex)
-            break
+            return true
           }
           case 'ArrowUp': {
-            event.preventDefault()
             const nextIndex = index <= 0 ? chars.length - 1 : index - 1
             setIndex(nextIndex)
-            break
+            return true
           }
           case 'Tab':
           case 'Enter':
-            event.preventDefault()
-            Transforms.select(editor, target)
-            insertMention(editor, chars[index])
+            insertMention(editor, chars[index], target)
             setTarget(null)
-            break
+            return true
           case 'Escape':
-            event.preventDefault()
             setTarget(null)
-            break
+            return true
         }
       }
     },
@@ -94,8 +149,12 @@ const MentionExample = () => {
   useEffect(() => {
     if (target && chars.length > 0 && ref.current) {
       const el = ref.current
-      const domRange = ReactEditor.toDOMRange(editor, target)
-      const rect = domRange.getBoundingClientRect()
+      const rect = editor.api.dom.resolveRangeRect(target)
+
+      if (!rect) {
+        return
+      }
+
       el.style.top = `${rect.top + window.pageYOffset + 24}px`
       el.style.left = `${rect.left + window.pageXOffset}px`
     }
@@ -104,28 +163,48 @@ const MentionExample = () => {
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={() => {
-        const { selection } = editor
+        const match = editor.read((state) => {
+          const selection = state.selection.get()
 
-        if (selection && Range.isCollapsed(selection)) {
-          const [start] = Range.edges(selection)
-          const wordBefore = Editor.before(editor, start, { unit: 'word' })
-          const before = wordBefore && Editor.before(editor, wordBefore)
-          const beforeRange = before && Editor.range(editor, before, start)
-          const beforeText = beforeRange && Editor.string(editor, beforeRange)
-          const beforeMatch = beforeText?.match(/^@(\w+)$/)
-          const after = Editor.after(editor, start)
-          const afterRange = Editor.range(editor, start, after)
-          const afterText = Editor.string(editor, afterRange)
-          const afterMatch = afterText.match(/^(\s|$)/)
+          if (selection && RangeApi.isCollapsed(selection)) {
+            const [start] = RangeApi.edges(selection)
+            const wordBefore = state.points.before(start, { unit: 'word' })
+            const before = wordBefore && state.points.before(wordBefore)
+            const beforeRange =
+              before && state.ranges.get({ anchor: before, focus: start })
+            const beforeText = beforeRange && state.text.string(beforeRange)
+            const beforeMatch = beforeText?.match(/(?:^|\s)@(\w+)$/)
+            const after = state.points.after(start)
+            const afterRange =
+              after && state.ranges.get({ anchor: start, focus: after })
+            const afterText = afterRange && state.text.string(afterRange)
+            const afterMatch = afterText?.match(/^(\s|$)/)
 
-          if (beforeMatch && afterMatch && beforeRange) {
-            setTarget(beforeRange)
-            setSearch(beforeMatch[1])
-            setIndex(0)
-            return
+            if (beforeMatch && afterMatch && beforeRange) {
+              const mentionStart = {
+                path: start.path,
+                offset: start.offset - beforeMatch[1].length - 1,
+              }
+
+              return {
+                range: state.ranges.get({
+                  anchor: mentionStart,
+                  focus: start,
+                }),
+                search: beforeMatch[1],
+              }
+            }
           }
+
+          return null
+        })
+
+        if (match) {
+          setTarget(match.range)
+          setSearch(match.search)
+          setIndex(0)
+          return
         }
 
         setTarget(null)
@@ -135,37 +214,23 @@ const MentionExample = () => {
         onKeyDown={onKeyDown}
         placeholder="Enter some text..."
         renderElement={renderElement}
-        renderLeaf={renderLeaf}
+        renderLeaf={Leaf}
+        renderVoid={renderVoid}
       />
       {target && chars.length > 0 && (
         <Portal>
           <div
+            className="slate-mentions-menu"
             data-cy="mentions-portal"
             ref={ref}
-            style={{
-              top: '-9999px',
-              left: '-9999px',
-              position: 'absolute',
-              zIndex: 1,
-              padding: '3px',
-              background: 'white',
-              borderRadius: '4px',
-              boxShadow: '0 1px 5px rgba(0,0,0,.2)',
-            }}
           >
             {chars.map((char, i) => (
               <div
+                className={cn(mentionMenuItemVariants({ active: i === index }))}
                 key={char}
                 onClick={(e: MouseEvent) => {
-                  Transforms.select(editor, target)
-                  insertMention(editor, char)
+                  insertMention(editor, char, target)
                   setTarget(null)
-                }}
-                style={{
-                  padding: '1px 3px',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                  background: i === index ? '#B4D5FF' : 'transparent',
                 }}
               >
                 {char}
@@ -178,49 +243,60 @@ const MentionExample = () => {
   )
 }
 
-const withMentions = (editor: CustomEditor) => {
-  const { isInline, isVoid, markableVoid } = editor
+const mention = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'mention',
+    elements: [{ type: 'mention', void: 'markable-inline' }],
+  })
 
-  editor.isInline = (element: SlateElement) => {
-    return element.type === 'mention' ? true : isInline(element)
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return <Paragraph {...(props as RenderElementProps<ParagraphElement>)} />
+    default:
+      return <span {...props.attributes}>{props.children}</span>
   }
-
-  editor.isVoid = (element: SlateElement) => {
-    return element.type === 'mention' ? true : isVoid(element)
-  }
-
-  editor.markableVoid = (element: SlateElement) => {
-    return element.type === 'mention' || markableVoid(element)
-  }
-
-  return editor
 }
 
-const insertMention = (editor: CustomEditor, character: string) => {
-  const mention: MentionElement = {
-    type: 'mention',
-    character,
-    children: [{ text: '' }],
+const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
+  switch (element.type) {
+    case 'mention':
+      return <Mention element={element as MentionElement} />
+    default:
+      return null
   }
-  Transforms.insertNodes(editor, mention)
-  Transforms.move(editor)
 }
 
-// Borrow Leaf renderer from the Rich Text example.
-// In a real project you would get this via `withRichText(editor)` or similar.
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+const insertMention = (
+  editor: CustomEditor,
+  character: string,
+  target?: Range | null
+) => {
+  editor.update((tx) => {
+    if (target) {
+      tx.selection.set(target)
+    }
+    tx.nodes.insert({
+      type: 'mention',
+      character,
+      children: [{ text: '' }],
+    })
+    tx.selection.move()
+  })
+}
+
+// Borrow mark renderers from the Rich Text example.
+// In a real project you would get these from the same mark/rendering module.
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
   if (leaf.bold) {
     children = <strong>{children}</strong>
   }
-
   if (leaf.code) {
     children = <code>{children}</code>
   }
-
   if (leaf.italic) {
     children = <em>{children}</em>
   }
-
   if (leaf.underline) {
     children = <u>{children}</u>
   }
@@ -228,116 +304,30 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   return <span {...attributes}>{children}</span>
 }
 
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  switch (element.type) {
-    case 'mention':
-      return <Mention {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
-}
-
-const Mention = ({
+const Paragraph = ({
   attributes,
   children,
-  element,
-}: RenderElementPropsFor<MentionElement>) => {
-  const selected = useSelected()
-  const focused = useFocused()
-  const style: React.CSSProperties = {
-    padding: '3px 3px 2px',
-    margin: '0 1px',
-    verticalAlign: 'baseline',
-    display: 'inline-block',
-    borderRadius: '4px',
-    backgroundColor: '#eee',
-    fontSize: '0.9em',
-    boxShadow: selected && focused ? '0 0 0 2px #B4D5FF' : 'none',
-  }
-  // See if our empty text child has any styling marks applied and apply those
-  if (element.children[0].bold) {
-    style.fontWeight = 'bold'
-  }
-  if (element.children[0].italic) {
-    style.fontStyle = 'italic'
-  }
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
+
+const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
+  const focused = useEditorFocused()
+  const selected = useElementSelected()
+
   return (
     <span
-      {...attributes}
-      contentEditable={false}
+      className={cn(
+        mentionVariants({
+          bold: Boolean(element.children[0].bold),
+          italic: Boolean(element.children[0].italic),
+          selected: selected && focused,
+        })
+      )}
       data-cy={`mention-${element.character.replace(' ', '-')}`}
-      style={style}
     >
-      {/* Prevent Chromium from interrupting IME when moving the cursor */}
-      {/* 1. span + inline-block 2. div + contenteditable=false */}
-      <div contentEditable={false}>
-        {IS_MAC ? (
-          // Mac OS IME https://github.com/ianstormtaylor/slate/issues/3490
-          <>
-            {children}@{element.character}
-          </>
-        ) : (
-          // Others like Android https://github.com/ianstormtaylor/slate/pull/5360
-          <>
-            @{element.character}
-            {children}
-          </>
-        )}
-      </div>
+      @{element.character}
     </span>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows how you might implement a simple ',
-      },
-      {
-        text: '@-mentions',
-        bold: true,
-      },
-      {
-        text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
-      },
-      {
-        text: 'mentions',
-        bold: true,
-      },
-      {
-        text: ' are rendered as ',
-      },
-      {
-        text: 'void inline elements',
-        code: true,
-      },
-      {
-        text: ' inside the document.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try mentioning characters, like ' },
-      {
-        type: 'mention',
-        character: 'R2-D2',
-        children: [{ text: '', bold: true }],
-      },
-      { text: ' or ' },
-      {
-        type: 'mention',
-        character: 'Mace Windu',
-        children: [{ text: '' }],
-      },
-      { text: '!' },
-    ],
-  },
-]
 
 const CHARACTERS = [
   'Aayla Secura',

@@ -1,92 +1,90 @@
-import { css } from '@emotion/css'
-import { isKeyHotkey } from 'is-hotkey'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
 import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  Range,
-  Transforms,
+  defineEditorExtension,
+  type EditorUpdateTransaction,
+  NodeApi,
+  RangeApi,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { isHotkey } from 'slate-dom'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
   type RenderElementProps,
-  type RenderLeafProps,
-  useSelected,
-  useSlate,
-  withReact,
+  type RenderTextProps,
+  useEditor,
+  useEditorSelector,
+  useElementSelected,
+  useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Button, Icon, Toolbar } from './components'
 import type {
+  BadgeElement,
   ButtonElement,
   CustomEditor,
   CustomElement,
   LinkElement,
-  RenderElementPropsFor,
+  ParagraphElement,
 } from './custom-types.d'
 
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In addition to block nodes, you can create inline nodes. Here is a ',
-      },
-      {
-        type: 'link',
-        url: 'https://en.wikipedia.org/wiki/Hypertext',
-        children: [{ text: 'hyperlink' }],
-      },
-      {
-        text: ', and here is a more unusual inline: an ',
-      },
-      {
-        type: 'button',
-        children: [{ text: 'editable button' }],
-      },
-      {
-        text: '! Here is a read-only inline: ',
-      },
-      {
-        type: 'badge',
-        children: [{ text: 'Approved' }],
-      },
-      {
-        text: '.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. ',
-      },
-      // The following is an example of an inline at the end of a block.
-      // This is an edge case that can cause issues.
-      {
-        type: 'link',
-        url: 'https://twitter.com/JustMissEmma/status/1448679899531726852',
-        children: [{ text: 'Finally, here is our favorite dog video.' }],
-      },
-      { text: '' },
-    ],
-  },
-]
 const InlinesExample = () => {
-  const editor = useMemo(
-    () => withInlines(withHistory(withReact(createEditor()))) as CustomEditor,
-    []
-  )
-
-  const onKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (event) => {
-    const { selection } = editor
+  const editor = useSlateEditor({
+    extensions: [inline()],
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'In addition to block nodes, you can create inline nodes. Here is a ',
+          },
+          {
+            type: 'link',
+            url: 'https://en.wikipedia.org/wiki/Hypertext',
+            children: [{ text: 'hyperlink' }],
+          },
+          {
+            text: ', and here is a more unusual inline: an ',
+          },
+          {
+            type: 'button',
+            children: [{ text: 'editable button' }],
+          },
+          {
+            text: '! Here is a read-only inline: ',
+          },
+          {
+            type: 'badge',
+            children: [{ text: 'Approved' }],
+          },
+          {
+            text: '.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your clipboard and paste it while a range of text is selected. ',
+          },
+          // The following is an example of an inline at the end of a block.
+          // This is an edge case that can cause issues.
+          {
+            type: 'link',
+            url: 'https://twitter.com/JustMissEmma/status/1448679899531726852',
+            children: [{ text: 'Finally, here is our favorite dog video.' }],
+          },
+          { text: '' },
+        ],
+      },
+    ],
+  })
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const selection = editor.read((state) => state.selection.get())
 
     // Default left/right behavior is unit:'character'.
     // This fails to distinguish between two cursor positions, such as
@@ -94,23 +92,24 @@ const InlinesExample = () => {
     // Here we modify the behavior to unit:'offset'.
     // This lets the user step into and out of the inline without stepping over characters.
     // You may wish to customize this further to only use unit:'offset' in specific cases.
-    if (selection && Range.isCollapsed(selection)) {
-      const { nativeEvent } = event
-      if (isKeyHotkey('left', nativeEvent)) {
-        event.preventDefault()
-        Transforms.move(editor, { unit: 'offset', reverse: true })
-        return
+    if (selection && RangeApi.isCollapsed(selection)) {
+      if (isHotkey('left', event)) {
+        editor.update((tx) => {
+          tx.selection.move({ unit: 'offset', reverse: true })
+        })
+        return true
       }
-      if (isKeyHotkey('right', nativeEvent)) {
-        event.preventDefault()
-        Transforms.move(editor, { unit: 'offset' })
-        return
+      if (isHotkey('right', event)) {
+        editor.update((tx) => {
+          tx.selection.move({ unit: 'offset' })
+        })
+        return true
       }
     }
   }
 
   return (
-    <SlateReact.Slate editor={editor} initialValue={initialValue}>
+    <SlateReact.Slate editor={editor}>
       <Toolbar>
         <AddLinkButton />
         <RemoveLinkButton />
@@ -119,82 +118,210 @@ const InlinesExample = () => {
       <Editable
         onKeyDown={onKeyDown}
         placeholder="Enter some text..."
-        renderElement={(props) => <Element {...props} />}
-        renderLeaf={(props) => <Text {...props} />}
+        renderElement={renderElement}
+        renderText={InlineText}
       />
     </SlateReact.Slate>
   )
 }
 
-const withInlines = (editor: CustomEditor) => {
-  const { insertData, insertText, isInline, isElementReadOnly, isSelectable } =
-    editor
+const inline = () =>
+  defineEditorExtension<CustomEditor>()({
+    clipboard: {
+      insertData(data, { editor, next }) {
+        const text = data.getData('text/plain')
 
-  editor.isInline = (element: CustomElement) =>
-    ['link', 'button', 'badge'].includes(element.type) || isInline(element)
+        if (text && isUrl(text)) {
+          wrapLink(editor, text)
+          return true
+        }
+        return next()
+      },
+    },
+    name: 'inline',
+    transforms: {
+      insertText({ next, text, tx }) {
+        if (isUrl(text)) {
+          insertLinkText(tx, text)
 
-  editor.isElementReadOnly = (element: CustomElement) =>
-    element.type === 'badge' || isElementReadOnly(element)
+          return true
+        }
 
-  editor.isSelectable = (element: CustomElement) =>
-    element.type !== 'badge' && isSelectable(element)
+        if (insertLinkedTextSegments(tx, text)) {
+          return true
+        }
 
-  editor.insertText = (text) => {
-    if (text && isUrl(text)) {
-      wrapLink(editor, text)
+        return next()
+      },
+    },
+    elements: [
+      { inline: true, type: 'link' },
+      { inline: true, type: 'button' },
+      { inline: true, readOnly: true, selectable: false, type: 'badge' },
+    ],
+  })
+
+const URL_TEXT_PATTERN = /https?:\/\/[^\s]+/gi
+
+const trimUrlPunctuation = (text: string) => {
+  const suffix = text.match(/[.,!?;:]+$/)?.[0] ?? ''
+
+  if (!suffix) {
+    return { suffix: '', url: text }
+  }
+
+  return {
+    suffix,
+    url: text.slice(0, -suffix.length),
+  }
+}
+
+const splitLinkedTextSegments = (text: string) => {
+  const segments: Array<{ text: string; url?: true }> = []
+  let cursor = 0
+
+  for (const match of text.matchAll(URL_TEXT_PATTERN)) {
+    const raw = match[0]
+    const index = match.index ?? 0
+    const { suffix, url } = trimUrlPunctuation(raw)
+
+    if (!url || !isUrl(url)) {
+      continue
+    }
+
+    if (index > cursor) {
+      segments.push({ text: text.slice(cursor, index) })
+    }
+
+    segments.push({ text: url, url: true })
+
+    if (suffix) {
+      segments.push({ text: suffix })
+    }
+
+    cursor = index + raw.length
+  }
+
+  if (segments.length === 0) {
+    return null
+  }
+
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor) })
+  }
+
+  return segments
+}
+
+const insertLinkText = (
+  tx: EditorUpdateTransaction<CustomElement[]>,
+  url: string
+) => {
+  if (
+    tx.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
+  ) {
+    tx.nodes.unwrap({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
+  }
+
+  const selection = tx.selection.get()
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
+  const link: LinkElement = {
+    type: 'link',
+    url,
+    children: isCollapsed ? [{ text: url }] : [],
+  }
+
+  if (isCollapsed) {
+    tx.nodes.insert(link)
+    tx.selection.move({ unit: 'offset' })
+  } else {
+    tx.nodes.wrap(link, { split: true })
+    tx.selection.collapse({ edge: 'end' })
+    tx.selection.move({ unit: 'offset' })
+  }
+}
+
+const insertLinkedTextSegments = (
+  tx: EditorUpdateTransaction<CustomElement[]>,
+  text: string
+) => {
+  const selection = tx.selection.get()
+
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return false
+  }
+
+  const segments = splitLinkedTextSegments(text)
+
+  if (!segments) {
+    return false
+  }
+
+  for (const segment of segments) {
+    if (segment.url) {
+      insertLinkText(tx, segment.text)
     } else {
-      insertText(text)
+      tx.text.insert(segment.text)
     }
   }
 
-  editor.insertData = (data) => {
-    const text = data.getData('text/plain')
-
-    if (text && isUrl(text)) {
-      wrapLink(editor, text)
-    } else {
-      insertData(data)
-    }
-  }
-
-  return editor
+  return true
 }
 
-const insertLink = (editor: CustomEditor, url: string) => {
-  if (editor.selection) {
-    wrapLink(editor, url)
-  }
-}
-
-const insertButton = (editor: CustomEditor) => {
-  if (editor.selection) {
-    wrapButton(editor)
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'badge':
+      return <BadgeComponent {...(props as RenderElementProps<BadgeElement>)} />
+    case 'button':
+      return (
+        <EditableButtonComponent
+          {...(props as RenderElementProps<ButtonElement>)}
+        />
+      )
+    case 'link':
+      return <LinkComponent {...(props as RenderElementProps<LinkElement>)} />
+    case 'paragraph':
+      return (
+        <ParagraphComponent
+          {...(props as RenderElementProps<ParagraphElement>)}
+        />
+      )
   }
 }
 
 const isLinkActive = (editor: CustomEditor): boolean => {
-  const [link] = Editor.nodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'link',
-  })
-  return !!link
+  return editor.read((state) =>
+    state.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
+  )
 }
 
 const isButtonActive = (editor: CustomEditor): boolean => {
-  const [button] = Editor.nodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'button',
-  })
-  return !!button
+  return editor.read((state) =>
+    state.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'button',
+    })
+  )
 }
 
 const unwrapLink = (editor: CustomEditor) => {
-  Transforms.unwrapNodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'link',
+  editor.update((tx) => {
+    tx.nodes.unwrap({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
   })
 }
 
 const unwrapButton = (editor: CustomEditor) => {
-  Transforms.unwrapNodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'button',
+  editor.update((tx) => {
+    tx.nodes.unwrap({
+      match: (n) => NodeApi.isElement(n) && n.type === 'button',
+    })
   })
 }
 
@@ -203,20 +330,24 @@ const wrapLink = (editor: CustomEditor, url: string) => {
     unwrapLink(editor)
   }
 
-  const { selection } = editor
-  const isCollapsed = selection && Range.isCollapsed(selection)
+  const selection = editor.read((state) => state.selection.get())
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
   const link: LinkElement = {
     type: 'link',
     url,
     children: isCollapsed ? [{ text: url }] : [],
   }
 
-  if (isCollapsed) {
-    Transforms.insertNodes(editor, link)
-  } else {
-    Transforms.wrapNodes(editor, link, { split: true })
-    Transforms.collapse(editor, { edge: 'end' })
-  }
+  editor.update((tx) => {
+    if (isCollapsed) {
+      tx.nodes.insert(link)
+      tx.selection.move({ unit: 'offset' })
+    } else {
+      tx.nodes.wrap(link, { split: true })
+    }
+  })
+
+  return true
 }
 
 const wrapButton = (editor: CustomEditor) => {
@@ -224,30 +355,27 @@ const wrapButton = (editor: CustomEditor) => {
     unwrapButton(editor)
   }
 
-  const { selection } = editor
-  const isCollapsed = selection && Range.isCollapsed(selection)
+  const selection = editor.read((state) => state.selection.get())
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
   const button: ButtonElement = {
     type: 'button',
     children: isCollapsed ? [{ text: 'Edit me!' }] : [],
   }
 
-  if (isCollapsed) {
-    Transforms.insertNodes(editor, button)
-  } else {
-    Transforms.wrapNodes(editor, button, { split: true })
-    Transforms.collapse(editor, { edge: 'end' })
-  }
+  editor.update((tx) => {
+    if (isCollapsed) {
+      tx.nodes.insert(button)
+    } else {
+      tx.nodes.wrap(button, { split: true })
+      tx.selection.collapse({ edge: 'end' })
+    }
+  })
 }
 
 // Put this at the start and end of an inline component to work around this Chromium bug:
 // https://bugs.chromium.org/p/chromium/issues/detail?id=1249405
 const InlineChromiumBugfix = () => (
-  <span
-    className={css`
-      font-size: 0;
-    `}
-    contentEditable={false}
-  >
+  <span className="slate-inlines-chromium-bugfix" contentEditable={false}>
     {String.fromCodePoint(160) /* Non-breaking space */}
   </span>
 )
@@ -258,13 +386,12 @@ const LinkComponent = ({
   attributes,
   children,
   element,
-}: RenderElementPropsFor<LinkElement>) => {
-  const selected = useSelected()
+}: RenderElementProps<LinkElement>) => {
+  const selected = useElementSelected()
   const safeUrl = useMemo(() => {
     let parsedUrl: URL | null = null
     try {
       parsedUrl = new URL(element.url)
-      // eslint-disable-next-line no-empty
     } catch {}
     if (parsedUrl && allowedSchemes.includes(parsedUrl.protocol)) {
       return parsedUrl.href
@@ -275,13 +402,7 @@ const LinkComponent = ({
   return (
     <a
       {...attributes}
-      className={
-        selected
-          ? css`
-              box-shadow: 0 0 0 3px #ddd;
-            `
-          : ''
-      }
+      className={cn(selected && 'slate-inlines-link-selected')}
       href={safeUrl}
     >
       <InlineChromiumBugfix />
@@ -294,29 +415,20 @@ const LinkComponent = ({
 const EditableButtonComponent = ({
   attributes,
   children,
-}: RenderElementProps) => {
+}: RenderElementProps<ButtonElement>) => {
   return (
     /*
-      Note that this is not a true button, but a span with button-like CSS.
-      True buttons are display:inline-block, but Chrome and Safari
-      have a bad bug with display:inline-block inside contenteditable:
+      This is a span with button-like CSS rather than a native button.
+      Chrome and Safari handle display:inline-block poorly inside
+      contenteditable, and CSS cannot override the native button display:
       - https://bugs.webkit.org/show_bug.cgi?id=105898
       - https://bugs.chromium.org/p/chromium/issues/detail?id=1088403
-      Worse, one cannot override the display property: https://github.com/w3c/csswg-drafts/issues/3226
-      The only current workaround is to emulate the appearance of a display:inline button using CSS.
+      - https://github.com/w3c/csswg-drafts/issues/3226
     */
     <span
       {...attributes}
       // Margin is necessary to clearly show the cursor adjacent to the button
-      className={css`
-        margin: 0 0.1em;
-
-        background-color: #efefef;
-        padding: 2px 6px;
-        border: 1px solid #767676;
-        border-radius: 2px;
-        font-size: 0.9em;
-      `}
+      className="slate-inlines-editable-button"
       onClick={(ev) => ev.preventDefault()}
     >
       <InlineChromiumBugfix />
@@ -329,21 +441,13 @@ const EditableButtonComponent = ({
 const BadgeComponent = ({
   attributes,
   children,
-  element,
-}: RenderElementProps) => {
-  const selected = useSelected()
+}: RenderElementProps<BadgeElement>) => {
+  const selected = useElementSelected()
 
   return (
     <span
       {...attributes}
-      className={css`
-        background-color: green;
-        color: white;
-        padding: 2px 6px;
-        border-radius: 2px;
-        font-size: 0.9em;
-        ${selected && 'box-shadow: 0 0 0 3px #ddd;'}
-      `}
+      className={cn('slate-inlines-badge', selected && 'is-selected')}
       contentEditable={false}
       data-playwright-selected={selected}
     >
@@ -354,36 +458,18 @@ const BadgeComponent = ({
   )
 }
 
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  switch (element.type) {
-    case 'link':
-      return <LinkComponent {...props} />
-    case 'button':
-      return <EditableButtonComponent {...props} />
-    case 'badge':
-      return <BadgeComponent {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
-}
+const ParagraphComponent = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
 
-const Text = (props: RenderLeafProps) => {
-  const { attributes, children, leaf } = props
+const InlineText = (props: RenderTextProps) => {
+  const { attributes, children, text } = props
   return (
     <span
-      // The following is a workaround for a Chromium bug where,
-      // if you have an inline at the end of a block,
-      // clicking the end of a block puts the cursor inside the inline
-      // instead of inside the final {text: ''} node
+      // Keeps end-of-block clicks outside the trailing inline in Chromium.
       // https://github.com/ianstormtaylor/slate/issues/4704#issuecomment-1006696364
-      className={
-        leaf.text === ''
-          ? css`
-              padding-left: 0.1px;
-            `
-          : undefined
-      }
+      className={cn(text.text === '' && 'slate-inlines-empty-text')}
       {...attributes}
     >
       {children}
@@ -392,14 +478,20 @@ const Text = (props: RenderLeafProps) => {
 }
 
 const AddLinkButton = () => {
-  const editor = useSlate()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector((editor: CustomEditor) =>
+    isLinkActive(editor)
+  )
   return (
     <Button
-      active={isLinkActive(editor)}
+      active={active}
       onClick={() => {
         const url = window.prompt('Enter the URL of the link:')
         if (!url) return
-        insertLink(editor, url)
+
+        if (editor.read((state) => state.selection.get())) {
+          wrapLink(editor, url)
+        }
       }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
         event.preventDefault()
@@ -411,11 +503,14 @@ const AddLinkButton = () => {
 }
 
 const RemoveLinkButton = () => {
-  const editor = useSlate()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector((editor: CustomEditor) =>
+    isLinkActive(editor)
+  )
 
   return (
     <Button
-      active={isLinkActive(editor)}
+      active={active}
       onClick={() => {
         if (isLinkActive(editor)) {
           unwrapLink(editor)
@@ -431,15 +526,15 @@ const RemoveLinkButton = () => {
 }
 
 const ToggleEditableButtonButton = () => {
-  const editor = useSlate()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
       active
       onClick={() => {
         if (isButtonActive(editor)) {
           unwrapButton(editor)
-        } else {
-          insertButton(editor)
+        } else if (editor.read((state) => state.selection.get())) {
+          wrapButton(editor)
         }
       }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>

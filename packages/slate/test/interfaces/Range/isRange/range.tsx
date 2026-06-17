@@ -1,4 +1,6 @@
-import { Range } from 'slate'
+/** @jsx jsx */
+
+import { RangeApi } from 'slate'
 
 export const input = {
   anchor: {
@@ -11,6 +13,6 @@ export const input = {
   },
 }
 export const test = (value) => {
-  return Range.isRange(value)
+  return RangeApi.isRange(value)
 }
 export const output = true

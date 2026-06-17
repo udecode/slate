@@ -1,5 +1,8 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
-export const edges: EditorInterface['edges'] = (editor, at) => {
-  return [Editor.start(editor, at), Editor.end(editor, at)]
+export const edges: EditorStaticApi['edges'] = (editor, at) => {
+  return [
+    Editor.point(editor, at, { edge: 'start' }),
+    Editor.point(editor, at, { edge: 'end' }),
+  ]
 }

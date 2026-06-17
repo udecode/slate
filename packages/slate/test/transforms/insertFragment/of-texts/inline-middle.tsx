@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor, options = {}) => {
-  Transforms.insertFragment(editor, <fragment>fragment</fragment>, options)
+  editor.fragment.insert(<fragment>fragment</fragment>, options)
 }
 export const input = (
   <editor>
@@ -22,7 +20,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: argument to made that fragment should go into the inline
+// Current policy: text fragments inserted inside inline text split the inline
+// and land at the surrounding block text level.
 export const output = (
   <editor>
     <block>

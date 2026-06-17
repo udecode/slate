@@ -2,7 +2,8 @@
  * Utilities for single-line deletion
  */
 
-import { Editor, Range } from 'slate'
+import { type Range, RangeApi } from 'slate'
+import { Editor } from 'slate/internal'
 import { DOMEditor } from '../plugin/dom-editor'
 
 const doRectsIntersect = (rect: DOMRect, compareRect: DOMRect) => {
@@ -11,9 +12,17 @@ const doRectsIntersect = (rect: DOMRect, compareRect: DOMRect) => {
   return rect.top <= middle && rect.bottom >= middle
 }
 
-const areRangesSameLine = (editor: DOMEditor, range1: Range, range2: Range) => {
-  const rect1 = DOMEditor.toDOMRange(editor, range1).getBoundingClientRect()
-  const rect2 = DOMEditor.toDOMRange(editor, range2).getBoundingClientRect()
+const areRangesSameLine = (
+  editor: DOMEditor<any>,
+  range1: Range,
+  range2: Range
+) => {
+  const rect1 = DOMEditor.resolveRangeRect(editor, range1)
+  const rect2 = DOMEditor.resolveRangeRect(editor, range2)
+
+  if (!rect1 || !rect2) {
+    return false
+  }
 
   return doRectsIntersect(rect1, rect2) && doRectsIntersect(rect2, rect1)
 }
@@ -22,15 +31,15 @@ const areRangesSameLine = (editor: DOMEditor, range1: Range, range2: Range) => {
  * A helper utility that returns the end portion of a `Range`
  * which is located on a single line.
  *
- * @param {Editor} editor The editor object to compare against
+ * @param {Editor<any>} editor The editor object to compare against
  * @param {Range} parentRange The parent range to compare against
  * @returns {Range} A valid portion of the parentRange which is one a single line
  */
 export const findCurrentLineRange = (
-  editor: DOMEditor,
+  editor: DOMEditor<any>,
   parentRange: Range
 ): Range => {
-  const parentRangeBoundary = Editor.range(editor, Range.end(parentRange))
+  const parentRangeBoundary = Editor.range(editor, RangeApi.end(parentRange))
   const positions = Array.from(Editor.positions(editor, { at: parentRange }))
 
   let left = 0

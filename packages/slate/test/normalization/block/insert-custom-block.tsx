@@ -4,7 +4,8 @@ import { jsx } from '../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { ElementApi } from 'slate'
+import { Editor, getEditorRuntime } from 'slate/internal'
 
 export const input = (
   <editor>
@@ -15,16 +16,17 @@ export const input = (
 // patch in a custom normalizer that inserts empty paragraphs in the body instead of text nodes
 // this test also verifies the new node itself is also normalized, because it's inserting a non-normalized node
 const editor = input as unknown as Editor
-const defaultNormalize = editor.normalizeNode
-editor.normalizeNode = (entry) => {
+const runtime = getEditorRuntime(editor)
+const defaultNormalize = runtime.normalizeNode
+runtime.normalizeNode = (entry) => {
   const [node, path] = entry
   if (
-    Element.isElement(node) &&
+    ElementApi.isElement(node) &&
     node.children.length === 0 &&
-    (node as any).type === 'body'
+    node.type === 'body'
   ) {
     const child = { type: 'paragraph', children: [] }
-    Transforms.insertNodes(editor, child, {
+    Editor.insertNodes(editor, child, {
       at: path.concat(0),
       voids: true,
     })

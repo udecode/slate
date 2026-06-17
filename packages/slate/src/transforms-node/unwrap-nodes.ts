@@ -1,60 +1,265 @@
-import { Location, Node } from '../interfaces'
+import { getCurrentSelection, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
+import { createInternalRangeRef } from '../editor/range-ref'
+import {
+  type Ancestor,
+  type Descendant,
+  LocationApi,
+  NodeApi,
+  RangeApi,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import { type Path, PathApi } from '../interfaces/path'
+import type { Point } from '../interfaces/point'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 
-export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
-  editor,
-  options = {}
-) => {
-  Editor.withoutNormalizing(editor, () => {
-    const { mode = 'lowest', split = false, voids = false } = options
-    let { at = editor.selection, match } = options
+const getChildren = (editor: Editor, node: Ancestor): Descendant[] =>
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
-    if (!at) {
+const comparePoints = (left: Point, right: Point) => {
+  const pathComparison = PathApi.compare(left.path, right.path)
+
+  if (pathComparison !== 0) {
+    return pathComparison
+  }
+
+  if (left.offset === right.offset) {
+    return 0
+  }
+
+  return left.offset < right.offset ? -1 : 1
+}
+
+const mergeAdjacentTextRuns = (editor: Editor) => {
+  const transforms = getEditorTransformRegistry(editor)
+  const textPaths = Array.from(
+    getNodes(editor, {
+      at: [],
+      reverse: true,
+      match: (node) => NodeApi.isText(node),
+      voids: true,
+    }),
+    ([, path]) => path
+  )
+
+  textPaths.forEach((path) => {
+    if (
+      !Editor.hasPath(editor, path) ||
+      path.length === 0 ||
+      path.at(-1) === 0
+    ) {
       return
     }
 
-    if (match == null) {
-      match = Location.isPath(at)
-        ? matchPath(editor, at)
-        : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+    const previousPath = PathApi.previous(path)
+
+    if (!Editor.hasPath(editor, previousPath)) {
+      return
     }
 
-    if (Location.isPath(at)) {
-      at = Editor.range(editor, at)
+    const [node] = getNode(editor, path)
+    const [previous] = getNode(editor, previousPath)
+
+    if (
+      NodeApi.isText(node) &&
+      NodeApi.isText(previous) &&
+      JSON.stringify(NodeApi.extractProps(node)) ===
+        JSON.stringify(NodeApi.extractProps(previous))
+    ) {
+      transforms.mergeNodes({ at: path })
+    }
+  })
+}
+
+export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
+  editor,
+  options = {}
+) => {
+  const unwrapNodeAtPath = (path: Path) => {
+    const transforms = getEditorTransformRegistry(editor)
+    const [node] = getNode(editor, path)
+
+    if (NodeApi.isText(node)) {
+      return
     }
 
-    const rangeRef = Location.isRange(at) ? Editor.rangeRef(editor, at) : null
-    const matches = Editor.nodes(editor, { at, match, mode, voids })
-    const pathRefs = Array.from(
-      matches,
-      ([, p]) => Editor.pathRef(editor, p)
-      // unwrapNode will call liftNode which does not support splitting the node when nested.
-      // If we do not reverse the order and call it from top to the bottom, it will remove all blocks
-      // that wrap target node. So we reverse the order.
-    ).reverse()
+    const parentPath = path.slice(0, -1)
+    const index = path.at(-1)
 
-    for (const pathRef of pathRefs) {
-      const path = pathRef.unref()!
-      const [node] = Editor.node(editor, path)
-      let range = Editor.range(editor, path)
+    if (index == null) {
+      return
+    }
 
-      if (split && rangeRef) {
-        range = Range.intersection(rangeRef.current!, range)!
-      }
+    const childCount = getChildren(editor, node).length
 
-      Transforms.liftNodes(editor, {
-        at: range,
-        match: (n) => !Node.isText(node) && node.children.includes(n),
-        voids,
+    for (let moved = 0; moved < childCount; moved += 1) {
+      const wrapperIndex = index + moved
+
+      transforms.moveNodes({
+        at: [...parentPath, wrapperIndex, 0],
+        to: [...parentPath, wrapperIndex],
       })
     }
 
-    if (rangeRef) {
-      rangeRef.unref()
+    transforms.removeNodes({
+      at: [...parentPath, index + childCount],
+    })
+  }
+
+  runEditorTransaction(editor, (tx) => {
+    let target = tx.resolveTarget({ at: options.at })
+    const mode = options.mode ?? 'lowest'
+    const split = options.split ?? false
+    const voids = options.voids ?? false
+    let { match } = options
+
+    if (!target) {
+      return
     }
+
+    const wantsGenericBehavior =
+      match != null || mode !== 'lowest' || split || voids
+
+    if (wantsGenericBehavior) {
+      if (match == null) {
+        match = LocationApi.isPath(target)
+          ? matchPath(editor, target)
+          : (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
+      }
+
+      if (LocationApi.isPath(target)) {
+        target = Editor.range(editor, target)
+      }
+
+      const rangeRef = LocationApi.isRange(target)
+        ? createInternalRangeRef(editor, target)
+        : null
+      const pathRefs = Array.from(
+        getNodes(editor, { at: target, match, mode, voids }),
+        ([, path]) => Editor.pathRef(editor, path)
+      ).reverse()
+
+      for (const pathRef of pathRefs) {
+        const path = pathRef.unref()
+
+        if (!path) {
+          continue
+        }
+
+        const [node] = getNode(editor, path)
+        let range = Editor.range(editor, path)
+
+        if (
+          !split &&
+          !NodeApi.isText(node) &&
+          getChildren(editor, node).some(NodeApi.isText)
+        ) {
+          unwrapNodeAtPath(path)
+          getEditorTransformRegistry(editor).normalize()
+          continue
+        }
+
+        if (split && rangeRef?.current) {
+          const liveRange = getCurrentSelection(editor) ?? rangeRef.current
+          const intersection = RangeApi.intersection(liveRange, range)
+
+          if (!intersection) {
+            continue
+          }
+
+          range = intersection
+        }
+
+        getEditorTransformRegistry(editor).liftNodes({
+          at: range,
+          match: (candidate, candidatePath) =>
+            !NodeApi.isText(node) &&
+            !NodeApi.isText(candidate) &&
+            candidatePath.length === path.length + 1 &&
+            PathApi.equals(candidatePath.slice(0, -1), path),
+          voids,
+        })
+      }
+
+      mergeAdjacentTextRuns(editor)
+      rangeRef?.unref()
+      return
+    }
+
+    if (Array.isArray(target)) {
+      unwrapNodeAtPath(target)
+      return
+    }
+
+    if (!LocationApi.isRange(target)) {
+      return
+    }
+
+    const [start, end] =
+      comparePoints(target.anchor, target.focus) <= 0
+        ? [target.anchor, target.focus]
+        : [target.focus, target.anchor]
+
+    if (start.path.length < 2 || end.path.length < 2) {
+      return
+    }
+
+    const startWrapperPath = start.path.slice(0, -2)
+    const endWrapperPath = end.path.slice(0, -2)
+
+    if (startWrapperPath.length !== 1 || endWrapperPath.length !== 1) {
+      return
+    }
+
+    const startWrapperIndex = startWrapperPath[0]!
+    const endWrapperIndex = endWrapperPath[0]!
+    const wrapperChildCounts: number[] = []
+
+    for (
+      let wrapperIndex = startWrapperIndex;
+      wrapperIndex <= endWrapperIndex;
+      wrapperIndex += 1
+    ) {
+      const [wrapperNode] = getNode(editor, [wrapperIndex])
+
+      if (
+        NodeApi.isText(wrapperNode) ||
+        getChildren(editor, wrapperNode).some((child) => NodeApi.isText(child))
+      ) {
+        return
+      }
+
+      wrapperChildCounts.push(getChildren(editor, wrapperNode).length)
+    }
+
+    for (
+      let wrapperIndex = endWrapperIndex;
+      wrapperIndex >= startWrapperIndex;
+      wrapperIndex -= 1
+    ) {
+      unwrapNodeAtPath([wrapperIndex])
+    }
+
+    const mapPoint = (point: Point) => ({
+      path: [
+        startWrapperIndex +
+          wrapperChildCounts
+            .slice(0, point.path[0]! - startWrapperIndex)
+            .reduce((total, count) => total + count, 0) +
+          point.path[1]!,
+        ...point.path.slice(2),
+      ],
+      offset: point.offset,
+    })
+
+    getEditorTransformRegistry(editor).select({
+      anchor: mapPoint(start),
+      focus: mapPoint(end),
+    })
+
+    mergeAdjacentTextRuns(editor)
   })
 }

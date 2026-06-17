@@ -1,4 +1,6 @@
-import { Point } from 'slate'
+/** @jsx jsx */
+
+import { PointApi } from 'slate'
 
 export const input = {
   point: {
@@ -11,6 +13,6 @@ export const input = {
   },
 }
 export const test = ({ point, another }) => {
-  return Point.isAfter(point, another)
+  return PointApi.isAfter(point, another)
 }
 export const output = false

@@ -1,10 +1,9 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
-
-import { Editor } from 'slate'
 
 export const input = (
   <editor>
@@ -15,7 +14,7 @@ export const input = (
   </editor>
 )
 export const test = (editor) => {
-  const { anchor } = editor.selection
+  const { anchor } = Editor.getSnapshot(editor).selection
   return Editor.isEnd(editor, anchor, [0])
 }
 export const output = true

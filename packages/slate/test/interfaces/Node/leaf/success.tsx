@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -9,6 +9,6 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Node.leaf(value, [0, 0])
+  return NodeApi.leaf(value, [0, 0])
 }
 export const output = <text />

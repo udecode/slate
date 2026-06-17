@@ -1,4 +1,6 @@
-import { Element } from 'slate'
+/** @jsx jsx */
+
+import { ElementApi } from 'slate'
 
 export const input = {
   children: [
@@ -8,6 +10,6 @@ export const input = {
   ],
 }
 export const test = (value) => {
-  return Element.isElement(value)
+  return ElementApi.isElement(value)
 }
 export const output = true

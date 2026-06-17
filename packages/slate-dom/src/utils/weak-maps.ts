@@ -2,10 +2,10 @@ import type {
   Ancestor,
   Editor,
   Node,
-  Operation,
   Point,
   Range,
   RangeRef,
+  RuntimeId,
   Text,
 } from 'slate'
 import type { TextDiff } from './diff-text'
@@ -20,6 +20,7 @@ export type Action = { at?: Point | Range; run: () => void }
 export const IS_NODE_MAP_DIRTY: WeakMap<Editor, boolean> = new WeakMap()
 export const NODE_TO_INDEX: WeakMap<Node, number> = new WeakMap()
 export const NODE_TO_PARENT: WeakMap<Node, Ancestor> = new WeakMap()
+export const NODE_TO_RUNTIME_ID: WeakMap<Node, RuntimeId> = new WeakMap()
 
 /**
  * Weak maps that allow us to go between Slate nodes and DOM nodes. These
@@ -50,15 +51,6 @@ export const EDITOR_TO_USER_SELECTION: WeakMap<Editor, RangeRef | null> =
   new WeakMap()
 
 /**
- * Weak map for associating the context `onChange` context with the plugin.
- */
-
-export const EDITOR_TO_ON_CHANGE = new WeakMap<
-  Editor,
-  (options?: { operation?: Operation }) => void
->()
-
-/**
  * Weak maps for saving pending state on composition stage.
  */
 
@@ -79,6 +71,11 @@ export const EDITOR_TO_USER_MARKS: WeakMap<Editor, Partial<Text> | null> =
 
 export const EDITOR_TO_PENDING_DIFFS: WeakMap<Editor, TextDiff[]> =
   new WeakMap()
+
+export const EDITOR_TO_ROOT_VIEW_EDITORS: WeakMap<
+  Editor,
+  Set<Editor>
+> = new WeakMap()
 
 export const EDITOR_TO_PENDING_ACTION: WeakMap<Editor, Action | null> =
   new WeakMap()

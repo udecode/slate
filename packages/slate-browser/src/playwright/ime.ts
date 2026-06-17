@@ -1,7 +1,25 @@
-import type { Page } from '@playwright/test'
+import type { Frame, Page } from '@playwright/test'
 
-export const enableCompositionKeyEvents = async (page: Page) => {
-  await page.evaluate(() => {
+type CompositionSurface = Page | Frame
+type SyntheticCompositionEventType =
+  | 'compositionend'
+  | 'compositionstart'
+  | 'compositionupdate'
+
+export const enableCompositionKeyEvents = async (
+  surface: CompositionSurface
+) => {
+  await surface.evaluate(() => {
+    const target = window as Window & {
+      __SLATE_BROWSER_COMPOSITION_KEY_EVENTS__?: boolean
+    }
+
+    if (target.__SLATE_BROWSER_COMPOSITION_KEY_EVENTS__) {
+      return
+    }
+
+    target.__SLATE_BROWSER_COMPOSITION_KEY_EVENTS__ = true
+
     window.addEventListener(
       'compositionstart',
       () => {
@@ -19,43 +37,207 @@ export const enableCompositionKeyEvents = async (page: Page) => {
   })
 }
 
-export const composeText = async (
-  page: Page,
-  steps: readonly string[],
+export const dispatchSyntheticCompositionEvent = async (
+  surface: CompositionSurface,
+  type: SyntheticCompositionEventType,
+  text = ''
+) => {
+  await surface.evaluate(
+    ({ data, eventType }) => {
+      const active = document.activeElement as HTMLElement | null
+
+      if (!active) {
+        throw new Error('Missing active editable selection for composition')
+      }
+
+      active.dispatchEvent(
+        new CompositionEvent(eventType, {
+          bubbles: true,
+          cancelable: true,
+          data,
+        })
+      )
+    },
+    { data: text, eventType: type }
+  )
+}
+
+export const startSyntheticComposition = async (
+  surface: CompositionSurface,
+  text = ''
+) => dispatchSyntheticCompositionEvent(surface, 'compositionstart', text)
+
+export const updateSyntheticComposition = async (
+  surface: CompositionSurface,
+  text: string
+) => dispatchSyntheticCompositionEvent(surface, 'compositionupdate', text)
+
+export const commitSyntheticCompositionText = async (
+  surface: CompositionSurface,
   committedText: string
 ) => {
-  const browserName = page.context().browser()?.browserType().name()
+  await surface.evaluate(
+    async ({ finalText }) => {
+      const active = document.activeElement as HTMLElement | null
 
-  if (browserName !== 'chromium') {
-    await page.evaluate(
-      ({ composedSteps, finalText }) => {
-        const active = document.activeElement as HTMLElement | null
-        const selection = document.getSelection()
+      if (!active) {
+        throw new Error('Missing active editable selection for composition')
+      }
 
-        if (!active || !selection || selection.rangeCount === 0) {
-          throw new Error('Missing active editable selection for composition')
+      const root =
+        active.closest<HTMLElement>('[data-slate-editor="true"]') ?? active
+      const handle = (
+        root as HTMLElement & {
+          __slateBrowserHandle?: {
+            getSelection?: () => unknown
+            getText?: () => string
+            insertText?: (text: string) => void
+            setNativeDOMSelection?: (selection: unknown) => boolean
+          }
+        }
+      ).__slateBrowserHandle
+
+      const modelSelection = handle?.getSelection?.()
+      const isExpandedModelSelection = (selection: unknown) => {
+        if (!selection || typeof selection !== 'object') {
+          return false
         }
 
-        const dispatchCompositionEvent = (
-          type: 'compositionstart' | 'compositionupdate' | 'compositionend',
-          data: string
-        ) => {
-          active.dispatchEvent(
-            new CompositionEvent(type, {
-              bubbles: true,
-              cancelable: true,
-              data,
-            })
-          )
+        const range = selection as {
+          anchor?: { offset?: unknown; path?: unknown }
+          focus?: { offset?: unknown; path?: unknown }
         }
 
-        dispatchCompositionEvent('compositionstart', composedSteps[0] ?? '')
+        return (
+          JSON.stringify(range.anchor?.path) !==
+            JSON.stringify(range.focus?.path) ||
+          range.anchor?.offset !== range.focus?.offset
+        )
+      }
 
-        composedSteps.forEach((text) => {
-          dispatchCompositionEvent('compositionupdate', text)
+      if (modelSelection) {
+        handle?.setNativeDOMSelection?.(modelSelection)
+      }
+
+      const modelTextBefore = handle?.getText?.()
+      const didModelTextChange = () => {
+        const modelText = handle?.getText?.()
+
+        return (
+          typeof modelTextBefore === 'string' &&
+          typeof modelText === 'string' &&
+          modelText !== modelTextBefore
+        )
+      }
+      const waitForDeferredModelTextChange = async () => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+
+          if (didModelTextChange()) {
+            return true
+          }
+        }
+
+        return false
+      }
+      const waitForRenderedModelText = async () => {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+
+          const modelText = handle?.getText?.()
+          const domText = root.textContent?.replace(/\uFEFF/g, '')
+
+          if (
+            typeof modelText === 'string' &&
+            typeof domText === 'string' &&
+            domText === modelText
+          ) {
+            return true
+          }
+        }
+
+        return false
+      }
+      const selection = document.getSelection()
+      const range =
+        selection && selection.rangeCount > 0
+          ? selection.getRangeAt(0).cloneRange()
+          : null
+      const createInputEvent = (
+        type: 'beforeinput' | 'input',
+        inputType: string,
+        data: string
+      ) => {
+        if (typeof InputEvent === 'function') {
+          return new InputEvent(type, {
+            bubbles: true,
+            cancelable: type === 'beforeinput',
+            data,
+            inputType,
+          })
+        }
+
+        const event = new Event(type, {
+          bubbles: true,
+          cancelable: type === 'beforeinput',
+        }) as InputEvent
+        Object.defineProperties(event, {
+          data: { value: data },
+          inputType: { value: inputType },
         })
 
-        const range = selection.getRangeAt(0)
+        return event
+      }
+      const dispatchInputEvent = (
+        type: 'beforeinput' | 'input',
+        inputType: string,
+        data: string
+      ) => {
+        const event = createInputEvent(type, inputType, data)
+        active.dispatchEvent(event)
+
+        return event
+      }
+
+      const beforeInputEvent = dispatchInputEvent(
+        'beforeinput',
+        'insertFromComposition',
+        finalText
+      )
+      let modelChanged = didModelTextChange()
+      const semanticInsertText = handle?.insertText
+      const isCoarsePointer =
+        navigator.maxTouchPoints > 0 ||
+        globalThis.matchMedia?.('(pointer: coarse)').matches === true
+      const preventedWithoutModelChange =
+        beforeInputEvent.defaultPrevented && !modelChanged
+      const shouldUseSemanticTextFallback =
+        !modelChanged &&
+        !!semanticInsertText &&
+        isCoarsePointer &&
+        (preventedWithoutModelChange || !!modelSelection)
+      const shouldTrustDefaultPreventedExpandedComposition =
+        preventedWithoutModelChange && isExpandedModelSelection(modelSelection)
+      let didApplySemanticFallback = false
+
+      if (shouldUseSemanticTextFallback) {
+        semanticInsertText(finalText)
+        didApplySemanticFallback = true
+      } else if (shouldTrustDefaultPreventedExpandedComposition) {
+        modelChanged = modelChanged || (await waitForDeferredModelTextChange())
+
+        if (!modelChanged && semanticInsertText) {
+          semanticInsertText(finalText)
+          didApplySemanticFallback = true
+        }
+      } else if (
+        !shouldTrustDefaultPreventedExpandedComposition &&
+        (!beforeInputEvent.defaultPrevented ||
+          (!!handle && preventedWithoutModelChange))
+      ) {
+        if (!selection || !range) {
+          throw new Error('Missing active editable selection for composition')
+        }
 
         range.deleteContents()
 
@@ -67,10 +249,46 @@ export const composeText = async (
         selection.removeAllRanges()
         selection.addRange(range)
 
-        dispatchCompositionEvent('compositionend', finalText)
-      },
-      { composedSteps: steps, finalText: committedText }
-    )
+        dispatchInputEvent('input', 'insertFromComposition', finalText)
+      }
+
+      if (didApplySemanticFallback) {
+        await waitForRenderedModelText()
+      }
+
+      active.dispatchEvent(
+        new CompositionEvent('compositionend', {
+          bubbles: true,
+          cancelable: true,
+          data: finalText,
+        })
+      )
+    },
+    { finalText: committedText }
+  )
+}
+
+export const composeText = async (
+  page: Page,
+  surface: CompositionSurface,
+  steps: readonly string[],
+  committedText: string,
+  {
+    transport = 'native',
+  }: {
+    transport?: 'native' | 'synthetic'
+  } = {}
+) => {
+  const browserName = page.context().browser()?.browserType().name()
+
+  if (browserName !== 'chromium' || transport === 'synthetic') {
+    await startSyntheticComposition(surface, steps[0] ?? '')
+
+    for (const text of steps) {
+      await updateSyntheticComposition(surface, text)
+    }
+
+    await commitSyntheticCompositionText(surface, committedText)
 
     return
   }

@@ -1,4 +1,6 @@
-import { Path } from 'slate'
+/** @jsx jsx */
+
+import { PathApi } from 'slate'
 
 const path = [3, 3]
 const op = {
@@ -7,6 +9,6 @@ const op = {
   newPath: [3, 1, 0],
 }
 export const test = () => {
-  return Path.transform(path, op)
+  return PathApi.transform(path, op)
 }
 export const output = [3, 1, 0]

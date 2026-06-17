@@ -1,147 +1,141 @@
-import { css } from '@emotion/css'
-import { useCallback, useMemo, useState } from 'react'
+import { SearchIcon } from 'lucide-react'
+import { parseAsString, useQueryState } from 'nuqs'
+import { memo } from 'react'
+import { NodeApi } from 'slate'
 import {
-  createEditor,
-  type Descendant,
-  Node,
-  type NodeEntry,
-  type Range,
-} from 'slate'
-import { withHistory } from 'slate-history'
-import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
+  Editable,
+  type EditableProps,
+  type ReactEditor,
+  Slate,
+  type SlateDecorationSource,
+  useSlateEditor,
+  useSlateRangeDecorationSource,
+} from 'slate-react'
 
-import { Icon, Toolbar } from './components'
-import type { CustomEditor, CustomText } from './custom-types.d'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from '@/components/ui/input-group'
+import { cn } from '@/utils/cn'
+
+import { Toolbar } from './components'
+import type { CustomText, CustomValue } from './custom-types.d'
+import { replaceQueryOptions } from './query-controls'
 
 const SearchHighlightingExample = () => {
-  const [search, setSearch] = useState<string>('')
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor())) as CustomEditor,
-    []
+  const [search, setSearch] = useQueryState(
+    'q',
+    parseAsString.withDefault('').withOptions(replaceQueryOptions)
   )
-  const decorate = useCallback(
-    ([node, path]: NodeEntry) => {
-      const ranges: Range[] = []
-      if (search && Node.isElement(node) && node.children.every(Node.isText)) {
-        const texts = node.children.map((it) => it.text)
-        const str = texts.join('')
-        const length = search.length
-        let start = str.indexOf(search)
-        let index = 0
-        let iterated = 0
-        while (start !== -1) {
-          // Skip already iterated strings
-          while (
-            index < texts.length &&
-            start >= iterated + texts[index].length
-          ) {
-            iterated += texts[index].length
-            index++
-          }
-          // Find the index of array and relative position
-          let offset = start - iterated
-          let remaining = length
-          while (index < texts.length && remaining > 0) {
-            const currentText = texts[index]
-            const currentPath = [...path, index]
-            const taken = Math.min(remaining, currentText.length - offset)
-            ranges.push({
-              anchor: { path: currentPath, offset },
-              focus: { path: currentPath, offset: offset + taken },
-              highlight: true,
+  const editor = useSlateEditor<CustomValue>({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This is editable text that you can search. As you search, it looks for matching strings of text, and adds ',
+          },
+          { text: 'decorations', bold: true },
+          { text: ' to them in realtime.' },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Try it out for yourself by typing in the search box above!',
+          },
+        ],
+      },
+    ],
+  })
+  const searchSource = useSlateRangeDecorationSource<{ highlight: true }>(
+    editor,
+    {
+      data: { highlight: true },
+      deps: [search],
+      id: 'search-highlighting',
+      dirtiness: 'text',
+      read: ({ snapshot }) =>
+        search
+          ? NodeApi.findTextRanges({ children: snapshot.children }, search, {
+              caseSensitive: false,
             })
-            remaining -= taken
-            if (remaining > 0) {
-              iterated += currentText.length
-              // Next block will be indexed from 0
-              offset = 0
-              index++
-            }
-          }
-          // Looking for next search block
-          start = str.indexOf(search, start + search.length)
-        }
-      }
-
-      return ranges
-    },
-    [search]
+          : [],
+    }
   )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <>
       <Toolbar>
-        <div
-          className={css`
-            position: relative;
-          `}
-        >
-          <Icon
-            className={css`
-              position: absolute;
-              top: 0.3em;
-              left: 0.4em;
-              color: #ccc;
-            `}
-          >
-            search
-          </Icon>
-          <input
-            className={css`
-              padding-left: 2.5em !important;
-              width: 100%;
-            `}
-            onChange={(e) => setSearch(e.target.value)}
+        <InputGroup className="!flex max-w-sm">
+          <InputGroupInput
+            onChange={(event) => {
+              void setSearch(event.target.value)
+            }}
             placeholder="Search the text..."
             type="search"
+            value={search}
           />
-        </div>
+          <InputGroupAddon>
+            <SearchIcon aria-hidden />
+          </InputGroupAddon>
+        </InputGroup>
       </Toolbar>
+      <SearchHighlightingEditor editor={editor} searchSource={searchSource} />
+    </>
+  )
+}
+
+const SearchHighlightingEditor = memo(
+  ({
+    editor,
+    searchSource,
+  }: {
+    editor: ReactEditor<CustomValue>
+    searchSource: SlateDecorationSource<{ highlight: true }>
+  }) => (
+    <Slate decorationSources={[searchSource]} editor={editor}>
       <Editable
-        decorate={decorate}
-        renderLeaf={(props: RenderLeafProps) => <Leaf {...props} />}
+        id="search-highlighting"
+        renderLeaf={Leaf}
+        renderSegment={(segment, children) =>
+          segment.slices.some(
+            (slice) =>
+              (slice.data as { highlight?: true } | undefined)?.highlight
+          ) ? (
+            <span
+              className="slate-search-highlighting-highlight"
+              data-cy="search-highlighted"
+            >
+              {children}
+            </span>
+          ) : (
+            children
+          )
+        }
       />
     </Slate>
   )
-}
+)
 
 interface HighlightLeaf extends CustomText {
   highlight?: boolean
 }
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+type SearchLeafProps = Parameters<NonNullable<EditableProps['renderLeaf']>>[0]
+
+const Leaf = ({ attributes, children, leaf }: SearchLeafProps) => {
   const highlightLeaf = leaf as HighlightLeaf
   return (
     <span
       {...attributes}
-      {...(highlightLeaf.highlight && { 'data-cy': 'search-highlighted' })}
-      className={css`
-        font-weight: ${highlightLeaf.bold && 'bold'};
-        background-color: ${highlightLeaf.highlight && '#ffeeba'};
-      `}
+      className={cn(highlightLeaf.bold && 'slate-search-highlighting-bold')}
     >
       {children}
     </span>
   )
 }
-
-const initialValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This is editable text that you can search. As you search, it looks for matching strings of text, and adds ',
-      },
-      { text: 'decorations', bold: true },
-      { text: ' to them in realtime.' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try it out for yourself by typing in the search box above!' },
-    ],
-  },
-]
 
 export default SearchHighlightingExample

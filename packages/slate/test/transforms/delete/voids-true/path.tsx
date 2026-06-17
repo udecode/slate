@@ -4,8 +4,6 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const input = (
   <editor>
     <block void>
@@ -14,7 +12,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Transforms.delete(editor, { at: [0, 0], voids: true })
+  editor.text.delete({ at: [0, 0], voids: true })
 }
 export const output = (
   <editor>

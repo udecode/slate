@@ -1,8 +1,9 @@
-import { type RefObject, useState } from 'react'
-import { EDITOR_TO_SCHEDULE_FLUSH, IS_ANDROID } from 'slate-dom'
-import { useIsMounted } from '../use-is-mounted'
+import { type RefObject, useEffect, useState } from 'react'
+import { IS_ANDROID } from 'slate-dom'
+import { EDITOR_TO_SCHEDULE_FLUSH } from 'slate-dom/internal'
+import type { ReactRuntimeEditor } from '../../plugin/react-editor'
+import { useEditor } from '../use-editor'
 import { useMutationObserver } from '../use-mutation-observer'
-import { useSlateStatic } from '../use-slate-static'
 import {
   type CreateAndroidInputManagerOptions,
   createAndroidInputManager,
@@ -10,10 +11,7 @@ import {
 
 type UseAndroidInputManagerOptions = {
   node: RefObject<HTMLElement | null>
-} & Omit<
-  CreateAndroidInputManagerOptions,
-  'editor' | 'onUserInput' | 'receivedUserInput'
->
+} & Omit<CreateAndroidInputManagerOptions, 'editor'>
 
 const MUTATION_OBSERVER_CONFIG: MutationObserverInit = {
   subtree: true,
@@ -27,8 +25,7 @@ export const useAndroidInputManager = IS_ANDROID
         return null
       }
 
-      const editor = useSlateStatic()
-      const isMounted = useIsMounted()
+      const editor = useEditor<ReactRuntimeEditor>()
 
       const [inputManager] = useState(() =>
         createAndroidInputManager({
@@ -44,9 +41,10 @@ export const useAndroidInputManager = IS_ANDROID
       )
 
       EDITOR_TO_SCHEDULE_FLUSH.set(editor, inputManager.scheduleFlush)
-      if (isMounted) {
+
+      useEffect(() => {
         inputManager.flush()
-      }
+      })
 
       return inputManager
     }

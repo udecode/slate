@@ -1,12 +1,12 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
+import { NodeApi } from '../interfaces/node'
 
-export const elementReadOnly: EditorInterface['elementReadOnly'] = (
+export const elementReadOnly: EditorStaticApi['elementReadOnly'] = (
   editor,
   options = {}
 ) => {
   return Editor.above(editor, {
     ...options,
-    match: (n) => Node.isElement(n) && Editor.isElementReadOnly(editor, n),
+    match: (n) => NodeApi.isElement(n) && Editor.isElementReadOnly(editor, n),
   })
 }

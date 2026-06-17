@@ -1,16 +1,16 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { ElementApi } from 'slate'
 
 export const run = (editor) => {
-  Transforms.setNodes(
-    editor,
+  editor.nodes.set(
     { someKey: true },
-    { match: (n) => Element.isElement(n) && Editor.isBlock(editor, n) }
+    { match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n) }
   )
 }
 export const input = (

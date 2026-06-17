@@ -1,6 +1,5 @@
-import { Descendant, BaseEditor, BaseRange, Range, Element } from 'slate'
-import { ReactEditor } from 'slate-react'
-import { HistoryEditor } from 'slate-history'
+import type { BooleanMarkKeysOf, Descendant, Element, Range } from 'slate'
+import type { ReactEditor } from 'slate-react'
 
 export type BlockQuoteElement = {
   type: 'block-quote'
@@ -22,6 +21,18 @@ export type CheckListItemElement = {
 
 export type EditableVoidElement = {
   type: 'editable-void'
+  childRoots: {
+    body: string
+  }
+  children: EmptyText[]
+}
+
+export type SyncedBlockElement = {
+  type: 'synced-block'
+  childRoots: {
+    body: string
+  }
+  copyId: string
   children: EmptyText[]
 }
 
@@ -77,6 +88,7 @@ export type ListItemElement = { type: 'list-item'; children: Descendant[] }
 
 export type NumberedListItemElement = {
   type: 'numbered-list'
+  start?: number
   children: Descendant[]
 }
 
@@ -92,11 +104,19 @@ export type ParagraphElement = {
   children: Descendant[]
 }
 
-export type TableElement = { type: 'table'; children: TableRow[] }
+export type ThematicBreakElement = {
+  type: 'thematic-break'
+  children: EmptyText[]
+}
 
-export type TableCellElement = { type: 'table-cell'; children: CustomText[] }
+export type TableElement = { type: 'table'; children: TableRowElement[] }
 
-export type TableRowElement = { type: 'table-row'; children: TableCell[] }
+export type TableCellElement = { type: 'table-cell'; children: Descendant[] }
+
+export type TableRowElement = {
+  type: 'table-row'
+  children: TableCellElement[]
+}
 
 export type TitleElement = { type: 'title'; children: Descendant[] }
 
@@ -124,11 +144,12 @@ export type CustomElementWithAlign =
   | BlockQuoteElement
   | BulletedListElement
 
-type CustomElement =
+export type CustomElement =
   | BlockQuoteElement
   | BulletedListElement
   | CheckListItemElement
   | EditableVoidElement
+  | SyncedBlockElement
   | HeadingElement
   | HeadingTwoElement
   | HeadingThreeElement
@@ -143,6 +164,7 @@ type CustomElement =
   | NumberedListItemElement
   | MentionElement
   | ParagraphElement
+  | ThematicBreakElement
   | TableElement
   | TableRowElement
   | TableCellElement
@@ -153,10 +175,17 @@ type CustomElement =
 
 export type CustomElementType = CustomElement['type']
 
+export type CustomValue = CustomElement[]
+
 export type CustomText = {
+  backgroundColor?: string
   bold?: boolean
+  color?: string
   italic?: boolean
   code?: boolean
+  fontSize?: string
+  subscript?: boolean
+  superscript?: boolean
   underline?: boolean
   strikethrough?: boolean
   // MARKDOWN PREVIEW SPECIFIC LEAF
@@ -168,29 +197,12 @@ export type CustomText = {
   text: string
 }
 
-export type CustomTextKey = keyof Omit<CustomText, 'text'>
+export type CustomTextKey = BooleanMarkKeysOf<CustomText>
 
 export type EmptyText = {
   text: string
 }
 
-export type RenderElementPropsFor<T> = RenderElementProps & {
-  element: T
-}
-
-export type CustomEditor = BaseEditor &
-  ReactEditor &
-  HistoryEditor & {
-    nodeToDecorations?: Map<Element, Range[]>
-  }
-
-declare module 'slate' {
-  interface CustomTypes {
-    Editor: CustomEditor
-    Element: CustomElement
-    Text: CustomText
-    Range: BaseRange & {
-      [key: string]: unknown
-    }
-  }
+export type CustomEditor = ReactEditor<CustomValue> & {
+  nodeToDecorations?: Map<Element, Range[]>
 }

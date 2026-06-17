@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { ReactEditor } from '../plugin/react-editor'
-import { useSlateStatic } from './use-slate-static'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { useEditor } from './use-editor'
 
 export function useTrackUserInput() {
-  const editor = useSlateStatic()
+  const editor = useEditor<ReactRuntimeEditor>()
 
   const receivedUserInput = useRef<boolean>(false)
   const animationFrameIdRef = useRef<number>(0)

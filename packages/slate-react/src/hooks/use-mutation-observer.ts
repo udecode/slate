@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useState } from 'react'
+import { type RefObject, useEffect, useRef, useState } from 'react'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
 export function useMutationObserver(
@@ -7,6 +7,10 @@ export function useMutationObserver(
   options: MutationObserverInit
 ) {
   const [mutationObserver] = useState(() => new MutationObserver(callback))
+  const observed = useRef<{
+    node: HTMLElement
+    options: MutationObserverInit
+  } | null>(null)
 
   useIsomorphicLayoutEffect(() => {
     // Discard mutations caused during render phase. This works due to react calling
@@ -15,11 +19,30 @@ export function useMutationObserver(
   })
 
   useEffect(() => {
-    if (!node.current) {
-      throw new Error('Failed to attach MutationObserver, `node` is undefined')
+    const current = node.current
+
+    if (
+      observed.current?.node === current &&
+      observed.current.options === options
+    ) {
+      return
     }
 
-    mutationObserver.observe(node.current, options)
-    return () => mutationObserver.disconnect()
-  }, [mutationObserver, node, options])
+    mutationObserver.disconnect()
+    observed.current = null
+
+    if (!current) {
+      return
+    }
+
+    mutationObserver.observe(current, options)
+    observed.current = { node: current, options }
+  })
+
+  useEffect(() => {
+    return () => {
+      mutationObserver.disconnect()
+      observed.current = null
+    }
+  }, [mutationObserver])
 }

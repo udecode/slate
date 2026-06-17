@@ -1,0 +1,63 @@
+{
+  "name": "slate-layout",
+  "description": "Experimental derived layout primitives for Slate editors.",
+  "version": "0.124.0",
+  "license": "MIT",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist/"
+  ],
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.7"
+  },
+  "scripts": {
+    "build": "tsdown --config ./tsdown.config.mts --log-level warn",
+    "clean": "rimraf dist lib",
+    "test": "bun test ./test",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=19.2.0",
+    "react-dom": ">=19.2.0",
+    "slate": "0.124.1",
+    "slate-react": "0.124.0"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.9.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "slate": "workspace:*",
+    "slate-react": "workspace:*"
+  },
+  "keywords": [
+    "editor",
+    "layout",
+    "page",
+    "pagination",
+    "slate"
+  ]
+}

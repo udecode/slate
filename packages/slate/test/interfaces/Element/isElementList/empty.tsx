@@ -1,7 +1,9 @@
-import { Element } from 'slate'
+/** @jsx jsx */
+
+import { ElementApi } from 'slate'
 
 export const input = []
 export const test = (value) => {
-  return Element.isElementList(value)
+  return ElementApi.isElementList(value)
 }
 export const output = true

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { History, withHistory } from '..'
+import { Editor, getEditorTransformRegistry } from 'slate/internal'
+import * as SlateHistory from '../src'
+import { History, history } from '../src'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
 
@@ -48,7 +50,44 @@ const runFixtureTree = (
 }
 
 const withTest = (editor: any) => {
+  editor.extend(history())
+
   const { isInline, isVoid, isElementReadOnly, isSelectable } = editor
+  const transforms = () => getEditorTransformRegistry(editor)
+
+  Object.defineProperties(editor, {
+    delete: { value: (...args: any[]) => transforms().delete(...args) },
+    deleteBackward: {
+      value: (...args: any[]) => transforms().deleteBackward(...args),
+    },
+    deleteForward: {
+      value: (...args: any[]) => transforms().deleteForward(...args),
+    },
+    deselect: { value: (...args: any[]) => transforms().deselect(...args) },
+    insertBreak: {
+      value: (...args: any[]) => transforms().insertBreak(...args),
+    },
+    insertFragment: {
+      value: (...args: any[]) => transforms().insertFragment(...args),
+    },
+    insertText: {
+      value: (...args: any[]) => transforms().insertText(...args),
+    },
+    move: { value: (...args: any[]) => transforms().move(...args) },
+    redo: {
+      value: () =>
+        editor.update((tx: any) => {
+          tx.history.redo()
+        }),
+    },
+    select: { value: (...args: any[]) => transforms().select(...args) },
+    undo: {
+      value: () =>
+        editor.update((tx: any) => {
+          tx.history.undo()
+        }),
+    },
+  })
 
   editor.isInline = (element: any) => {
     return element.inline === true ? true : isInline(element)
@@ -69,24 +108,46 @@ const withTest = (editor: any) => {
   return editor
 }
 
+const getHistory = (editor: any) =>
+  editor.read((state: any) => state.history.get())
+
 describe('slate-history', () => {
+  it('exposes the current history extension surface', () => {
+    assert.strictEqual(typeof SlateHistory.history, 'function')
+    assert.strictEqual('withHistory' in SlateHistory, false)
+  })
+
   runFixtureTree(resolve(testsDir, 'undo'), (module) => {
     const { input, output, run } = module
-    const editor = withTest(withHistory(input))
+    const editor = withTest(input)
+    const initialSnapshot = Editor.getSnapshot(editor)
+    const initialExpected = {
+      children: structuredClone(initialSnapshot.children),
+      selection: structuredClone(initialSnapshot.selection),
+    }
 
     run(editor)
-    editor.undo()
+    editor.update((tx: any) => {
+      tx.history.undo()
+    })
 
-    assert.deepEqual(editor.children, output.children)
-    assert.deepEqual(editor.selection, output.selection)
+    const snapshot = Editor.getSnapshot(editor)
+    const expected = Editor.isEditor(output)
+      ? Editor.getSnapshot(output)
+      : output?.children !== undefined || output?.selection !== undefined
+        ? output
+        : initialExpected
+
+    assert.deepEqual(snapshot.children, expected.children)
+    assert.deepEqual(snapshot.selection, expected.selection)
   })
 
   runFixtureTree(resolve(testsDir, 'isHistory'), (module) => {
     const { input, output, run } = module
-    const editor = withTest(withHistory(input))
+    const editor = withTest(input)
 
     run(editor)
 
-    assert.strictEqual(History.isHistory(editor.history), output)
+    assert.strictEqual(History.isHistory(getHistory(editor)), output)
   })
 })

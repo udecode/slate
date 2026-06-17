@@ -1,23 +1,26 @@
-import { useMemo } from 'react'
-import { createEditor } from 'slate'
-import { withHistory } from 'slate-history'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const StylingExample = () => {
-  const editor1 = useMemo(() => withHistory(withReact(createEditor())), [])
-  const editor2 = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor1 = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This editor is styled using the style prop.' }],
+      },
+    ],
+  })
+  const editor2 = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This editor is styled using the className prop.' }],
+      },
+    ],
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
-      <Slate
-        editor={editor1}
-        initialValue={[
-          {
-            type: 'paragraph',
-            children: [{ text: 'This editor is styled using the style prop.' }],
-          },
-        ]}
-      >
+      <Slate editor={editor1}>
         <Editable
           style={{
             backgroundColor: 'rgb(255, 230, 156)',
@@ -27,17 +30,7 @@ const StylingExample = () => {
         />
       </Slate>
 
-      <Slate
-        editor={editor2}
-        initialValue={[
-          {
-            type: 'paragraph',
-            children: [
-              { text: 'This editor is styled using the className prop.' },
-            ],
-          },
-        ]}
-      >
+      <Slate editor={editor2}>
         <Editable className="fancy" disableDefaultStyles />
       </Slate>
     </div>

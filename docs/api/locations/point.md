@@ -6,8 +6,14 @@
 interface Point {
   path: Path
   offset: number
+  root?: string
 }
 ```
+
+When `root` is omitted, Slate resolves the point against the current editor or
+view root. The base editor and pure helpers fall back to the primary document;
+root-bound views fall back to their own root. Points in header, footer,
+content-root, or other extra roots carry that root key.
 
 - [Static methods](point.md#static-methods)
   - [Retrieval methods](point.md#retrieval-methods)
@@ -18,31 +24,31 @@ interface Point {
 
 ### Retrieval methods
 
-#### `Point.compare(point: Point, another: Point) => -1 | 0 | 1`
+#### `PointApi.compare(point: Point, another: Point) => -1 | 0 | 1`
 
 Compare a `point` to `another`, returning an integer indicating whether the point was before, at or after the other.
 
 ### Check methods
 
-#### `Point.isAfter(point: Point, another: Point) => boolean`
+#### `PointApi.isAfter(point: Point, another: Point) => boolean`
 
 Check if a `point` is after `another`.
 
-#### `Point.isBefore(point: Point, another: Point) => boolean`
+#### `PointApi.isBefore(point: Point, another: Point) => boolean`
 
 Check if a `point` is before `another`.
 
-#### `Point.equals(point: Point, another: Point) => boolean`
+#### `PointApi.equals(point: Point, another: Point) => boolean`
 
 Check if a `point` is exactly equal to `another`.
 
-#### `Point.isPoint(value: any) => value is Point`
+#### `PointApi.isPoint(value: unknown) => value is Point`
 
 Check if a `value` implements the `Point` interface.
 
 ### Transform methods
 
-#### `Point.transform(point: Point, op: Operation, options?) => Point | null`
+#### `PointApi.transform(point: Point, op: Operation, options?) => Point | null`
 
 Transform a `point` by an `op`.
 

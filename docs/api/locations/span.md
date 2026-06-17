@@ -13,6 +13,6 @@ type Span = [Path, Path]
 
 ### Check Methods
 
-#### `Span.isSpan(value: any) => value is Span`
+#### `SpanApi.isSpan(value: unknown) => value is Span`
 
 Check if a `value` implements the `Span` interface.

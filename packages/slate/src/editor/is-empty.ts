@@ -1,14 +1,15 @@
-import type { EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import { getEditorSchema } from '../core/editor-runtime'
+import type { EditorStaticApi } from '../interfaces/editor'
+import { NodeApi } from '../interfaces/node'
 
-export const isEmpty: EditorInterface['isEmpty'] = (editor, element) => {
+export const isEmpty: EditorStaticApi['isEmpty'] = (editor, element) => {
   const { children } = element
   const [first] = children
   return (
     children.length === 0 ||
     (children.length === 1 &&
-      Node.isText(first) &&
+      NodeApi.isText(first) &&
       first.text === '' &&
-      !editor.isVoid(element))
+      !getEditorSchema(editor).isVoid(element))
   )
 }

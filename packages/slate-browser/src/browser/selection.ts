@@ -1,13 +1,16 @@
+/** Slate model selection endpoint captured from the DOM. */
 export type EditorSelectionPoint = {
   path: number[]
   offset: number
 }
 
+/** Slate model selection snapshot resolved from browser selection endpoints. */
 export type EditorSelectionSnapshot = {
   anchor: EditorSelectionPoint
   focus: EditorSelectionPoint
 }
 
+/** Browser-native selection endpoint snapshot for debug proof. */
 export type DOMSelectionSnapshot = {
   anchorNodeText: string | null
   anchorOffset: number
@@ -15,26 +18,26 @@ export type DOMSelectionSnapshot = {
   focusOffset: number
 }
 
-const getEditorTextNodes = (root: ParentNode) =>
-  Array.from(root.querySelectorAll('[data-slate-node="text"]'))
+const parseSlatePath = (value: string) => {
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
 
-const hasZeroWidthMarker = (node: Node | null) => {
-  const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement
+  if (path.some((part) => !Number.isInteger(part))) {
+    throw new Error('Invalid Slate DOM path')
+  }
 
-  return !!element?.getAttribute('data-slate-zero-width')
+  return path
 }
 
-const getNodeLength = (node: Node | null) =>
-  node?.nodeType === 3
-    ? (node.textContent?.length ?? 0)
-    : (node?.childNodes.length ?? 0)
+const findZeroWidthMarker = (node: Node | null) => {
+  const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+  return element?.closest('[data-slate-zero-width]') ?? null
+}
 
 const toEditorOffset = (node: Node | null, offset: number) =>
-  hasZeroWidthMarker(node) && offset === 1 && getNodeLength(node) <= 1
-    ? 0
-    : offset
+  findZeroWidthMarker(node) ? 0 : offset
 
-const findTextIndex = (root: ParentNode, node: Node | null) => {
+const findTextPath = (root: ParentNode, node: Node | null) => {
   const owner =
     node?.nodeType === 1
       ? (node as Element).closest('[data-slate-node="text"]')
@@ -44,15 +47,28 @@ const findTextIndex = (root: ParentNode, node: Node | null) => {
     throw new Error('Cannot resolve selection to a Slate text node')
   }
 
-  const index = getEditorTextNodes(root).indexOf(owner)
-
-  if (index < 0) {
+  if (!(root as Node).contains(owner)) {
     throw new Error('Selection text node is outside the editor root')
   }
 
-  return index
+  const pathAttribute = owner.getAttribute('data-slate-path')
+
+  if (pathAttribute) {
+    return parseSlatePath(pathAttribute)
+  }
+
+  throw new Error('Cannot resolve selection to a Slate DOM path')
 }
 
+const findTextPathOrNull = (root: ParentNode, node: Node | null) => {
+  try {
+    return findTextPath(root, node)
+  } catch {
+    return null
+  }
+}
+
+/** Capture the browser-native selection endpoints for debugging. */
 export const takeDOMSelectionSnapshot = (
   selection: Selection | null
 ): DOMSelectionSnapshot | null => {
@@ -68,6 +84,7 @@ export const takeDOMSelectionSnapshot = (
   }
 }
 
+/** Resolve browser selection endpoints back to Slate text paths and offsets. */
 export const takeEditorSelectionSnapshot = (
   root: ParentNode,
   selection: Selection | null
@@ -76,13 +93,20 @@ export const takeEditorSelectionSnapshot = (
     return null
   }
 
+  const anchorPath = findTextPathOrNull(root, selection.anchorNode)
+  const focusPath = findTextPathOrNull(root, selection.focusNode)
+
+  if (anchorPath === null || focusPath === null) {
+    return null
+  }
+
   return {
     anchor: {
-      path: [findTextIndex(root, selection.anchorNode), 0],
+      path: anchorPath,
       offset: toEditorOffset(selection.anchorNode, selection.anchorOffset),
     },
     focus: {
-      path: [findTextIndex(root, selection.focusNode), 0],
+      path: focusPath,
       offset: toEditorOffset(selection.focusNode, selection.focusOffset),
     },
   }

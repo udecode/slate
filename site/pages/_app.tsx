@@ -1,8 +1,10 @@
 import type { AppProps } from 'next/app'
 import { Roboto } from 'next/font/google'
+import { NuqsAdapter } from 'nuqs/adapters/next/pages'
 import { type ErrorInfo, useState } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ExampleLayout, Warning } from '../components/ExampleLayout'
+import '../styles/shadcn.css'
 
 const roboto = Roboto({
   weight: ['400', '700'],
@@ -33,23 +35,25 @@ export default function App({ Component, pageProps }: AppProps) {
   const [error, setError] = useState<Error | undefined>(undefined)
   const [stackTrace, setStackTrace] = useState<ErrorInfo | undefined>(undefined)
   return (
-    <div className={roboto.className}>
-      <ErrorBoundary
-        FallbackComponent={ErrorFallback}
-        onError={(error, stackTrace) => {
-          setError(error)
-          setStackTrace(stackTrace)
-        }}
-      >
-        <ExampleLayout
-          error={error}
-          exampleName={pageProps.exampleName}
-          examplePath={pageProps.examplePath}
-          stackTrace={stackTrace}
+    <NuqsAdapter>
+      <div className={roboto.className}>
+        <ErrorBoundary
+          FallbackComponent={ErrorFallback}
+          onError={(error, stackTrace) => {
+            setError(error)
+            setStackTrace(stackTrace)
+          }}
         >
-          <Component {...pageProps} />
-        </ExampleLayout>
-      </ErrorBoundary>
-    </div>
+          <ExampleLayout
+            error={error}
+            exampleName={pageProps.exampleName}
+            examplePath={pageProps.examplePath}
+            stackTrace={stackTrace}
+          >
+            <Component {...pageProps} />
+          </ExampleLayout>
+        </ErrorBoundary>
+      </div>
+    </NuqsAdapter>
   )
 }

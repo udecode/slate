@@ -7,9 +7,15 @@ jsx
 import { cloneDeep } from 'lodash'
 
 export const run = (editor) => {
-  editor.insertText('t')
-  editor.insertText('w')
-  editor.insertText('o')
+  editor.update(() => {
+    editor.insertText('t')
+  })
+  editor.update(() => {
+    editor.insertText('w')
+  })
+  editor.update(() => {
+    editor.insertText('o')
+  })
 }
 export const input = (
   <editor>

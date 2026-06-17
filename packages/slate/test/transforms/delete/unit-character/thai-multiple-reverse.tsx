@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.delete(editor, { unit: 'character', distance: 2, reverse: true })
+  editor.text.delete({ unit: 'character', distance: 2, reverse: true })
 }
 export const input = (
   <editor>
@@ -20,7 +18,6 @@ export const input = (
 export const output = (
   <editor>
     <block>
-      พ
       <cursor />
     </block>
   </editor>

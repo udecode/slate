@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor, options = {}) => {
-  Transforms.insertFragment(editor, <fragment>fragment</fragment>, {
+  editor.fragment.insert(<fragment>fragment</fragment>, {
     voids: true,
     ...options,
   })
@@ -25,7 +23,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: argument to made that fragment should go into the inline
+// Current policy: with voids enabled, text fragments split the void inline and
+// land at the surrounding block text level.
 export const output = (
   <editor>
     <block>

@@ -1,150 +1,202 @@
-import { Location } from '../interfaces'
+import { getEditorSchema } from '../core/editor-runtime'
+import { applyOperation, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
+import { shouldMergeNodesRemovePrevNode } from '../editor/should-merge-nodes-remove-prev-node'
+import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { Element } from '../interfaces/element'
-import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
-import { Scrubber } from '../interfaces/scrubber'
+import { type Ancestor, type Node, NodeApi } from '../interfaces/node'
+import { type Path, PathApi } from '../interfaces/path'
+import { RangeApi } from '../interfaces/range'
 import type { Text } from '../interfaces/text'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
+import { formatDebugValue } from '../utils/format-debug-value'
+
+const getChildren = (editor: Editor, node: Ancestor) =>
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
+
+const pathContainsPath = (ancestor: Path, path: Path) =>
+  PathApi.equals(ancestor, path) || PathApi.isAncestor(ancestor, path)
+
+const getClosestIsolatingAncestor = (editor: Editor, path: Path) =>
+  Editor.above(editor, {
+    at: path,
+    match: (node) =>
+      NodeApi.isElement(node) && getEditorSchema(editor).isIsolating(node),
+    mode: 'lowest',
+    voids: true,
+  })
+
+const crossesIsolatingBoundary = (
+  editor: Editor,
+  previous: readonly [Node, Path],
+  current: readonly [Node, Path]
+) => {
+  const [prevNode, prevPath] = previous
+  const [node, path] = current
+  const prevIsolating = getClosestIsolatingAncestor(editor, prevPath)
+  const currentIsolating = getClosestIsolatingAncestor(editor, path)
+
+  return (
+    (NodeApi.isElement(prevNode) &&
+      getEditorSchema(editor).isIsolating(prevNode) &&
+      !pathContainsPath(prevPath, path)) ||
+    (NodeApi.isElement(node) &&
+      getEditorSchema(editor).isIsolating(node) &&
+      !pathContainsPath(path, prevPath)) ||
+    (prevIsolating && !pathContainsPath(prevIsolating[1], path)) ||
+    (currentIsolating && !pathContainsPath(currentIsolating[1], prevPath))
+  )
+}
 
 const hasSingleChildNest = (editor: Editor, node: Node): boolean => {
   return (
     node !== editor &&
-    (Node.isText(node) ||
-      Editor.isVoid(editor, node) ||
-      (node.children.length === 1 &&
-        hasSingleChildNest(editor, node.children[0])))
+    (NodeApi.isText(node) ||
+      (NodeApi.isElement(node) && Editor.isVoid(editor, node)) ||
+      (!NodeApi.isText(node) &&
+        getChildren(editor, node).length === 1 &&
+        hasSingleChildNest(editor, getChildren(editor, node)[0]!)))
   )
 }
 
-export const mergeNodes: NodeTransforms['mergeNodes'] = (
+export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
   editor,
   options = {}
 ) => {
-  Editor.withoutNormalizing(editor, () => {
-    let { match, at = editor.selection } = options
-    const { hanging = false, voids = false, mode = 'lowest' } = options
+  runEditorTransaction(editor, (tx) => {
+    Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
+      let { match } = options
+      let at = tx.resolveTarget({ at: options.at })
+      const { hanging = false, voids = false, mode = 'lowest' } = options
 
-    if (!at) {
-      return
-    }
-
-    const isPathMerge = Location.isPath(at)
-    const pathAt = isPathMerge ? (at as Path) : null
-    const usesDefaultSiblingMatch = match == null && isPathMerge
-
-    if (match == null) {
-      if (isPathMerge) {
-        const [parent] = Editor.parent(editor, at)
-        match = (n) => parent.children.includes(n)
-      } else {
-        match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+      if (!at) {
+        return
       }
-    }
 
-    if (!hanging && Location.isRange(at)) {
-      at = Editor.unhangRange(editor, at, { voids })
-    }
+      const isPathMerge = LocationApi.isPath(at)
+      const pathAt = isPathMerge ? (at as Path) : null
+      const usesDefaultSiblingMatch = match == null && isPathMerge
 
-    if (Location.isRange(at)) {
-      if (Range.isCollapsed(at)) {
-        at = at.anchor
-      } else {
-        const [, end] = Range.edges(at)
-        const pointRef = Editor.pointRef(editor, end)
-        Transforms.delete(editor, { at })
-        at = pointRef.unref()!
-
-        if (options.at == null) {
-          Transforms.select(editor, at)
+      if (match == null) {
+        if (isPathMerge) {
+          const [parent] = Editor.parent(editor, at)
+          match = (n) =>
+            !NodeApi.isEditor(n) && getChildren(editor, parent).includes(n)
+        } else {
+          match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
         }
       }
-    }
 
-    const [current] = Editor.nodes(editor, { at, match, voids, mode })
-    const previousPath =
-      usesDefaultSiblingMatch && pathAt && Path.hasPrevious(pathAt)
-        ? Path.previous(pathAt)
-        : null
-    const prev = previousPath
-      ? Editor.node(editor, previousPath)
-      : Editor.previous(editor, { at, match, voids, mode })
+      if (!hanging && LocationApi.isRange(at)) {
+        at = Editor.unhangRange(editor, at, { voids })
+      }
 
-    if (!current || !prev) {
-      return
-    }
+      if (LocationApi.isRange(at)) {
+        if (RangeApi.isCollapsed(at)) {
+          at = at.anchor
+        } else {
+          const [, end] = RangeApi.edges(at)
+          const pointRef = Editor.pointRef(editor, end)
+          transforms.delete({ at })
+          at = pointRef.unref()!
 
-    const [node, path] = current
-    const [prevNode, prevPath] = prev
+          if (options.at == null) {
+            transforms.select(at)
+          }
+        }
+      }
 
-    if (path.length === 0 || prevPath.length === 0) {
-      return
-    }
+      const [current] = getNodes(editor, { at, match, voids, mode })
+      const previousPath =
+        usesDefaultSiblingMatch && pathAt && PathApi.hasPrevious(pathAt)
+          ? PathApi.previous(pathAt)
+          : null
+      const prev = previousPath
+        ? getNode(editor, previousPath)
+        : Editor.previous(editor, { at, match, voids, mode })
 
-    const newPath = Path.next(prevPath)
-    const commonPath = Path.common(path, prevPath)
-    const isPreviousSibling = Path.isSibling(path, prevPath)
-    const levels = Array.from(Editor.levels(editor, { at: path }), ([n]) => n)
-      .slice(commonPath.length)
-      .slice(0, -1)
+      if (!current || !prev) {
+        return
+      }
 
-    // Determine if the merge will leave an ancestor of the path empty as a
-    // result, in which case we'll want to remove it after merging.
-    const emptyAncestor = Editor.above(editor, {
-      at: path,
-      mode: 'highest',
-      match: (n) => levels.includes(n) && hasSingleChildNest(editor, n),
-    })
+      const [node, path] = current
+      const [prevNode, prevPath] = prev
 
-    const emptyRef = emptyAncestor && Editor.pathRef(editor, emptyAncestor[1])
-    let properties: Partial<Text> | Partial<Element>
-    let position: number
+      if (path.length === 0 || prevPath.length === 0) {
+        return
+      }
 
-    // Ensure that the nodes are equivalent, and figure out what the position
-    // and extra properties of the merge will be.
-    if (Node.isText(node) && Node.isText(prevNode)) {
-      const { text, ...rest } = node
-      position = prevNode.text.length
-      properties = rest as Partial<Text>
-    } else if (Node.isElement(node) && Node.isElement(prevNode)) {
-      const { children, ...rest } = node
-      position = prevNode.children.length
-      properties = rest as Partial<Element>
-    } else {
-      throw new Error(
-        `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${Scrubber.stringify(
-          node
-        )} ${Scrubber.stringify(prevNode)}`
-      )
-    }
+      if (crossesIsolatingBoundary(editor, prev, current)) {
+        return
+      }
 
-    // If the node isn't already the next sibling of the previous node, move
-    // it so that it is before merging.
-    if (!isPreviousSibling) {
-      Transforms.moveNodes(editor, { at: path, to: newPath, voids })
-    }
+      const newPath = PathApi.next(prevPath)
+      const commonPath = PathApi.common(path, prevPath)
+      const isPreviousSibling = PathApi.isSibling(path, prevPath)
+      const levels = Array.from(Editor.levels(editor, { at: path }), ([n]) => n)
+        .slice(commonPath.length)
+        .slice(0, -1)
 
-    // If there was going to be an empty ancestor of the node that was merged,
-    // we remove it from the tree.
-    if (emptyRef) {
-      Transforms.removeNodes(editor, { at: emptyRef.current!, voids })
-    }
-
-    if (Editor.shouldMergeNodesRemovePrevNode(editor, prev, current)) {
-      Transforms.removeNodes(editor, { at: prevPath, voids })
-    } else {
-      editor.apply({
-        type: 'merge_node',
-        path: newPath,
-        position,
-        properties,
+      // Determine if the merge will leave an ancestor of the path empty as a
+      // result, in which case we'll want to remove it after merging.
+      const emptyAncestor = Editor.above(editor, {
+        at: path,
+        mode: 'highest',
+        match: (n) => levels.includes(n) && hasSingleChildNest(editor, n),
       })
-    }
 
-    if (emptyRef) {
-      emptyRef.unref()
-    }
+      const emptyRef = emptyAncestor && Editor.pathRef(editor, emptyAncestor[1])
+      let properties: Partial<Text> | Partial<Element>
+      let position: number
+
+      // Ensure that the nodes are equivalent, and figure out what the position
+      // and extra properties of the merge will be.
+      if (NodeApi.isText(node) && NodeApi.isText(prevNode)) {
+        const { text, ...rest } = node
+        position = prevNode.text.length
+        properties = rest as Partial<Text>
+      } else if (NodeApi.isElement(node) && NodeApi.isElement(prevNode)) {
+        const { children, ...rest } = node
+        position = prevNode.children.length
+        properties = rest as Partial<Element>
+      } else {
+        throw new Error(
+          `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${formatDebugValue(
+            node
+          )} ${formatDebugValue(prevNode)}`
+        )
+      }
+
+      // If the node isn't already the next sibling of the previous node, move
+      // it so that it is before merging.
+      if (!isPreviousSibling) {
+        transforms.moveNodes({ at: path, to: newPath, voids })
+      }
+
+      // If there was going to be an empty ancestor of the node that was merged,
+      // we remove it from the tree.
+      if (emptyRef) {
+        transforms.removeNodes({ at: emptyRef.current!, voids })
+      }
+
+      if (shouldMergeNodesRemovePrevNode(editor, prev, current)) {
+        transforms.removeNodes({ at: prevPath, voids })
+      } else {
+        applyOperation(editor, {
+          type: 'merge_node',
+          path: newPath,
+          position,
+          properties,
+        })
+      }
+
+      if (emptyRef) {
+        emptyRef.unref()
+      }
+    })
   })
 }
