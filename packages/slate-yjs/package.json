@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -37,6 +41,7 @@
   "scripts": {
     "build": "tsdown --config ./tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
+    "test": "bun test ./test --path-ignore-patterns ''",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -52,8 +57,8 @@
   },
   "peerDependencies": {
     "react": ">=19.2.0",
-    "slate": ">=0.124.2",
-    "slate-react": ">=0.124.2",
+    "slate": "0.124.1",
+    "slate-react": "0.124.0",
     "yjs": "13.6.30"
   },
   "keywords": [

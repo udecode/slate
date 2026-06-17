@@ -91,6 +91,7 @@ describe('release scripts contract', () => {
     const testBun = packageJson.scripts['test:bun']
 
     assert.match(testBun, /--path-ignore-patterns ''/)
+    assert.match(testBun, /packages\/slate-yjs\/test/)
     assert.match(testBun, /bun --filter slate-browser test:core/)
     assert.doesNotMatch(testBun, /packages\/slate-browser\/test\/core/)
   })

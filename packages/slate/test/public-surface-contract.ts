@@ -9,6 +9,9 @@ import * as Slate from '../src'
 
 const repoRoot = resolve(import.meta.dir, '../../..')
 
+const packageDirectoryName = (packageName: string) =>
+  packageName === '@slate/yjs' ? 'slate-yjs' : packageName
+
 const collectFiles = (directory: string, pattern: RegExp): string[] =>
   readdirSync(directory)
     .flatMap((entry) => {
@@ -380,6 +383,10 @@ const allowedSlateInternalBridgeImporters = new Map([
     'packages/slate-react/src/editable/runtime-editor-api.ts',
     'React editable runtime bridge re-exports selected internal helpers for React-owned editor wiring',
   ],
+  [
+    'packages/slate-yjs/src/core/editor-adapter.ts',
+    'Yjs collaboration adapter needs internal operation replay helpers to translate remote Yjs updates into Slate commits',
+  ],
 ])
 
 const markdownLinkPattern = /\[[^\]]*]\(([^)\s#]*)(#[^)\s]+)?\)/g
@@ -422,7 +429,12 @@ const collectMarkdownAnchors = (relativePath: string): Set<string> => {
 const readPackageJson = (packageName: string) =>
   JSON.parse(
     readFileSync(
-      resolve(repoRoot, 'packages', packageName, 'package.json'),
+      resolve(
+        repoRoot,
+        'packages',
+        packageDirectoryName(packageName),
+        'package.json'
+      ),
       'utf8'
     )
   ) as {
@@ -456,6 +468,7 @@ const readDtsTsconfig = () =>
   }
 
 const expectedPublicPackageExportMaps: Record<string, readonly string[]> = {
+  '@slate/yjs': ['.', './core', './internal', './react'],
   slate: ['.', './internal'],
   'slate-browser': ['./browser', './core', './playwright', './transports'],
   'slate-dom': ['.', './internal'],
@@ -467,6 +480,7 @@ const expectedPublicPackageExportMaps: Record<string, readonly string[]> = {
 
 const expectedPackageReadmeFiles: Record<string, 'README.md' | 'Readme.md'> = {
   slate: 'Readme.md',
+  'slate-yjs': 'README.md',
   'slate-browser': 'README.md',
   'slate-dom': 'README.md',
   'slate-history': 'Readme.md',
@@ -477,6 +491,7 @@ const expectedPackageReadmeFiles: Record<string, 'README.md' | 'Readme.md'> = {
 
 const expectedRootWorkspacePackageDevDependencies = [
   'slate',
+  '@slate/yjs',
   'slate-browser',
   'slate-dom',
   'slate-history',
@@ -503,7 +518,7 @@ const exportSubpathToImportSpecifier = (
 ) => (subpath === '.' ? packageName : `${packageName}/${subpath.slice(2)}`)
 
 const exportTypesTargetToDtsPath = (packageName: string, types: string) =>
-  `packages/${packageName}/${types.replace(/^\.\//, '')}`
+  `packages/${packageDirectoryName(packageName)}/${types.replace(/^\.\//, '')}`
 
 const rootDistTarget = {
   types: './dist/index.d.ts',
@@ -520,6 +535,29 @@ const expectedPublicPackageExportTargets: Record<
     types?: string
   }
 > = {
+  '@slate/yjs': {
+    main: './dist/index.js',
+    module: './dist/index.js',
+    types: './dist/index.d.ts',
+    exports: {
+      '.': rootDistTarget,
+      './core': {
+        types: './dist/core/index.d.ts',
+        import: './dist/core/index.js',
+        default: './dist/core/index.js',
+      },
+      './internal': {
+        types: './dist/internal/index.d.ts',
+        import: './dist/internal/index.js',
+        default: './dist/internal/index.js',
+      },
+      './react': {
+        types: './dist/react/index.d.ts',
+        import: './dist/react/index.js',
+        default: './dist/react/index.js',
+      },
+    },
+  },
   slate: {
     main: './dist/index.js',
     module: './dist/index.js',
@@ -637,6 +675,12 @@ const expectedPublicPackageBuildEntries: Record<
   string,
   Record<string, string>
 > = {
+  '@slate/yjs': {
+    index: 'src/index.ts',
+    'core/index': 'src/core/index.ts',
+    'internal/index': 'src/internal/index.ts',
+    'react/index': 'src/react/index.ts',
+  },
   slate: {
     index: 'src/index.ts',
     'internal/index': 'src/internal/index.ts',
@@ -696,7 +740,12 @@ const collectPublicSlateImportSpecifiers = () => {
     for (const match of source.matchAll(importSpecifierPattern)) {
       const specifier = match[1] ?? match[2]
 
-      if (!specifier?.startsWith('slate')) continue
+      if (
+        !specifier ||
+        (!specifier.startsWith('slate') && !specifier.startsWith('@slate/'))
+      ) {
+        continue
+      }
 
       const files = importSpecifiers.get(specifier) ?? []
 
@@ -715,6 +764,9 @@ const collectPublicSlateImportSpecifiers = () => {
 }
 
 const publicPackageEntryPointFiles = new Map([
+  ['@slate/yjs', 'packages/slate-yjs/src/index.ts'],
+  ['@slate/yjs/core', 'packages/slate-yjs/src/core/index.ts'],
+  ['@slate/yjs/react', 'packages/slate-yjs/src/react/index.ts'],
   ['slate', 'packages/slate/src/index.ts'],
   [
     'slate-browser/playwright',
@@ -2207,6 +2259,8 @@ describe('core package library docs', () => {
     assert.deepEqual(
       [...publicSlateImportSpecifiers.keys()],
       [
+        '@slate/yjs',
+        '@slate/yjs/react',
         'slate',
         'slate-browser/playwright',
         'slate-dom',
@@ -2224,7 +2278,11 @@ describe('core package library docs', () => {
       expectedPublicPackageBuildEntries
     )) {
       const packageJson = readPackageJson(packageName)
-      const packageRoot = resolve(repoRoot, 'packages', packageName)
+      const packageRoot = resolve(
+        repoRoot,
+        'packages',
+        packageDirectoryName(packageName)
+      )
       const exportedEntries = Object.fromEntries(
         Object.entries(packageJson.exports ?? {}).map(([subpath, target]) => [
           subpath,
@@ -2238,7 +2296,7 @@ describe('core package library docs', () => {
             ? 'index'
             : subpath.slice(2) === 'internal'
               ? 'internal/index'
-              : packageName === 'slate-browser'
+              : packageName === 'slate-browser' || packageName === '@slate/yjs'
                 ? `${subpath.slice(2)}/index`
                 : subpath.slice(2),
         ])
@@ -2465,6 +2523,9 @@ describe('core package library docs', () => {
           reference !== 'Readme.md' &&
           reference !== 'package.json'
         ) {
+          return []
+        }
+        if (expectedPublicPackageImportSpecifiers.has(reference)) {
           return []
         }
 

@@ -2,15 +2,14 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
 import type { Editor, Range } from 'slate'
 import {
-  createRangeDecorationSource,
   type SlateDecorationSource,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 
 import type {
@@ -490,63 +489,56 @@ export function useYjsRemoteCursorDecorationSource<
   const id = options.id ?? DEFAULT_CURSOR_DECORATION_SOURCE_ID
   optionsRef.current = options
 
-  const source = useMemo(
-    () =>
-      createRangeDecorationSource<TDecorationData>(editor, {
-        id,
-        read: () =>
-          readYjsState(editor, (state) => {
-            const cursors = state.remoteCursors<TCursorData>()
-            const slices = new Array<{
-              readonly data: TDecorationData
-              readonly key: string
-              readonly range: Range
-            }>(cursors.length)
-            let writeIndex = 0
-            let index = 0
+  const source = useSlateRangeDecorationSource<TDecorationData>(editor, {
+    deps: [awarenessRevision, ...decorateRefreshDeps],
+    id,
+    read: () =>
+      readYjsState(editor, (state) => {
+        const cursors = state.remoteCursors<TCursorData>()
+        const slices = new Array<{
+          readonly data: TDecorationData
+          readonly key: string
+          readonly range: Range
+        }>(cursors.length)
+        let writeIndex = 0
+        let index = 0
 
-            while (index < cursors.length) {
-              const cursor = cursors[index]
+        while (index < cursors.length) {
+          const cursor = cursors[index]
 
-              if (cursor === undefined) {
-                throw new Error(
-                  'Cannot read decoration slices from a sparse cursor array.'
-                )
-              }
+          if (cursor === undefined) {
+            throw new Error(
+              'Cannot read decoration slices from a sparse cursor array.'
+            )
+          }
 
-              const range = cursor.selection
+          const range = cursor.selection
 
-              if (range === null) {
-                index++
-                continue
-              }
+          if (range === null) {
+            index++
+            continue
+          }
 
-              const decorate = optionsRef.current.decorate
-              const data =
-                decorate === undefined
-                  ? createDefaultCursorData<TCursorData, TDecorationData>(
-                      cursor
-                    )
-                  : decorate(cursor)
+          const decorate = optionsRef.current.decorate
+          const data =
+            decorate === undefined
+              ? createDefaultCursorData<TCursorData, TDecorationData>(cursor)
+              : decorate(cursor)
 
-              slices[writeIndex] = {
-                data,
-                key: `${id}:${cursor.clientId}`,
-                range,
-              }
-              writeIndex++
-              index++
-            }
+          slices[writeIndex] = {
+            data,
+            key: `${id}:${cursor.clientId}`,
+            range,
+          }
+          writeIndex++
+          index++
+        }
 
-            slices.length = writeIndex
+        slices.length = writeIndex
 
-            return slices
-          }),
+        return slices
       }),
-    [editor, id]
-  )
-
-  useEffect(() => () => source.destroy(), [source])
+  })
 
   useEffect(() => {
     source.refresh({

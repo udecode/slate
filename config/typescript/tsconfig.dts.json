@@ -4,6 +4,10 @@
     "paths": {
       "slate": ["packages/slate/dist/index.d.ts"],
       "slate/internal": ["packages/slate/dist/internal/index.d.ts"],
+      "@slate/yjs": ["packages/slate-yjs/dist/index.d.ts"],
+      "@slate/yjs/core": ["packages/slate-yjs/dist/core/index.d.ts"],
+      "@slate/yjs/internal": ["packages/slate-yjs/dist/internal/index.d.ts"],
+      "@slate/yjs/react": ["packages/slate-yjs/dist/react/index.d.ts"],
       "slate-browser/browser": [
         "packages/slate-browser/dist/browser/index.d.ts"
       ],

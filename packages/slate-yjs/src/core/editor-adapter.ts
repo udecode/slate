@@ -92,7 +92,7 @@ export const createYjsEditorAdapter = (editor: Editor): YjsEditorAdapter => {
   let importing = false
 
   const readChildren = (): Element[] =>
-    editor.read((state) => copyReadonlyArray(state.value.get().roots.main))
+    editor.read((state) => copyReadonlyArray(state.value.get().children))
 
   const readChildrenBeforeOperations = (
     operations: readonly Operation[]

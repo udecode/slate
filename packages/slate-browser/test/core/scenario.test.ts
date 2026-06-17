@@ -214,7 +214,8 @@ describe('scenario helpers', () => {
     expect(scripts['test:stress:desktop']).toContain(
       'scripts/stress/project-args.mjs desktop'
     )
-    expect(scripts['test:release-proof']).toContain('test:persistent-soak')
+    expect(scripts['test:release-proof']).not.toContain('test:persistent-soak')
+    expect(scripts['test:release-proof']).not.toContain('scripts/proof/')
     expect(scripts['test:release-proof']).not.toContain(
       'test:mobile-device-proof:raw'
     )

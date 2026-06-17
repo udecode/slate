@@ -369,9 +369,7 @@ const createExampleNetwork = (): ExampleNetwork => {
 }
 
 const getEditorValue = (editor: CustomEditor): CustomValue =>
-  editor.read((state) =>
-    cloneValue(state.value.get().roots.main)
-  ) as CustomValue
+  editor.read((state) => cloneValue(state.value.get().children)) as CustomValue
 
 type TextEntry = {
   path: number[]
@@ -872,7 +870,6 @@ const replaceDocument = (peer: ExamplePeer, editor: CustomEditor) => {
         newChildren: [paragraph(peer.replacementText)],
         newSelection: selection,
         path: [],
-        root: 'main',
         selection: null,
         type: 'replace_children',
       },
@@ -889,7 +886,6 @@ const replaceWithEmptyParagraph = (editor: CustomEditor) => {
       focus: { path: [0, 0], offset: 0 },
     },
     path: [],
-    root: 'main',
     selection: null,
     type: 'replace_fragment',
   }
@@ -919,7 +915,6 @@ const replaceBlockTextWithEmpty = (
       focus: { path: [blockIndex, 0], offset: 0 },
     },
     path: [blockIndex],
-    root: 'main',
     selection: null,
     type: 'replace_fragment',
   }
@@ -948,7 +943,6 @@ const removeBlock = (editor: CustomEditor, blockIndex: number) => {
       {
         node,
         path: [blockIndex],
-        root: 'main',
         type: 'remove_node',
       },
     ])
@@ -1133,7 +1127,7 @@ const moveFirstBlockDown = (editor: CustomEditor) => {
 
 const setFirstBlockRole = (editor: CustomEditor) => {
   editor.update((tx) => {
-    tx.nodes.set({ role: 'title' } as never, { at: [0] })
+    tx.nodes.set({ role: 'title' }, { at: [0] })
   })
 }
 
@@ -1145,7 +1139,7 @@ const unsetFirstBlockRole = (editor: CustomEditor) => {
   }
 
   editor.update((tx) => {
-    tx.nodes.unset('role' as never, { at: [0] })
+    tx.nodes.unset('role', { at: [0] })
   })
 }
 

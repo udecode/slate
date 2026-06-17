@@ -503,7 +503,6 @@ const replaceDocument = (peer: Peer, peerId: PeerId): void => {
           focus: { path: [0, 0], offset: text.length },
         },
         path: [],
-        root: 'main',
         selection: null,
         type: 'replace_children',
       },
@@ -1030,7 +1029,6 @@ describe('@slate/yjs structural soak contract', () => {
     const operation: Operation = {
       newPath: [1],
       path: [1, 0],
-      root: 'main',
       type: 'move_node',
     }
 

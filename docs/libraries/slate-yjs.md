@@ -1,0 +1,98 @@
+# Slate Yjs
+
+`@slate/yjs` connects a Slate editor to a Yjs document. Use it when your app
+owns the collaboration transport and wants Slate operations, selection state,
+awareness, provider lifecycle, and undo/redo coordination to share one Yjs
+source of truth.
+
+## Install
+
+Install the adapter with the Slate packages your editor already uses.
+
+```text
+npm install @slate/yjs yjs slate slate-react slate-history react react-dom
+```
+
+Install your transport package separately. For Hocuspocus, add the provider at
+the app edge.
+
+```text
+npm install @hocuspocus/provider
+```
+
+## Create The Extension
+
+Create or wrap a provider as a `YjsProviderLike`, then pass it to
+`createYjsExtension`. The provider owns the network. Slate owns the editor
+adapter.
+
+```tsx
+import { createEditor } from 'slate'
+import { createYjsExtension } from '@slate/yjs'
+import { history } from 'slate-history'
+
+const editor = createEditor({
+  extensions: [
+    history(),
+    createYjsExtension({
+      clientId: 'local-user',
+      doc,
+      provider,
+      rootName: 'slate',
+    }),
+  ],
+  initialValue,
+})
+```
+
+The extension adds a `yjs` group to `state` and `tx`.
+
+```tsx
+const connected = editor.read(state => state.yjs.connected())
+
+editor.update(tx => {
+  tx.yjs.sendSelection(selection, { name: 'Ada' })
+})
+```
+
+## React Hooks
+
+Use the React subpath for provider state and remote cursors.
+
+```tsx
+import {
+  useYjsProviderStatus,
+  useYjsProviderSynced,
+  useYjsRemoteCursors,
+} from '@slate/yjs/react'
+```
+
+`useYjsRemoteCursorDecorationSource` converts remote selections into a Slate
+decoration source. `useYjsRemoteCursorOverlayPositions` resolves overlay
+geometry when the mounted editor can provide DOM rects.
+
+## Provider Boundary
+
+Provider packages stay out of `@slate/yjs`. Your app chooses Hocuspocus,
+WebSocket, WebRTC, IndexedDB, or a custom provider and maps it into
+`YjsProviderLike`.
+
+The Hocuspocus example wraps `provider.document` as `doc`, forwards provider
+events, and keeps authentication, room naming, persistence, and server scaling
+outside the Slate package.
+
+## Proof
+
+The package is covered by operation, selection, awareness, provider, React, and
+structural soak contracts under `packages/slate-yjs/test`. The Hocuspocus
+example is covered by the production soak proof script:
+
+```sh
+PRODUCTION_SOAK_FAIL_ON_ISSUES=1 bun scripts/proof/yjs-hocuspocus-production-soak.mjs
+```
+
+## Related Docs
+
+- [Operation Replay Substrate](../walkthroughs/07-operation-replay-substrate.md)
+- [Slate History](./slate-history/README.md)
+- [Slate React](./slate-react/README.md)

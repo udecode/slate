@@ -664,4 +664,5 @@ main()
   })
   .finally(async () => {
     await cleanup()
+    process.exit(process.exitCode ?? 0)
   })

@@ -98,7 +98,7 @@ package manager.
 Install the optional packages only when your app imports them directly.
 
 ```text
-npm install slate-history slate-hyperscript
+npm install slate-history slate-hyperscript @slate/yjs
 ```
 
 Package ownership is split deliberately:
@@ -111,6 +111,8 @@ Package ownership is split deliberately:
   DOM repair, and the React editor extension.
 - `slate-history` owns the history extension and history API.
 - `slate-hyperscript` owns JSX fixtures for tests.
+- `@slate/yjs` owns the Yjs adapter, awareness, provider lifecycle bridge, and
+  remote cursor hooks. App code owns provider packages and server policy.
 
 ## Step 2: Create The Editor
 
@@ -784,3 +786,4 @@ of view and the codebase no longer depends on old helper aliases.
 - [Slate React Event Handling](../libraries/slate-react/event-handling.md)
 - [Slate History](../libraries/slate-history/history-extension-setup.md)
 - [Slate Hyperscript](../libraries/slate-hyperscript.md)
+- [Slate Yjs](../libraries/slate-yjs.md)

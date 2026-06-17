@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const publicPackageNames = [
   'slate',
+  '@slate/yjs',
   'slate-browser',
   'slate-dom',
   'slate-history',
@@ -14,7 +15,10 @@ const publicPackageNames = [
 const readPackageJson = (packageName: string) =>
   JSON.parse(
     readFileSync(
-      new URL(`../../${packageName}/package.json`, import.meta.url),
+      new URL(
+        `../../${packageName === '@slate/yjs' ? 'slate-yjs' : packageName}/package.json`,
+        import.meta.url
+      ),
       'utf8'
     )
   ) as { exports?: Record<string, unknown> }
@@ -50,6 +54,42 @@ const exactPublicPackageRuntimeExportExpectations = {
     'elementProperty',
     'isEditor',
     'setDebugValueScrubber',
+  ],
+  '@slate/yjs': [
+    'createYjsAwarenessSelection',
+    'createYjsExtension',
+    'readYjsAwarenessSelection',
+    'slatePointToYjsRelativePosition',
+    'slateRangeToYjsRelativeRange',
+    'yjsAwarenessSelectionsEqual',
+    'yjsRelativePositionToSlatePoint',
+    'yjsRelativeRangeToSlateRange',
+    'yjsRelativeRangesEqual',
+  ],
+  '@slate/yjs/core': [
+    'createYjsAwarenessSelection',
+    'createYjsExtension',
+    'readYjsAwarenessSelection',
+    'slatePointToYjsRelativePosition',
+    'slateRangeToYjsRelativeRange',
+    'yjsAwarenessSelectionsEqual',
+    'yjsRelativePositionToSlatePoint',
+    'yjsRelativeRangeToSlateRange',
+    'yjsRelativeRangesEqual',
+  ],
+  '@slate/yjs/react': [
+    'getYjsAwarenessRevision',
+    'getYjsProviderRevision',
+    'getYjsProviderStatus',
+    'getYjsProviderSynced',
+    'useYjsAwarenessRevision',
+    'useYjsProviderRevision',
+    'useYjsProviderStatus',
+    'useYjsProviderSynced',
+    'useYjsRemoteCursor',
+    'useYjsRemoteCursorDecorationSource',
+    'useYjsRemoteCursorOverlayPositions',
+    'useYjsRemoteCursors',
   ],
   'slate-browser/browser': [
     'inspectZeroWidthPlaceholder',

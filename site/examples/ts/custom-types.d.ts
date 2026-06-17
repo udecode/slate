@@ -101,6 +101,7 @@ export type MentionElement = {
 export type ParagraphElement = {
   type: 'paragraph'
   align?: string
+  role?: 'title'
   children: Descendant[]
 }
 

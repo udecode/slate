@@ -10,6 +10,10 @@
     "paths": {
       "slate": ["packages/slate/src/index.ts"],
       "slate/internal": ["packages/slate/src/internal/index.ts"],
+      "@slate/yjs": ["packages/slate-yjs/src/index.ts"],
+      "@slate/yjs/core": ["packages/slate-yjs/src/core/index.ts"],
+      "@slate/yjs/internal": ["packages/slate-yjs/src/internal/index.ts"],
+      "@slate/yjs/react": ["packages/slate-yjs/src/react/index.ts"],
       "slate-browser/browser": ["packages/slate-browser/src/browser/index.ts"],
       "slate-browser/core": ["packages/slate-browser/src/core/index.ts"],
       "slate-browser/playwright": [

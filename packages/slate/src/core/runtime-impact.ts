@@ -243,7 +243,9 @@ export const operationChangesTopLevelOrder = (
   }
 }
 
-export function operationChangesTextContent(operation: Operation): boolean {
+export function operationChangesTextContent(
+  operation: Operation
+): operation is Extract<Operation, { type: 'split_node' }> {
   return operation.type === 'split_node' && operation.path.length > 1
 }
 

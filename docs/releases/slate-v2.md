@@ -8,8 +8,8 @@ infrastructure built for real contenteditable behavior.
 
 This is the release story for the first public Slate v2 lane. The beta claim is
 the core editor runtime, React editor path, package surface, desktop browser
-proof, and public test infrastructure. Raw mobile-device proof, Yjs adapters,
-and production pagination stay outside this beta claim.
+proof, Yjs adapter, and public test infrastructure. Raw mobile-device proof and
+production pagination stay outside this beta claim.
 
 For a published beta package set, install the React editor with:
 
@@ -42,7 +42,7 @@ first-class overlays, and browser proof that catches bugs a model test will miss
 | You own the editor integration and can port one surface at a time.              | You need a drop-in `withHistory(withReact(createEditor()))` upgrade.            |
 | You want transaction groups instead of app-level transform wrappers.            | You need old Slate 0.x helper surfaces to stay public during migration.         |
 | You need extra editable regions, persistent document state, or overlay stores.  | You only need a simple Slate 0.x editor and do not want an API hard cut.        |
-| You care about browser-visible selection, paste, undo, and huge-document proof. | You need raw mobile-device proof, production pagination, or Yjs adapters today. |
+| You care about browser-visible selection, paste, undo, huge-document proof, or Yjs adapter proof. | You need raw mobile-device proof or production pagination today. |
 
 The migration guide is mandatory reading. If your app cannot keep the old editor
 working while one v2 surface reaches behavior parity, wait.
@@ -350,6 +350,7 @@ Slate v2 keeps package ownership explicit:
 | `slate-react`       | React editor factory, `<Slate>`, `<Editable>`, render primitives, hooks, overlays, annotations, widgets, DOM strategies |
 | `slate-history`     | undo/redo extension exposed through `state.history`, `tx.history`, and `editor.api.history`                             |
 | `slate-hyperscript` | JSX-style test and fixture helpers                                                                                      |
+| `@slate/yjs`        | Yjs collaboration adapter, awareness, provider lifecycle bridge, remote cursor hooks, and Yjs-aware undo/redo             |
 | `slate-layout`      | experimental page layout and page rendering helpers                                                                     |
 | `slate-browser`     | browser proof harness, Playwright helpers, feature contracts, screenshots, traces, and generated editing-test replay     |
 
@@ -461,7 +462,7 @@ collaboration, export, and selection case.
 | Area                                | Status                                                                                                                                     |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Raw mobile device proof             | Deferred until a real Appium/device lane writes proof artifacts.                                                                           |
-| Collaboration adapters              | Slate keeps operations, commits, state patches, and collaboration-friendly model truth; Yjs adapter work is a later lane.                  |
+| Collaboration adapters              | `@slate/yjs` owns the Yjs adapter. App code owns transport packages, auth, persistence, room naming, and server scaling.                   |
 | Universal huge-document superiority | The product gate is green when the owned benchmark passes; broad cross-editor superiority stays diagnostic and scoped.                     |
 | Pagination/page layout              | `slate-layout` is experimental until product proof covers browser geometry, export, tables, images, collaboration, and selection behavior. |
 | Table-fragment merge policy         | Core fragment insertion is structural. Table-grid positional paste belongs in a table extension clipboard or fragment policy.              |
@@ -555,6 +556,16 @@ Use `slate-hyperscript` for JSX fixtures.
 import { createHyperscript, jsx } from 'slate-hyperscript'
 ```
 
+### `@slate/yjs`
+
+Use `@slate/yjs` when a Slate editor should synchronize through a Yjs document.
+Provider packages stay in application code.
+
+```tsx
+import { createYjsExtension } from '@slate/yjs'
+import { useYjsRemoteCursors } from '@slate/yjs/react'
+```
+
 ### `slate-layout`
 
 Use `slate-layout` for experimental pagination and page-view research.
@@ -640,7 +651,7 @@ large-document claim is not real until the right proof lane owns it.
 | Layout             | experimental `createSlateLayout`, `PagedEditable`, page mount plans, fragment hooks                                                                                                                   |
 | Browser proof      | public `slate-browser/core`, `slate-browser/browser`, `slate-browser/playwright`, `slate-browser/transports`, feature contracts, transport classifiers, stress replay/reduction                      |
 | Docs               | migration guide, package docs, roots/state docs, React setup docs, DOM coverage docs, layout docs                                                                                                     |
-| Examples           | plaintext, richtext, checklists, forced layout, markdown preview/shortcuts, inlines, mentions, images, embeds, tables, paste HTML, custom placeholder, read-only, iframes, shadow DOM, styling, linting, document state, hidden content blocks, huge document, multi-root document, synced blocks, comment mode, search/code highlighting, plus hidden proof routes for async decorations, DOM coverage boundaries, and persistent annotation anchors; pagination remains alpha |
+| Examples           | plaintext, richtext, checklists, forced layout, markdown preview/shortcuts, inlines, mentions, images, embeds, tables, paste HTML, custom placeholder, read-only, iframes, shadow DOM, styling, linting, document state, hidden content blocks, huge document, multi-root document, synced blocks, comment mode, search/code highlighting, Yjs collaboration, Yjs Hocuspocus, plus hidden proof routes for async decorations, DOM coverage boundaries, and persistent annotation anchors; pagination remains alpha |
 | Hard cuts          | rootless primary document APIs, no primary mutable editor fields, no primary Slate 0.x transform helper story, no direct operation-application/change-handler extension story, no product child-count chunking |
 
 ---
@@ -650,6 +661,7 @@ large-document claim is not real until the right proof lane owns it.
 - [Migrating to Slate v2](../migration/slate-v2.md)
 - [Slate](../libraries/slate.md)
 - [Slate React](../libraries/slate-react/README.md)
+- [Slate Yjs](../libraries/slate-yjs.md)
 - [DOM Coverage Boundaries](../libraries/slate-react/dom-coverage-boundaries.md)
 - [Experimental Virtualized Rendering](../libraries/slate-react/experimental-virtualized-rendering.md)
 - [Slate Layout](../libraries/slate-layout/README.md)
