@@ -6,19 +6,19 @@ authoring model with a read/update lifecycle, transaction groups, React 19.2
 runtime locality, first-class overlays, multi-root documents, and browser proof
 infrastructure built for real contenteditable behavior.
 
-This is the release story for the first public Slate v2 lane. It does not claim
-that npm publish, release, PR, raw mobile-device proof, collaboration adapters,
-or a production pagination story is already complete.
+This is the release story for the first public Slate v2 lane. The beta claim is
+the core editor runtime, React editor path, package surface, desktop browser
+proof, and public test infrastructure. Raw mobile-device proof, Yjs adapters,
+and production pagination stay outside this beta claim.
 
-The public install shape for the React editor is:
+For a published beta package set, install the React editor with:
 
 ```text
 npm install slate slate-dom slate-react react react-dom
 ```
 
-Do not run that command against npm until the v2 release lane publishes those
-packages. Inside this repo, use the workspace packages and the focused package
-commands documented in the proof sections below.
+Use the equivalent command for pnpm, Yarn, or Bun when your app uses another
+package manager.
 
 ## On This Page
 
@@ -40,7 +40,7 @@ first-class overlays, and browser proof that catches bugs a model test will miss
 | Try it now if                                                                   | Wait if                                                                         |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | You own the editor integration and can port one surface at a time.              | You need a drop-in `withHistory(withReact(createEditor()))` upgrade.            |
-| You want transaction groups instead of app-level `Transforms.*` wrappers.       | You need old helper aliases to stay public during migration.                    |
+| You want transaction groups instead of app-level transform wrappers.            | You need old Slate 0.x helper surfaces to stay public during migration.         |
 | You need extra editable regions, persistent document state, or overlay stores.  | You only need a simple Slate 0.x editor and do not want an API hard cut.        |
 | You care about browser-visible selection, paste, undo, and huge-document proof. | You need raw mobile-device proof, production pagination, or Yjs adapters today. |
 
@@ -50,8 +50,6 @@ working while one v2 surface reaches behavior parity, wait.
 ---
 
 ## Highlights
-
-**New**
 
 ### Read/Update Runtime
 
@@ -75,8 +73,6 @@ captured as an `EditorCommit` so history, React, DOM repair, benchmarks, and
 proof tooling can all observe the same edit.
 
 ---
-
-**New**
 
 ### Transaction Groups
 
@@ -107,20 +103,17 @@ The built-in groups include:
 | `tx.history`    | undo/redo when `slate-history` is installed                |
 | `tx.operations` | lower-level operation work                                 |
 
-The lower-level `Editor.*` helpers still exist for runtime bridges, legacy
-interoperability, tests, and advanced package code. They are public escape
-hatches, not the app-authoring path this release teaches. New app commands
-should use transaction groups.
+The lower-level `Editor.*` helpers remain public for runtime bridges, tests,
+and advanced package code. They are escape hatches, not the app-authoring path
+this release teaches. New app commands should use transaction groups.
 
 ---
-
-**New**
 
 ### Extension Groups
 
 Extensions add editor behavior through named `state` and `tx` groups.
-They do not need to replace `editor.apply`, monkey-patch `onChange`, or attach
-random methods to the editor object.
+They do not need to replace the operation application pipeline, monkey-patch
+change handling, or attach random methods to the editor object.
 
 ```tsx
 import { defineEditorExtension } from 'slate'
@@ -143,8 +136,6 @@ This is the primary extension-authoring story for v2: method-first ergonomics, b
 registered through the runtime instead of patched onto an object.
 
 ---
-
-**New**
 
 ### React Editor Setup
 
@@ -171,8 +162,6 @@ the normal React path. `createReactEditor` is available when the editor must be
 created outside component ownership.
 
 ---
-
-**New**
 
 ### Full Document Values
 
@@ -207,8 +196,6 @@ editor or view root. Pass a root key only for extra document regions.
 
 ---
 
-**New**
-
 ### State Fields
 
 State fields let document metadata live with the editor runtime instead of in a
@@ -238,8 +225,6 @@ permissions, audit logs, and other product data that should not be serialized
 as editor state.
 
 ---
-
-**New**
 
 ### Multi-Root Editing
 
@@ -272,8 +257,6 @@ blocks and editable cards first-class without creating separate editors.
 
 ---
 
-**New**
-
 ### Overlay Architecture
 
 Slate v2 separates overlays into three lanes:
@@ -296,8 +279,6 @@ for shared, external, frequent, or source-scoped overlays.
 
 ---
 
-**New**
-
 ### React Runtime Locality
 
 The React runtime is built around selector-first reads, dirty commit metadata,
@@ -317,12 +298,10 @@ The current product gate for huge documents is the 5000-block strict benchmark:
 HUGE_DOC_FULL_STRICT_BUDGET=1 bun run bench:react:huge-document:full:local
 ```
 
-The broader legacy comparison remains a diagnostic, not a blanket superiority
-claim.
+The broader Slate 0.x comparison remains a diagnostic, not a blanket
+superiority claim.
 
 ---
-
-**New**
 
 ### Browser-Proof Harness
 
@@ -348,8 +327,6 @@ metadata, trace legality, replayability, and follow-up typing.
 
 ---
 
-**New**
-
 ### DOM Coverage Boundaries
 
 `slate-dom` models hidden, staged, and virtualized same-root content through
@@ -361,8 +338,6 @@ surfaces, and large-document shells possible without pretending the DOM is the
 document.
 
 ---
-
-**New**
 
 ### Package Split
 
@@ -382,8 +357,6 @@ Apps should import from root package exports. The `/internal` subpaths are for
 sibling Slate packages in this repo.
 
 ---
-
-**New**
 
 ### History Extension
 
@@ -409,8 +382,6 @@ History.isHistory(stacks)
 React editors created with `useSlateEditor` install history by default.
 
 ---
-
-**New**
 
 ### Hyperscript Fixtures
 
@@ -467,10 +438,10 @@ collaboration, export, and selection case.
 
 | Change                                                                                  | What to do                                                                                                                                                  |
 | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Transforms.*` is not the primary mutation API                                          | Move commands into `editor.update((tx) => ...)` and use `tx.nodes`, `tx.text`, `tx.fragment`, `tx.selection`, `tx.marks`, `tx.roots`, and extension groups. |
+| Slate 0.x transform helpers are not the primary mutation API                            | Move commands into `editor.update((tx) => ...)` and use `tx.nodes`, `tx.text`, `tx.fragment`, `tx.selection`, `tx.marks`, `tx.roots`, and extension groups. |
 | Mutable editor fields are not primary read paths                                        | Read through `editor.read((state) => ...)`, `state.value`, `state.selection`, `state.marks`, and focused helper APIs.                                       |
 | `withReact` and `withHistory` are not the normal setup path                             | Use `useSlateEditor(...)` for React, `createReactEditor(...)` outside component ownership, or `createEditor({ extensions: [...] })` for manual setup.       |
-| Direct `editor.apply` and direct `editor.onChange` replacement are not extension points | Use extension groups, operation middleware, commit listeners, and provider callbacks.                                                                       |
+| Direct operation application and direct change-handler replacement are not extension points | Use extension groups, operation middleware, commit listeners, and provider callbacks.                                                                    |
 | Child-count chunking is not a product runtime primitive                                 | Use semantic islands, DOM coverage boundaries, active corridor behavior, and explicit layout/runtime strategies.                                            |
 | Public React renderer defaults changed                                                  | Use `Editable`, `SlateElement`, `SlateText`, `SlateLeaf`, and `SlatePlaceholder` as the current public primitives.                                          |
 | Primary document uses rootless APIs                                                     | Use rootless operations for the primary document and named roots only for extra editable regions.                                                           |
@@ -489,7 +460,6 @@ collaboration, export, and selection case.
 
 | Area                                | Status                                                                                                                                     |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Public release/publish              | Not claimed by this draft. Run the release lane before publishing.                                                                         |
 | Raw mobile device proof             | Deferred until a real Appium/device lane writes proof artifacts.                                                                           |
 | Collaboration adapters              | Slate keeps operations, commits, state patches, and collaboration-friendly model truth; Yjs adapter work is a later lane.                  |
 | Universal huge-document superiority | The product gate is green when the owned benchmark passes; broad cross-editor superiority stays diagnostic and scoped.                     |
@@ -507,7 +477,7 @@ feature.
 2. Render it through `<Slate editor={editor}>` and `<Editable />`.
 3. Move reads to `editor.read(...)`.
 4. Move writes to `editor.update(...)`.
-5. Replace `Transforms.*` calls with transaction groups.
+5. Replace Slate 0.x transform helper calls with transaction groups.
 6. Replace React hooks with the v2 hook names.
 7. Persist the full document with `state.value.get()` if you use roots or state
    fields.
@@ -623,7 +593,7 @@ Slate v2 adds proof infrastructure as a product feature of the codebase:
   node transforms, text selection, editor store, refs/projection, and huge
   documents;
 - React benchmark owners for rerender breadth, huge-document overlays, strict
-  huge-document product gates, and legacy comparison diagnostics.
+  huge-document product gates, and Slate 0.x comparison diagnostics.
 
 Fast local gate:
 
@@ -670,8 +640,8 @@ large-document claim is not real until the right proof lane owns it.
 | Layout             | experimental `createSlateLayout`, `PagedEditable`, page mount plans, fragment hooks                                                                                                                   |
 | Browser proof      | public `slate-browser/core`, `slate-browser/browser`, `slate-browser/playwright`, `slate-browser/transports`, feature contracts, transport classifiers, stress replay/reduction                      |
 | Docs               | migration guide, package docs, roots/state docs, React setup docs, DOM coverage docs, layout docs                                                                                                     |
-| Examples           | plaintext, richtext, markdown shortcuts, inlines, editable voids, paste HTML, hidden content blocks, huge document, search/code highlighting, async decorations, persistent annotations, comment mode |
-| Hard cuts          | rootless primary document APIs, no primary mutable editor fields, no primary `Transforms.*`, no direct apply/onChange extension story, no product child-count chunking                                |
+| Examples           | plaintext, richtext, checklists, forced layout, markdown preview/shortcuts, inlines, mentions, images, embeds, tables, paste HTML, custom placeholder, read-only, iframes, shadow DOM, styling, linting, document state, hidden content blocks, huge document, multi-root document, synced blocks, comment mode, search/code highlighting, plus hidden proof routes for async decorations, DOM coverage boundaries, and persistent annotation anchors; pagination remains alpha |
+| Hard cuts          | rootless primary document APIs, no primary mutable editor fields, no primary Slate 0.x transform helper story, no direct operation-application/change-handler extension story, no product child-count chunking |
 
 ---
 

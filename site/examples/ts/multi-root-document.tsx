@@ -44,6 +44,9 @@ const rootText = (state: { nodes: { children: () => readonly Node[] } }) =>
 const formatList = (items: readonly string[]) =>
   items.length === 0 ? 'none' : items.join(',')
 
+const formatExampleRoot = (root: string | undefined) =>
+  root === undefined ? 'body' : root
+
 const formatCommit = (commit: EditorCommit | null) => {
   if (!commit) {
     return 'commit:none;ops:none;state:none;tags:none'
@@ -53,8 +56,8 @@ const formatCommit = (commit: EditorCommit | null) => {
     `commit:${commit.version}`,
     `ops:${formatList(commit.operations.map((operation) => operation.type))}`,
     `roots:${formatList(
-      commit.operations.map(
-        (operation) => (operation as { root?: string }).root ?? 'primary'
+      commit.operations.map((operation) =>
+        formatExampleRoot((operation as { root?: string }).root)
       )
     )}`,
     `state:${formatList(commit.dirtyStateKeys)}`,
@@ -75,7 +78,7 @@ const RootStatus = ({
 
   return (
     <Badge
-      className="max-w-full justify-start truncate font-mono"
+      className="min-w-0 max-w-full shrink justify-start truncate font-mono"
       id={id}
       variant="default"
     >
@@ -198,14 +201,14 @@ const MultiRootPanel = () => {
       </div>
       <div className="slate-multi-root-document-status">
         <Badge
-          className="max-w-full justify-start truncate font-mono"
+          className="min-w-0 max-w-full shrink justify-start truncate font-mono"
           id="multi-root-title"
           variant="default"
         >
           title:{title}
         </Badge>
         <Badge
-          className="max-w-full justify-start truncate font-mono"
+          className="min-w-0 max-w-full shrink justify-start truncate font-mono"
           id="multi-root-commit"
           variant="default"
         >

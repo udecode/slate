@@ -1215,10 +1215,9 @@ const imeCompositionUndo = (): StressCase => {
     route: 'richtext',
     steps: [
       {
-        kind: 'clickTextOffset',
+        kind: 'select',
         label: 'select-composition-point',
-        offset: initialText.length,
-        path: [0, 0],
+        selection: collapsedSelection([0, 0], initialText.length),
       },
       {
         kind: 'assertDOMSelection',

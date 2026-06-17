@@ -257,6 +257,10 @@ describe('package scripts', () => {
     const packageJsonPath = fileURLToPath(
       new URL('../../package.json', import.meta.url)
     )
+    const readme = readFileSync(
+      fileURLToPath(new URL('../../README.md', import.meta.url)),
+      'utf8'
+    )
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
       scripts: Record<string, string>
     }
@@ -265,6 +269,10 @@ describe('package scripts', () => {
     expect(scripts.test).toContain('test:core')
     expect(scripts.test).toContain('test:dom')
     expect(scripts.test).not.toContain('test:selection')
+    expect(readme).toContain(
+      'Run `test:selection` separately when you need the focused browser-selection'
+    )
+    expect(readme).not.toContain('- `test:dom`\n- `test:selection`')
     expect(scripts['test:dom']).toBe(
       'vitest run --config ./vitest.config.ts --project browser'
     )

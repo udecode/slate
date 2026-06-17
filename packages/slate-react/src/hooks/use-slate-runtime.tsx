@@ -9,7 +9,6 @@ import {
 } from 'react'
 import ReactDOM from 'react-dom'
 import {
-  type BaseSelection,
   createEditorView,
   type EditorCommit,
   type EditorStateView,
@@ -18,6 +17,7 @@ import {
   type Operation,
   type Path,
   type RootKey,
+  type Selection,
   type Value,
   type ValueOf,
 } from 'slate'
@@ -41,6 +41,11 @@ import {
   createReactEditor,
   type ReactEditor as ReactEditorType,
 } from '../plugin/with-react'
+import {
+  getOperationRoot,
+  MAIN_ROOT_KEY,
+  toPublicRootOption,
+} from '../root-key'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 import { setSlateViewSelectionStoreKey } from '../view-selection'
 import { focusSlateEditable } from './focus-slate-editable'
@@ -57,15 +62,11 @@ import { useGenericSelector } from './use-generic-selector'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 import { syncTextOperationsToDOM } from './use-slate-node-ref'
 
-const MAIN_ROOT_KEY: RootKey = 'main'
-
 const refEquality = <T,>(a: T | null, b: T) => a === b
 const rootKeyEquality = (
   a: RootKey | null | undefined,
   b: RootKey | undefined
 ) => a === b
-const toPublicRootOption = (root: RootKey): RootKey | undefined =>
-  root === MAIN_ROOT_KEY ? undefined : root
 const selectionChanged = (change?: EditorCommit) =>
   Boolean(change?.selectionChanged)
 
@@ -165,7 +166,7 @@ type SlateRuntimeContextValue<
   getContentRootOwnerViewEditor: (
     owner: SlateContentRootOwner
   ) => ReactRuntimeEditor<V> | null
-  getLastSelectionForRoot: (root: RootKey) => BaseSelection
+  getLastSelectionForRoot: (root: RootKey) => Selection
   getMountedViewEditor: (root: RootKey) => ReactRuntimeEditor<V> | null
   getView: (options?: EditorViewOptions) => EditorView<V, TExtensions>
   registerContentRootOwner: (
@@ -290,9 +291,6 @@ export const createReactRuntimeViewEditor = <
   return Object.freeze(editor)
 }
 
-const operationRoot = (operation: Operation): RootKey =>
-  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
-
 const isTextOperation = (operation: Operation) =>
   operation.type === 'insert_text' || operation.type === 'remove_text'
 
@@ -342,7 +340,7 @@ const isRootAffected = (
   }
 
   return changedOperations.some(
-    (operation) => operationRoot(operation) === root
+    (operation) => getOperationRoot(operation) === root
   )
 }
 
@@ -554,7 +552,7 @@ export function SlateRuntime<
       const operationsByRoot = new Map<RootKey, Operation[]>()
 
       for (const operation of textOperations) {
-        const root = operationRoot(operation)
+        const root = getOperationRoot(operation)
         const rootOperations = operationsByRoot.get(root) ?? []
 
         rootOperations.push(operation)
@@ -796,7 +794,7 @@ export function useSlateRootState<
 ): T {
   if (root === MAIN_ROOT_KEY) {
     throw new Error(
-      '[Slate] Omit root to read the primary document root state. `main` is an internal root key.'
+      '[Slate] Omit root to read the primary document root state.'
     )
   }
 
@@ -887,7 +885,7 @@ export function useSlateRootEditor<
 ): SlateRootEditor<V, TExtensions> {
   if (root === MAIN_ROOT_KEY) {
     throw new Error(
-      '[Slate] Omit root to create an editor for the primary document. `main` is an internal root key.'
+      '[Slate] Omit root to create an editor for the primary document.'
     )
   }
 
@@ -938,9 +936,7 @@ export type UseSlateCommandCallbackOptions = {
 
 const useSlateResolvedRoot = (root: RootKey | undefined): RootKey => {
   if (root === MAIN_ROOT_KEY) {
-    throw new Error(
-      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
-    )
+    throw new Error('[Slate] Omit root to target the primary document.')
   }
 
   const editableRoot = useContext(SlateEditableRootContext)

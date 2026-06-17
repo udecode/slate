@@ -1,5 +1,6 @@
 import type { Descendant, Range, RootKey } from 'slate'
 
+import { MAIN_ROOT_KEY } from '../root-key'
 import type { SlateViewBoundaryOwner } from '../view-boundary-graph'
 
 export type ProjectedRemoteSelectionPaintPolicy =
@@ -21,8 +22,6 @@ export type ProjectedRemoteSelectionPaintTarget = Readonly<{
   range: Range
   root: RootKey
 }>
-
-const MAIN_ROOT_KEY: RootKey = 'main'
 
 const cloneRange = (range: Range): Range => ({
   anchor: {

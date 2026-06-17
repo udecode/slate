@@ -3,9 +3,14 @@
 `Operation` objects define the low-level instructions that Slate editors use to apply changes to their internal state. Representing all changes as operations is what allows Slate editors to easily implement history, collaboration, and other features.
 
 Node, text, selection, fragment, and `replace_children` operations may include
-`root`. When `root` is omitted, Slate resolves the operation against the
-active operation/view root, then falls back to the primary document for the
-base editor. Serialized extra-root operations should preserve `root`.
+`root`. Operations created inside a root-bound editor view can omit `root`; the
+transaction resolves them against that view. Public commit payloads use the
+serialized document form instead: primary-document operations omit `root`, and
+extra-root operations preserve `root`.
+
+Replay serialized or remote operation batches through the base editor/runtime
+when a batch may include both primary-document and extra-root edits. A
+root-bound view is for local commands scoped to that root.
 
 Root lifecycle updates from `tx.roots.create`, `tx.roots.replace`, and
 `tx.roots.delete` are represented as `replace_children` operations at `path:

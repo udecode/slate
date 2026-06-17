@@ -7,6 +7,12 @@ import {
 } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import {
+  applyTextInsert,
+  getDOMTextRepairInsert,
+  getTextHostSelectionOffset,
+  isInsideVirtualizedDOM,
+} from './dom-repair-text'
 import type { EditableRepairPolicy } from './editing-kernel'
 import {
   getCurrentEditableEventFrame,
@@ -14,7 +20,6 @@ import {
 } from './editing-kernel'
 import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
-import { getNativeTextInsertDelta } from './native-text-input-delta'
 import { readRuntimeText } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
@@ -53,9 +58,42 @@ export type DOMRepairQueue = {
   repairCaretAfterModelTextInsert: () => void
 }
 
+const REPAIR_INDUCED_SELECTION_ORIGIN_GUARD_MS = 150
+const TEXT_INPUT_REPAIR_ECHO_GUARD_MS = 120
+
 export type DOMRepairFrameState = {
   cancelledBeforeFrameId: number
   currentFrameId: number | null
+}
+
+type DOMRepairSchedulerWindow =
+  | Pick<Window, 'queueMicrotask' | 'requestAnimationFrame' | 'setTimeout'>
+  | null
+  | undefined
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+export const getDOMRepairProfilerTime = () => now()
+
+export const profileDOMRepairDuration = <T>(
+  kind: string,
+  callback: () => T
+): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return callback()
+  }
+
+  const start = now()
+
+  try {
+    return callback()
+  } finally {
+    recordSlateReactRender({
+      duration: now() - start,
+      id: `dom-repair:${kind}`,
+      kind: 'runtime-time',
+    })
+  }
 }
 
 export const createDOMRepairFrameState = (): DOMRepairFrameState => ({
@@ -86,160 +124,9 @@ export const isDOMRepairFrameCurrent = (
   frameId: number
 ) => state.currentFrameId === frameId && frameId >= state.cancelledBeforeFrameId
 
-const applyTextInsert = (
-  text: string,
-  insert: {
-    offset: number
-    text: string
-  }
-) => text.slice(0, insert.offset) + insert.text + text.slice(insert.offset)
-
-const REPAIR_INDUCED_SELECTION_ORIGIN_GUARD_MS = 150
-const TEXT_INPUT_REPAIR_ECHO_GUARD_MS = 120
-
-const now = () => globalThis.performance?.now?.() ?? Date.now()
-
-const profileDOMRepairDuration = <T>(kind: string, callback: () => T): T => {
-  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
-    return callback()
-  }
-
-  const start = now()
-
-  try {
-    return callback()
-  } finally {
-    recordSlateReactRender({
-      duration: now() - start,
-      id: `dom-repair:${kind}`,
-      kind: 'runtime-time',
-    })
-  }
-}
-
-const getDOMTextRepairInsert = ({
-  inputText,
-  preferCapturedInsert,
-  selectionOffset,
-  slateText,
-  targetInsert,
-  textHostText,
-}: {
-  inputText: string
-  preferCapturedInsert?: boolean
-  selectionOffset: number
-  slateText: string
-  targetInsert?: {
-    offset: number
-    text: string
-  }
-  textHostText: string
-}) => {
-  const clampedTargetInsert = targetInsert
-    ? {
-        offset: Math.max(0, Math.min(slateText.length, targetInsert.offset)),
-        text: targetInsert.text,
-      }
-    : null
-
-  if (clampedTargetInsert && preferCapturedInsert) {
-    return clampedTargetInsert
-  }
-
-  const insert = getNativeTextInsertDelta({
-    inputText,
-    selectionOffset,
-    slateText,
-    textHostText,
-  })
-
-  if (applyTextInsert(slateText, insert) === textHostText) {
-    return insert
-  }
-
-  if (clampedTargetInsert) {
-    return clampedTargetInsert
-  }
-
-  return insert
-}
-
-const getTextHostSelectionOffset = ({
-  anchorNode,
-  anchorOffset,
-  textHost,
-}: {
-  anchorNode: Node | null
-  anchorOffset: number | null
-  textHost: Element
-}) => {
-  if (anchorOffset == null || !anchorNode) {
-    return null
-  }
-
-  const strings = Array.from(
-    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
-  )
-  let offset = 0
-
-  for (const string of strings) {
-    const textNode = Array.from(string.childNodes).find(isDOMText)
-    const lengthAttribute = string.getAttribute('data-slate-length')
-    const length =
-      lengthAttribute == null
-        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
-        : Number.parseInt(lengthAttribute, 10)
-    const safeLength = Number.isFinite(length) ? length : 0
-
-    if (anchorNode === textNode || string.contains(anchorNode)) {
-      return offset + Math.max(0, Math.min(anchorOffset, safeLength))
-    }
-
-    offset += safeLength
-  }
-
-  return null
-}
-
-const isInsideVirtualizedDOM = (element: Element) =>
-  !!element.closest(
-    [
-      '[data-slate-dom-strategy-virtual-row="true"]',
-      '[data-slate-dom-strategy-virtualizer="true"]',
-      '[data-slate-paged-editable-page-virtualization="true"]',
-    ].join(',')
-  )
-
-export const createDOMRepairQueue = ({
-  editor,
-  inputController,
-  scrollSelectionIntoView,
-}: {
-  editor: ReactRuntimeEditor
-  inputController: EditableInputController
-  scrollSelectionIntoView: (
-    editor: ReactRuntimeEditor,
-    domRange: DOMRange
-  ) => void
-  syncDOMSelectionToEditor: () => void
-}): DOMRepairQueue => {
-  const frameState = createDOMRepairFrameState()
-  let queue: DOMRepairQueue
-
-  const getRepairWindow = () => {
-    const mappedWindow = EDITOR_TO_WINDOW.get(editor)
-
-    if (mappedWindow) {
-      return mappedWindow
-    }
-
-    const root = ReactEditor.findDocumentOrShadowRoot(editor)
-
-    return 'defaultView' in root
-      ? root.defaultView
-      : root.ownerDocument.defaultView
-  }
-
+const createDOMRepairScheduler = (
+  getRepairWindow: () => DOMRepairSchedulerWindow
+) => {
   const scheduleRepairTimeout = (callback: () => void, delay = 0) => {
     const repairWindow = getRepairWindow()
 
@@ -272,6 +159,48 @@ export const createDOMRepairQueue = ({
 
     scheduleRepairTimeout(callback, 16)
   }
+
+  return {
+    scheduleRepairAnimationFrame,
+    scheduleRepairMicrotask,
+    scheduleRepairTimeout,
+  }
+}
+
+export const createDOMRepairQueue = ({
+  editor,
+  inputController,
+  scrollSelectionIntoView,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  scrollSelectionIntoView: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
+  syncDOMSelectionToEditor: () => void
+}): DOMRepairQueue => {
+  const frameState = createDOMRepairFrameState()
+  let queue: DOMRepairQueue
+
+  const getRepairWindow = () => {
+    const mappedWindow = EDITOR_TO_WINDOW.get(editor)
+
+    if (mappedWindow) {
+      return mappedWindow
+    }
+
+    const root = ReactEditor.findDocumentOrShadowRoot(editor)
+
+    return 'defaultView' in root
+      ? root.defaultView
+      : root.ownerDocument.defaultView
+  }
+  const {
+    scheduleRepairAnimationFrame,
+    scheduleRepairMicrotask,
+    scheduleRepairTimeout,
+  } = createDOMRepairScheduler(getRepairWindow)
 
   const scheduleTextInsertCaretRepair = ({
     delays = [],
@@ -931,7 +860,9 @@ export const createDOMRepairQueue = ({
 
                 if (repairedText != null) {
                   inputController.state.recentTextInputRepairEcho = {
-                    expiresAt: now() + TEXT_INPUT_REPAIR_ECHO_GUARD_MS,
+                    expiresAt:
+                      getDOMRepairProfilerTime() +
+                      TEXT_INPUT_REPAIR_ECHO_GUARD_MS,
                     pathKey: path.join(','),
                     selectionOffset: slateOffset,
                     text: repairedText,

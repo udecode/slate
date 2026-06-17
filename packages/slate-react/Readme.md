@@ -2,11 +2,10 @@
 
 React runtime for Slate editors.
 
-`slate-react` owns `createReactEditor`, the `Slate` provider, `Editable`, React
-hooks, DOM selection synchronization, browser input handling, void shells,
-decoration sources, annotations, widgets, and large-document DOM strategies.
-
-## Start Here
+`slate-react` owns editor creation, the `Slate` provider, the `Editable`
+surface, browser event handling, native selection sync, void shells, hidden DOM
+coverage, decoration sources, annotations, widgets, and large-document DOM
+strategies.
 
 Start with `useSlateEditor`, `Slate`, and `Editable`.
 
@@ -26,28 +25,34 @@ const Editor = () => {
 }
 ```
 
-The lower-level `createReactEditor` factory installs the React, DOM, clipboard,
-and history extensions. Use it outside React component ownership, or inside a
-custom hook that owns the same one-shot lifetime.
+The lower-level `createReactEditor` factory installs the React runtime for
+framework code. Use it outside React component ownership, such as test harnesses
+or runtime adapters.
 
-## Public Surface
+Use component props for application behavior:
 
-- `Slate` provides editor context, change callbacks, decoration sources,
-  annotation stores, and widget stores.
-- `Editable` renders the contenteditable surface and owns browser editing
-  events.
-- `SlateElement`, `SlateText`, `SlateLeaf`, and `SlatePlaceholder` carry the
-  DOM attributes needed by custom renderers.
-- Hooks such as `useEditor`, `useEditorState`, `useElement`,
-  `useElementSelected`, `useSlateDecorationSource`,
-  `useSlateRangeDecorationSource`, and
-  `useSlateAnnotationStore` subscribe to editor/runtime state.
-- Runtime and root hooks such as `useSlateRuntimeState`,
-  `useSlateRootState`, `useSlateRootEditor`, `useSlateActiveEditor`,
-  `useSlateCommandCallback`, and `useSlateRootEffect` support multi-root
-  editors and external chrome.
-- Advanced hooks such as `useSlateNodeRef` and
-  `useDOMStrategyVirtualOffset` support custom DOM shells and virtualized
-  layout renderers.
-- Host APIs live on `editor.api.dom`, `editor.api.clipboard`,
-  `editor.api.react`, and `editor.api.history`.
+- `renderElement`, `renderLeaf`, `renderText`, and `renderPlaceholder` render
+  document content.
+- `onKeyDown`, `onDOMBeforeInput`, `onPaste`, `onCopy`, `onDrop`, and selection
+  handlers customize browser behavior without replacing Slate's runtime.
+- Decoration sources, annotation stores, and widget stores attach external UI
+  to Slate ranges and nodes.
+- DOM coverage boundaries describe hidden, staged, or virtualized same-root
+  content for selection, copy, find, and materialization.
+
+Render primitives `SlateElement`, `SlateText`, `SlateLeaf`, and
+`SlatePlaceholder` carry Slate's DOM attributes when custom renderers need to
+keep the native editing contract intact.
+
+Common hooks include `useSlateEditor`, `useEditorSelector`,
+`useEditorSelection`, `useSlateRuntimeState`, `useSlateRootEditor`,
+`useSlateRootState`, `useSlateActiveEditor`, `useSlateCommandCallback`,
+`useSlateRootEffect`, `useElementPath`, `useElementSelected`, and
+`useSlateHistory`.
+
+Advanced helper hooks include `useSlateNodeRef`,
+`useDOMStrategyVirtualOffset`, and `useSlateRangeDecorationSource`.
+
+Use `slate-react` for React applications. Use `slate` for the core model and
+transactions, `slate-dom` for DOM bridge utilities, and `slate-browser` for
+browser proof infrastructure.

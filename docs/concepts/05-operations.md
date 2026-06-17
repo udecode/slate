@@ -35,13 +35,13 @@ editor.update(tx => {
 
 Slate converts editor method calls into low-level operations and applies them
 automatically. You usually think about operations when implementing
-collaborative editing, history, or import/export tooling.
+operation replay, history, or import/export tooling.
 
 Bulk edits can still be one operation. For example, paste can produce a
 `replace_fragment` operation that replaces a child slice and moves the model
-selection to the end of the inserted fragment. Collaboration adapters can replay
-that operation directly, or translate it into their own CRDT representation at
-the adapter boundary.
+selection to the end of the inserted fragment. Sync adapters can replay that
+operation directly, or translate it into their own representation at the
+adapter boundary.
 
 Operations are the replay boundary. They make changes portable enough for
-history, collaboration, tests, and persistence tools to inspect or replay.
+history, sync adapters, tests, and persistence tools to inspect or replay.

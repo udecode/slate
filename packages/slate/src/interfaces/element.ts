@@ -14,8 +14,6 @@ export interface BaseElement {
   [key: string]: unknown
 }
 
-export type TElement = BaseElement
-
 export type Element = BaseElement
 
 export type ElementIn<V extends readonly unknown[]> = ElementOf<V[number]>

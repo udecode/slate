@@ -222,6 +222,7 @@ const expectSourceOwnershipInventory = (
 
 const editableRootRuntimeFiles = [
   'components/editable.tsx',
+  'components/editable-descendant-binding.ts',
   'components/editable-text-blocks.tsx',
   'editable/root-selector-sources.ts',
 ] as const
@@ -306,12 +307,12 @@ test('root selector source ownership is fenced to named source modules', () => {
     /\bEditor\.getSnapshot\(/g,
     editableRootRuntimeFiles,
     {
-      'packages/slate-react/src/components/editable-text-blocks.tsx': {
+      'packages/slate-react/src/components/editable-descendant-binding.ts': {
         count: 1,
         next: 'node-source',
         owner: 'Mounted node render selector',
         rationale:
-          'This snapshot read resolves mounted child runtime ids inside the node render selector, not root render facts.',
+          'This snapshot read resolves mounted child runtime ids inside the named descendant binding owner, not root render facts.',
       },
     }
   )
@@ -543,6 +544,79 @@ test('root global lifecycle listeners are owned by the root lifecycle module', (
         owner: 'Editable root runtime facade',
         rationale:
           'The root runtime facade should delegate selection export subscription through one root owner.',
+      },
+    }
+  )
+})
+
+test('root runtime cells are owned by the root state module', () => {
+  const rootRuntimeStateFiles = [
+    'editable/runtime-root-engine.ts',
+    'editable/runtime-root-state.ts',
+  ] as const
+
+  expectSourceOwnershipInventory(
+    /\buseEditableRootRuntimeState\(/g,
+    rootRuntimeStateFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-engine.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime facade',
+        rationale:
+          'The root runtime facade should enter root cell/state ownership through one state hook.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(/\buseRef\(/g, rootRuntimeStateFiles, {
+    'packages/slate-react/src/editable/runtime-root-state.ts': {
+      count: 4,
+      next: 'root-runtime',
+      owner: 'Editable root runtime state',
+      rationale:
+        'Mutable root refs and browser-handle refs belong in the root state owner, not the coordinator body.',
+    },
+  })
+
+  expectSourceOwnershipInventory(
+    /\buseState\(createEditableInputControllerState\)/g,
+    rootRuntimeStateFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-state.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime state',
+        rationale:
+          'Input controller state creation belongs with root runtime cells before the coordinator creates the controller facade.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\buseTrackUserInput\(/g,
+    rootRuntimeStateFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-state.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime state',
+        rationale:
+          'User-input tracking is root runtime state consumed by event wiring, not event policy itself.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bisSelectionPartialDOMBacked\(/g,
+    rootRuntimeStateFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-state.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime state',
+        rationale:
+          'Partial-DOM-backed selection state should be computed by the root state owner and consumed by selection/event runtimes.',
       },
     }
   )

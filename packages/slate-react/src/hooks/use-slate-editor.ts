@@ -4,6 +4,7 @@ import type { Value } from 'slate'
 import {
   type CreateReactEditorOptions,
   createReactEditor,
+  type ReactEditor,
 } from '../plugin/with-react'
 
 /** Options used to create a component-owned React editor. */
@@ -25,7 +26,7 @@ export const useSlateEditor = <
   const TExtensions extends readonly unknown[] = readonly [],
 >(
   options: UseSlateEditorOptions<V, TExtensions> = {}
-) => {
+): ReactEditor<V, TExtensions> => {
   const [editor] = useState(() => createReactEditor(options))
 
   return editor

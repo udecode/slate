@@ -26,7 +26,6 @@ import type { TextOf } from './text'
 
 export type BaseNode = Editor | Element | Text
 export type Node = Editor | Element | Text
-export type TNode = Node
 
 export type DescendantOf<N> = N extends { getChildren: () => infer V }
   ? V extends readonly (infer Child)[]

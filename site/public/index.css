@@ -831,11 +831,14 @@ details > summary {
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   font-size: 13px;
   font-weight: 700;
 }
 
 .slate-multi-root-document-editor {
+  width: 100%;
+  min-width: 0;
   min-height: 72px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;

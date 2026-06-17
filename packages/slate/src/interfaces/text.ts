@@ -2,7 +2,7 @@ import { type Range, RangeApi } from '..'
 import { isDeepEqual } from '../utils/deep-equal'
 import { isObject } from '../utils/is-object'
 import type { BaseEditor } from './editor'
-import type { TElement } from './element'
+import type { Element } from './element'
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {}
 
@@ -25,8 +25,6 @@ export interface BaseText {
   [key: string]: unknown
 }
 
-export type TText = BaseText
-
 export type Text = BaseText
 
 export type TextIn<V extends readonly unknown[]> = TextOf<V[number]>
@@ -37,13 +35,13 @@ export type TextOf<N> = N extends Text
     ? Text
     : N extends BaseEditor<infer V>
       ? TextIn<V>
-      : TElement extends N
+      : Element extends N
         ? Text
         : N extends { getChildren: () => infer V }
           ? V extends readonly (infer Child)[]
             ? TextOf<Child>
             : never
-          : N extends TElement
+          : N extends Element
             ?
                 | Extract<N['children'][number], Text>
                 | TextOf<N['children'][number]>

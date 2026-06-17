@@ -1,6 +1,6 @@
 import { type Path, PathApi, type Point, type RootKey } from 'slate'
 
-const MAIN_ROOT_KEY: RootKey = 'main'
+import { MAIN_ROOT_KEY } from './root-key'
 
 export type SlateProjectionOwner = Readonly<{
   childRoot: RootKey

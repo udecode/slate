@@ -580,7 +580,6 @@ test.describe('mentions example', () => {
             character: 'R2-D2',
             children: [{ text: '', bold: true }],
           },
-          root: 'main',
         },
       ])
       expect(

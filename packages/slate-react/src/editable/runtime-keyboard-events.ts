@@ -5,6 +5,7 @@ import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { MAIN_ROOT_KEY } from '../root-key'
 import { readSlateViewSelection } from '../view-selection'
 import { shouldModelOwnContentRootVerticalSelection } from './content-root-navigation'
 import {
@@ -19,7 +20,6 @@ import { Editor } from './runtime-editor-api'
 import type { EditableEventRuntimeCore } from './runtime-event-engine'
 
 const WHITESPACE_KEY_RE = /\s/
-const MAIN_ROOT_KEY = 'main'
 const MODIFIER_ONLY_KEYS = new Set([
   'Alt',
   'AltGraph',

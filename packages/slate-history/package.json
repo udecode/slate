@@ -4,6 +4,10 @@
   "version": "0.115.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -29,7 +33,7 @@
     "slate": "workspace:*"
   },
   "peerDependencies": {
-    "slate": ">=0.124.2"
+    "slate": "0.124.1"
   },
   "keywords": [
     "editor",

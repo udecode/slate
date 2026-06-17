@@ -4,22 +4,30 @@
   "version": "0.124.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
     "./core": {
       "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
       "default": "./dist/core/index.js"
     },
     "./browser": {
       "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js",
       "default": "./dist/browser/index.js"
     },
     "./playwright": {
       "types": "./dist/playwright/index.d.ts",
+      "import": "./dist/playwright/index.js",
       "default": "./dist/playwright/index.js"
     },
     "./transports": {
       "types": "./dist/transports/index.d.ts",
+      "import": "./dist/transports/index.js",
       "default": "./dist/transports/index.js"
     }
   },
@@ -58,5 +66,12 @@
     "browser",
     "playwright",
     "transports"
+  ],
+  "keywords": [
+    "browser",
+    "editor",
+    "playwright",
+    "slate",
+    "testing"
   ]
 }

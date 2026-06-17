@@ -1,6 +1,8 @@
 # slate-history
 
-Undo/redo history extension for Slate editors.
+Operation-based undo and redo for Slate editors.
+
+Install history with the `history()` extension.
 
 ```ts
 import { createEditor } from 'slate'
@@ -11,17 +13,40 @@ const editor = createEditor({
   initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
 })
 
+const isHistoryValue = editor.read((state) =>
+  History.isHistory(state.history.get())
+)
+```
+
+`useSlateEditor` installs history by default. Disable it explicitly when an
+editor should not expose history state or transaction helpers.
+
+```ts
+import { history } from 'slate-history'
+import { useSlateEditor } from 'slate-react'
+
+const editor = useSlateEditor({
+  extensions: [history({ enabled: false })],
+  initialValue,
+})
+```
+
+Read history through `state.history`, write through `tx.history`, and control
+batching through `editor.api.history`.
+
+```ts
+const undoCount = editor.read((state) => state.history.get().undos.length)
+
 editor.update((tx) => {
   tx.history.undo()
 })
 
-const stacks = editor.read((state) => state.history.get())
-History.isHistory(stacks)
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('draft')
+  })
+})
 ```
 
-Read stacks through `state.history`, write through `tx.history`, and control
-batching through `editor.api.history`.
-
-`History.isHistory(value)` validates undo/redo stack objects.
-
-`useSlateEditor` installs history by default for Slate React editors.
+Use `History.isHistory(value)` when library code needs to validate an unknown
+history value.

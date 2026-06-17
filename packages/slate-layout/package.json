@@ -4,6 +4,10 @@
   "version": "0.124.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -36,8 +40,8 @@
   "peerDependencies": {
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
-    "slate": ">=0.124.1",
-    "slate-react": ">=0.124.0"
+    "slate": "0.124.1",
+    "slate-react": "0.124.0"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.9.0",
@@ -48,5 +52,12 @@
     "react-dom": "^19.2.5",
     "slate": "workspace:*",
     "slate-react": "workspace:*"
-  }
+  },
+  "keywords": [
+    "editor",
+    "layout",
+    "page",
+    "pagination",
+    "slate"
+  ]
 }

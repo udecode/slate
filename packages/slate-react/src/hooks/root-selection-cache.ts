@@ -1,11 +1,8 @@
-import type { BaseSelection, Operation, RootKey } from 'slate'
+import type { Operation, RootKey, Selection } from 'slate'
 
-const MAIN_ROOT_KEY: RootKey = 'main'
+import { getOperationRoot, MAIN_ROOT_KEY } from '../root-key'
 
-const getOperationRoot = (operation: Operation): RootKey =>
-  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
-
-const cloneSelection = (selection: BaseSelection): BaseSelection =>
+const cloneSelection = (selection: Selection): Selection =>
   selection
     ? {
         anchor: { ...selection.anchor },
@@ -13,7 +10,7 @@ const cloneSelection = (selection: BaseSelection): BaseSelection =>
       }
     : null
 
-export const getSelectionRoot = (selection: BaseSelection): RootKey | null => {
+export const getSelectionRoot = (selection: Selection): RootKey | null => {
   if (!selection) {
     return null
   }
@@ -24,12 +21,12 @@ export const getSelectionRoot = (selection: BaseSelection): RootKey | null => {
 }
 
 export const createRootSelectionCache = () => {
-  const selections = new Map<RootKey, BaseSelection>()
+  const selections = new Map<RootKey, Selection>()
 
   return {
-    get: (root: RootKey): BaseSelection =>
+    get: (root: RootKey): Selection =>
       cloneSelection(selections.get(root) ?? null),
-    record: (selection: BaseSelection) => {
+    record: (selection: Selection) => {
       const root = getSelectionRoot(selection)
 
       if (!selection || !root) {

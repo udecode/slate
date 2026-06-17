@@ -20,7 +20,6 @@ import type {
   Range,
   RangeRef,
   Span,
-  TElement,
   Text,
   TextIn,
 } from '..'
@@ -82,7 +81,7 @@ import type {
  * The `Editor` interface exposes the runtime API of a Slate editor. Document
  * state is read through editor methods and mutated through `editor.update`.
  */
-export type Value = TElement[]
+export type Value = Element[]
 
 export type RootKey = string
 
@@ -1159,9 +1158,7 @@ export type ValueOf<E> =
         : Value
     : Value
 
-export type BaseSelection = Range | null
-
-export type Selection = BaseSelection
+export type Selection = Range | null
 
 export type EditorMarks<V extends Value = Value> = Partial<
   Omit<TextIn<V>, 'text'>

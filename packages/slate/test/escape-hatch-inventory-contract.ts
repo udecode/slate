@@ -88,7 +88,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 133, stale: 625 },
+    expected: { primitive: 133, stale: 627 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',

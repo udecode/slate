@@ -1,8 +1,8 @@
-# Collaborative Editing Substrate
+# Operation Replay Substrate
 
-Collaborative editing in Slate starts with operations and commits. Slate does
-not choose your network layer, CRDT, persistence model, or awareness protocol.
-This walkthrough shows the raw substrate an adapter can build on.
+Remote editing in Slate starts with operations and commits. Slate does not
+choose your network layer, CRDT, persistence model, or awareness protocol. This
+walkthrough shows the raw replay substrate an adapter can build on.
 
 ## Start with a local editor
 
@@ -29,7 +29,7 @@ const commit = editor.read((state) => state.value.lastCommit())
 ```
 
 The `tag` option is a cheap lifecycle label. `metadata` is the typed policy
-channel for history, collaboration, and selection behavior.
+channel for history, remote import, and selection behavior.
 
 ## Export operations
 
@@ -62,6 +62,12 @@ Operations and shared state patches are the document replay contract. Your
 adapter can translate them into its own transport format, persist them, batch
 them, or merge them with a CRDT. Slate only requires that the operations and
 state patches you replay are valid Slate payloads.
+
+Commit operations use the serialized document form: primary-document operations
+omit `root`, and extra-root operations keep `root`. Replay remote batches
+through the base editor/runtime when a message can contain both primary-document
+and extra-root edits; root-bound editor views are for local commands scoped to
+that root.
 
 Bulk edits are still operations. A paste can publish one `replace_fragment`
 operation that replaces a child slice and carries the selection before and after
@@ -147,7 +153,7 @@ const unsubscribe = editor.subscribeCommit((change) => {
 ```
 
 Send operations and filtered state patches to peers. Save the full
-`state.value.get()` document value to your database, not to the collaboration
+`state.value.get()` document value to your database, not to the adapter
 transport, unless your adapter strips local persisted state first.
 
 Call the returned function when the adapter disconnects.
@@ -168,9 +174,9 @@ write inside one `editor.update` call.
 | Field | Use |
 | --- | --- |
 | `operations` | The Slate operations that changed the document. |
-| `statePatches` | State-field changes. Filter to shared adapter-owned keys before exporting collaboration payloads. |
+| `statePatches` | State-field changes. Filter to shared adapter-owned keys before exporting remote payloads. |
 | `tags` | Adapter/app metadata such as `local-edit` or `remote-import`. |
-| `metadata` | Typed policy for history, collaboration, selection, and origin. |
+| `metadata` | Typed policy for history, remote import, selection, and origin. |
 | `classes` | Runtime classification, such as text or structural changes. |
 | `selectionBefore` | The model selection before the commit. |
 | `selectionAfter` | The model selection after the commit. |
@@ -181,15 +187,15 @@ write inside one `editor.update` call.
 | `selectionChanged` | Whether the model selection changed. |
 | `textChanged` | Whether text content changed. |
 
-Adapters should treat this as an observation contract. If your collaboration
-layer needs a different representation, derive it from the commit instead of
+Adapters should treat this as an observation contract. If your transport layer
+needs a different representation, derive it from the commit instead of
 reading mutable editor fields.
 
 ## Runtime ids are local
 
 Runtime ids are useful inside one editor instance because they survive local
 path changes. They are not part of the operation payload and should not be
-stored as collaboration identifiers.
+stored as remote identifiers.
 
 ```tsx
 const { path, runtimeId } = editor.read((state) => {

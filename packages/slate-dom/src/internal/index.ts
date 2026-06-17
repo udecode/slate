@@ -24,6 +24,11 @@ export type {
 export { DOMCoverage } from '../plugin/dom-coverage'
 export type { DOMEditorInterface } from '../plugin/dom-editor'
 export { createDOMEditorCapability, DOMEditor } from '../plugin/dom-editor'
+export {
+  getSlateStringCoordinatePlacement,
+  getSlateStringLength,
+  getSlateStringLineEdgeTextOffset,
+} from '../plugin/slate-string-coordinate-placement'
 export { installDOM } from '../plugin/with-dom'
 export {
   EDITOR_TO_ELEMENT,

@@ -6,38 +6,7 @@ import type {
 } from '../interfaces/editor'
 import { executeCommand } from './command-registry'
 import { getExtensionRegistry } from './extension-registry'
-
-const now = () => globalThis.performance?.now?.() ?? Date.now()
-
-const profileTransformDuration = <T>(id: string, callback: () => T): T => {
-  const profiler = (
-    globalThis as typeof globalThis & {
-      __SLATE_REACT_RENDER_PROFILER__?: {
-        record?: (event: {
-          duration: number
-          id: string
-          kind: 'core-time'
-        }) => void
-      }
-    }
-  ).__SLATE_REACT_RENDER_PROFILER__
-
-  if (!profiler) {
-    return callback()
-  }
-
-  const start = now()
-
-  try {
-    return callback()
-  } finally {
-    profiler.record?.({
-      duration: now() - start,
-      id,
-      kind: 'core-time',
-    })
-  }
-}
+import { profileCoreDuration } from './profiling'
 
 export const EDITOR_TRANSFORM_MIDDLEWARE_KEYS = [
   'addMark',
@@ -150,7 +119,7 @@ export const executeTransformMiddleware = <
   applyDefault: (args: EditorTransformMiddlewareArgs<V>[TKey]) => void
 ): boolean => {
   if (isApplyingTransformDefault(editor)) {
-    profileTransformDuration(`transform-${key}-nested-default`, () =>
+    profileCoreDuration(`transform-${key}-nested-default`, () =>
       applyDefault(args)
     )
 
@@ -158,19 +127,19 @@ export const executeTransformMiddleware = <
   }
 
   const type = getTransformCommandType(key)
-  const handlers = profileTransformDuration(`transform-${key}-handlers`, () =>
+  const handlers = profileCoreDuration(`transform-${key}-handlers`, () =>
     getExtensionRegistry(editor).commands.get(type)
   )
 
   if (!handlers?.length) {
-    profileTransformDuration(`transform-${key}-default`, () =>
+    profileCoreDuration(`transform-${key}-default`, () =>
       runTransformDefault(editor, () => applyDefault(args))
     )
 
     return true
   }
 
-  return profileTransformDuration(`transform-${key}-command`, () =>
+  return profileCoreDuration(`transform-${key}-command`, () =>
     executeCommand<TransformMiddlewareCommand<V, TKey>>(
       editor,
       {
@@ -178,7 +147,7 @@ export const executeTransformMiddleware = <
         type,
       },
       (command) => {
-        profileTransformDuration(`transform-${key}-command-default`, () =>
+        profileCoreDuration(`transform-${key}-command-default`, () =>
           runTransformDefault(editor, () =>
             applyDefault(stripCommandType(command))
           )

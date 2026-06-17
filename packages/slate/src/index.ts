@@ -7,7 +7,6 @@ export { createEditorRuntime, createEditorView } from './editor-runtime-view'
 export * from './interfaces/bookmark'
 export type {
   BaseEditor,
-  BaseSelection,
   CreateEditorOptions,
   DirtyRegion,
   Editor,

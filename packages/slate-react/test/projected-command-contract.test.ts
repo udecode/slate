@@ -189,8 +189,11 @@ const writeAmbiguousRepeatedSelection = (
 }
 
 describe('projected editable commands', () => {
-  it('keeps full delete-fragment profiler buckets for huge-document attribution', () => {
-    const source = readFileSync('src/editable/mutation-controller.ts', 'utf8')
+  it('keeps full-block delete-fragment profiler buckets for huge-document attribution', () => {
+    const source = readFileSync(
+      'src/editable/mutation-full-block-editing.ts',
+      'utf8'
+    )
 
     expect(source).toContain('delete-fragment.full-top-level-paths')
     expect(source).toContain('delete-fragment.consistent-marks')
@@ -237,14 +240,12 @@ describe('projected editable commands', () => {
       {
         offset: 'Bef'.length,
         path: [0, 0],
-        root: 'main',
         text: 'ore',
         type: 'remove_text',
       },
       {
         offset: 'Bef'.length,
         path: [0, 0],
-        root: 'main',
         text: 'X',
         type: 'insert_text',
       },

@@ -2,12 +2,11 @@ import { type MouseEventHandler, useMemo } from 'react'
 import type { RootKey } from 'slate'
 
 import { useRootInteractionController } from '../editable/root-interaction-controller'
+import { MAIN_ROOT_KEY } from '../root-key'
 import {
   useRequiredSlateRuntimeContext,
   useSlateRootEditor,
 } from './use-slate-runtime'
-
-const MAIN_ROOT_KEY: RootKey = 'main'
 
 /** Options for mouse interaction on root-level chrome outside editable text. */
 export type UseSlateRootChromeOptions = {
@@ -35,7 +34,7 @@ export function useSlateRootChrome(
 ): SlateRootChromeController {
   if (root === MAIN_ROOT_KEY) {
     throw new Error(
-      '[Slate] Omit root to create chrome for the primary document. `main` is an internal root key.'
+      '[Slate] Omit root to create chrome for the primary document.'
     )
   }
 

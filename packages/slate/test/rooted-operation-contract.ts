@@ -25,7 +25,7 @@ const voidBlock = defineEditorExtension({
 })
 
 describe('rooted operation contract', () => {
-  it('publishes primary content operations without putting root keys in Path', () => {
+  it('publishes primary content operations without a public root key', () => {
     const header = [paragraph('header')]
     const main = [paragraph('body')]
     const editor = createEditor({
@@ -40,11 +40,11 @@ describe('rooted operation contract', () => {
 
     const commit = Editor.getLastCommit(editor)
     assert(commit)
+    assert.equal(Object.hasOwn(commit.operations[0]!, 'root'), false)
     assert.deepEqual(commit.operations, [
       {
         offset: 4,
         path: [0, 0],
-        root: 'main',
         text: '!',
         type: 'insert_text',
       },
@@ -377,7 +377,7 @@ describe('rooted operation contract', () => {
       Editor.getLastCommit(editor)?.operations.map(
         (operation) => operation.root
       ),
-      ['header', 'main', 'header']
+      ['header', undefined, 'header']
     )
   })
 

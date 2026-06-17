@@ -48,6 +48,52 @@ const readNativeSelection = async (
     }
   }, rootId)
 
+const readNativeCaretAtPoint = async (
+  page: Parameters<typeof openExample>[0],
+  {
+    rootId,
+    x,
+    y,
+  }: {
+    rootId: string
+    x: number
+    y: number
+  }
+) =>
+  page.evaluate(
+    ({ rootId, x, y }) => {
+      const rootElement = document.getElementById(rootId)
+
+      if (!rootElement) {
+        throw new Error(`Cannot find root "${rootId}"`)
+      }
+
+      const ownerDocument = rootElement.ownerDocument as Document & {
+        caretPositionFromPoint?: (
+          x: number,
+          y: number
+        ) => { offset: number; offsetNode: Node } | null
+        caretRangeFromPoint?: (x: number, y: number) => Range | null
+      }
+      const caretPosition = ownerDocument.caretPositionFromPoint?.(x, y)
+      const caretRange =
+        caretPosition == null ? ownerDocument.caretRangeFromPoint?.(x, y) : null
+      const node = caretPosition?.offsetNode ?? caretRange?.startContainer
+      const offset = caretPosition?.offset ?? caretRange?.startOffset
+
+      if (!node || offset == null) {
+        throw new Error(`Cannot resolve native caret at ${x},${y}`)
+      }
+
+      return {
+        insideRoot: rootElement.contains(node),
+        offset,
+        text: node.textContent,
+      }
+    },
+    { rootId, x, y }
+  )
+
 const clickTextOffset = async (
   page: Parameters<typeof openExample>[0],
   {
@@ -107,6 +153,59 @@ const clickTextOffset = async (
 }
 
 test.describe('multi-root document example', () => {
+  test('keeps root chrome, editors, and status badges inside the document frame', async ({
+    page,
+  }) => {
+    await openExample(page, 'multi-root-document', {
+      ready: {
+        editor: 'visible',
+      },
+      surface: {
+        scope: '#multi-root-body-surface',
+      },
+    })
+
+    const overflow = await page.evaluate(() => {
+      const frame = document.querySelector(
+        '.slate-multi-root-document-document'
+      )
+      const elements = Array.from(
+        document.querySelectorAll(
+          [
+            '.slate-multi-root-document-root-header',
+            '.slate-multi-root-document-editor',
+            '[data-slot="badge"]',
+          ].join(',')
+        )
+      )
+
+      if (!frame) {
+        throw new Error('Missing multi-root document frame')
+      }
+
+      const frameRect = frame.getBoundingClientRect()
+
+      return elements
+        .map((element) => {
+          const rect = element.getBoundingClientRect()
+
+          return {
+            id: element.id,
+            className: String(element.getAttribute('class') ?? ''),
+            left: rect.left,
+            right: rect.right,
+            text: element.textContent?.trim().slice(0, 80) ?? '',
+          }
+        })
+        .filter(
+          (item) =>
+            item.left < frameRect.left - 1 || item.right > frameRect.right + 1
+        )
+    })
+
+    expect(overflow).toEqual([])
+  })
+
   test('edits header, body, footer, and document title through one runtime', async ({
     page,
   }) => {
@@ -118,12 +217,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const footer = page.locator('#multi-root-footer')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
     const footerEditor = bodyEditor.rootAt('#multi-root-footer')
@@ -160,10 +259,10 @@ test.describe('multi-root document example', () => {
       offset: 'The body root carries the document content.'.length,
     })
     await expect(main).toContainText('Body prefix: ')
-    await expect(page.locator('#multi-root-main-status')).toContainText(
-      'main:The body root carries the document content.'
+    await expect(page.locator('#multi-root-body-status')).toContainText(
+      'body:The body root carries the document content.'
     )
-    await expect(page.locator('#multi-root-main-status')).toContainText(
+    await expect(page.locator('#multi-root-body-status')).toContainText(
       'Body prefix:'
     )
 
@@ -204,12 +303,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
     const titleInput = page.getByLabel('Document title')
     const commitStatus = page.locator('#multi-root-commit')
@@ -252,12 +351,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
 
     await focusRootByLabel(page, 'Header editor', headerEditor)
@@ -275,25 +374,25 @@ test.describe('multi-root document example', () => {
     await expect(main).toContainText('TWO')
 
     const bodySelectionAfterTyping = await page.evaluate(() => {
-      const mainElement = document.getElementById('multi-root-main')
+      const bodyElement = document.getElementById('multi-root-body')
       const selection = window.getSelection()
 
       return {
         activeElementId: document.activeElement?.id ?? null,
         anchorOffset: selection?.anchorOffset ?? null,
         focusOffset: selection?.focusOffset ?? null,
-        insideMain: Boolean(
-          mainElement &&
+        insideBody: Boolean(
+          bodyElement &&
             selection?.anchorNode &&
-            mainElement.contains(selection.anchorNode)
+            bodyElement.contains(selection.anchorNode)
         ),
         text: selection?.anchorNode?.textContent ?? null,
       }
     })
 
     expect(bodySelectionAfterTyping).toMatchObject({
-      activeElementId: 'multi-root-main',
-      insideMain: true,
+      activeElementId: 'multi-root-body',
+      insideBody: true,
     })
 
     await page.getByRole('button', { name: 'Undo document change' }).click()
@@ -303,25 +402,25 @@ test.describe('multi-root document example', () => {
     await expect(main).toBeFocused()
 
     const bodySelectionAfterBodyUndo = await page.evaluate(() => {
-      const mainElement = document.getElementById('multi-root-main')
+      const bodyElement = document.getElementById('multi-root-body')
       const selection = window.getSelection()
 
       return {
         activeElementId: document.activeElement?.id ?? null,
         anchorOffset: selection?.anchorOffset ?? null,
         focusOffset: selection?.focusOffset ?? null,
-        insideMain: Boolean(
-          mainElement &&
+        insideBody: Boolean(
+          bodyElement &&
             selection?.anchorNode &&
-            mainElement.contains(selection.anchorNode)
+            bodyElement.contains(selection.anchorNode)
         ),
         text: selection?.anchorNode?.textContent ?? null,
       }
     })
 
     expect(bodySelectionAfterBodyUndo).toMatchObject({
-      activeElementId: 'multi-root-main',
-      insideMain: true,
+      activeElementId: 'multi-root-body',
+      insideBody: true,
     })
 
     await page.getByRole('button', { name: 'Undo document change' }).click()
@@ -331,30 +430,30 @@ test.describe('multi-root document example', () => {
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const mainElement = document.getElementById('multi-root-main')
+          const bodyElement = document.getElementById('multi-root-body')
           const selection = window.getSelection()
 
           return Boolean(
-            mainElement &&
+            bodyElement &&
               selection?.anchorNode &&
-              mainElement.contains(selection.anchorNode)
+              bodyElement.contains(selection.anchorNode)
           )
         })
       )
       .toBe(true)
 
     const bodySelectionAfterHeaderUndo = await page.evaluate(() => {
-      const mainElement = document.getElementById('multi-root-main')
+      const bodyElement = document.getElementById('multi-root-body')
       const selection = window.getSelection()
 
       return {
         activeElementId: document.activeElement?.id ?? null,
         anchorOffset: selection?.anchorOffset ?? null,
         focusOffset: selection?.focusOffset ?? null,
-        insideMain: Boolean(
-          mainElement &&
+        insideBody: Boolean(
+          bodyElement &&
             selection?.anchorNode &&
-            mainElement.contains(selection.anchorNode)
+            bodyElement.contains(selection.anchorNode)
         ),
         text: selection?.anchorNode?.textContent ?? null,
       }
@@ -377,12 +476,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const commitStatus = page.locator('#multi-root-commit')
     const headerText = 'Confidential quarterly plan'
     const bodyText = 'The body root carries the document content.'
@@ -403,22 +502,22 @@ test.describe('multi-root document example', () => {
 
     await clickTextOffset(page, {
       offset: bodyText.length,
-      rootId: 'multi-root-main',
+      rootId: 'multi-root-body',
       text: bodyText,
     })
     await expect(main).toBeFocused()
     await page.keyboard.press('b')
     await expect(main).toContainText(`${bodyText}b`)
-    await expect(commitStatus).toContainText('roots:main')
+    await expect(commitStatus).toContainText('roots:body')
 
     await main.press(undoHotkey)
 
     await expect(main).not.toContainText(`${bodyText}b`)
     await expect(header).toContainText(`${headerText}p`)
     await expect
-      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .poll(() => readNativeSelection(page, 'multi-root-body'))
       .toMatchObject({
-        activeElementId: 'multi-root-main',
+        activeElementId: 'multi-root-body',
         insideRoot: true,
         text: bodyText,
       })
@@ -427,9 +526,9 @@ test.describe('multi-root document example', () => {
 
     await expect(header).not.toContainText(`${headerText}p`)
     await expect
-      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .poll(() => readNativeSelection(page, 'multi-root-body'))
       .toMatchObject({
-        activeElementId: 'multi-root-main',
+        activeElementId: 'multi-root-body',
         insideRoot: true,
         text: bodyText,
       })
@@ -451,11 +550,11 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const footer = page.locator('#multi-root-footer')
     const bodyText = 'The body root carries the document content.'
     const footerText = 'Prepared for leadership review'
@@ -466,14 +565,14 @@ test.describe('multi-root document example', () => {
       : 'Control+Z'
     await clickTextOffset(page, {
       offset: bodyText.length,
-      rootId: 'multi-root-main',
+      rootId: 'multi-root-body',
       text: bodyText,
     })
     await expect(main).toBeFocused()
     await page.keyboard.press('m')
     await expect(main).toContainText(`${bodyText}m`)
-    await expect(page.locator('#multi-root-main-status')).toContainText(
-      `main:${bodyText}m`
+    await expect(page.locator('#multi-root-body-status')).toContainText(
+      `body:${bodyText}m`
     )
 
     await clickTextOffset(page, {
@@ -494,8 +593,8 @@ test.describe('multi-root document example', () => {
     await expect(footer).not.toContainText(`${footerText}f`)
     await expect(main).toContainText(`${bodyText}m`)
     await expect(main).not.toContainText(footerText)
-    await expect(page.locator('#multi-root-main-status')).toContainText(
-      `main:${bodyText}m`
+    await expect(page.locator('#multi-root-body-status')).toContainText(
+      `body:${bodyText}m`
     )
     await expect(page.locator('#multi-root-footer-status')).toContainText(
       `footer:${footerText}`
@@ -508,8 +607,8 @@ test.describe('multi-root document example', () => {
     await expect(main).not.toContainText(`${bodyText}m`)
     await expect(main).not.toContainText(footerText)
     await expect(footer).toContainText(footerText)
-    await expect(page.locator('#multi-root-main-status')).toContainText(
-      `main:${bodyText} Header and footer are editable roots.`
+    await expect(page.locator('#multi-root-body-status')).toContainText(
+      `body:${bodyText} Header and footer are editable roots.`
     )
     await expect(page.locator('#multi-root-footer-status')).toContainText(
       `footer:${footerText}`
@@ -527,12 +626,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const footer = page.locator('#multi-root-footer')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
     const footerEditor = bodyEditor.rootAt('#multi-root-footer')
@@ -608,12 +707,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
     const headerText = 'Confidential quarterly plan'
 
@@ -649,12 +748,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
     const headerText = 'Confidential quarterly plan'
     const headerTextWithTail = `${headerText} Tail`
@@ -706,12 +805,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const box = await header.boundingBox()
 
     if (!box) {
@@ -753,7 +852,7 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
@@ -796,7 +895,7 @@ test.describe('multi-root document example', () => {
     expect(pageErrors).toEqual([])
   })
 
-  test('moves the native caret into body text after typing in header', async ({
+  test('moves the native caret into body text at the clicked coordinate after typing in header', async ({
     page,
   }) => {
     await openExample(page, 'multi-root-document', {
@@ -804,12 +903,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerBox = await header.boundingBox()
 
     if (!headerBox) {
@@ -827,25 +926,43 @@ test.describe('multi-root document example', () => {
       throw new Error('Body editor is not visible')
     }
 
-    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 24)
+    const bodyText = 'The body root carries the document content.'
+    const bodyClick = {
+      x: mainBox.x + mainBox.width - 16,
+      y: mainBox.y + 24,
+    }
+    const expectedCaret = await readNativeCaretAtPoint(page, {
+      rootId: 'multi-root-body',
+      ...bodyClick,
+    })
+
+    expect(expectedCaret).toMatchObject({
+      insideRoot: true,
+      text: bodyText,
+    })
+
+    await page.mouse.click(bodyClick.x, bodyClick.y)
     await expect(main).toBeFocused()
     await expect
-      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .poll(() => readNativeSelection(page, 'multi-root-body'))
       .toMatchObject({
-        activeElementId: 'multi-root-main',
+        activeElementId: 'multi-root-body',
         insideRoot: true,
         text: 'The body root carries the document content.',
       })
     await expect
       .poll(async () => {
-        const selection = await readNativeSelection(page, 'multi-root-main')
+        const selection = await readNativeSelection(page, 'multi-root-body')
 
         return selection.anchorOffset
       })
-      .toBe('The body root carries the document content.'.length)
+      .toBe(expectedCaret.offset)
 
     await page.keyboard.type('Body native ')
+    const expectedBodyText = `${bodyText.slice(0, expectedCaret.offset)}Body native ${bodyText.slice(expectedCaret.offset)}`
+
     await expect(main).toContainText('Body native ')
+    await expect(main).toContainText(expectedBodyText)
     await expect(header).not.toContainText('Body native ')
 
     const mainText = await main.innerText()
@@ -863,12 +980,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const footer = page.locator('#multi-root-footer')
     const headerBox = await header.boundingBox()
 
@@ -910,7 +1027,7 @@ test.describe('multi-root document example', () => {
     await expect(main).not.toContainText('Footer first click ')
   })
 
-  test('moves body caret to the clicked end padding after another root was focused', async ({
+  test('moves body caret to the clicked body coordinate after another root was focused', async ({
     page,
   }) => {
     await openExample(page, 'multi-root-document', {
@@ -918,14 +1035,14 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const firstBodyText = 'The body root carries the document content.'
     const lastBodyText = 'Header and footer are editable roots.'
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerBox = await header.boundingBox()
     const mainBox = await main.boundingBox()
 
@@ -937,7 +1054,7 @@ test.describe('multi-root document example', () => {
     await expect(main).toBeFocused()
     await expect
       .poll(async () => {
-        const selection = await readNativeSelection(page, 'multi-root-main')
+        const selection = await readNativeSelection(page, 'multi-root-body')
 
         return selection.anchorOffset
       })
@@ -952,28 +1069,41 @@ test.describe('multi-root document example', () => {
       throw new Error('Last body paragraph is not visible')
     }
 
-    await page.mouse.click(
-      mainBox.x + mainBox.width - 16,
-      lastBodyBox.y + lastBodyBox.height / 2
-    )
+    const bodyClick = {
+      x: mainBox.x + mainBox.width - 16,
+      y: lastBodyBox.y + lastBodyBox.height / 2,
+    }
+    const expectedCaret = await readNativeCaretAtPoint(page, {
+      rootId: 'multi-root-body',
+      ...bodyClick,
+    })
+
+    expect(expectedCaret).toMatchObject({
+      insideRoot: true,
+      text: lastBodyText,
+    })
+
+    await page.mouse.click(bodyClick.x, bodyClick.y)
     await expect(main).toBeFocused()
     await expect
-      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .poll(() => readNativeSelection(page, 'multi-root-body'))
       .toMatchObject({
-        activeElementId: 'multi-root-main',
+        activeElementId: 'multi-root-body',
         insideRoot: true,
         text: lastBodyText,
       })
     await expect
       .poll(async () => {
-        const selection = await readNativeSelection(page, 'multi-root-main')
+        const selection = await readNativeSelection(page, 'multi-root-body')
 
         return selection.anchorOffset
       })
-      .toBe(lastBodyText.length)
+      .toBe(expectedCaret.offset)
 
     await page.keyboard.type(' Body padding end ')
-    await expect(main).toContainText(`${lastBodyText} Body padding end `)
+    const expectedBodyText = `${lastBodyText.slice(0, expectedCaret.offset)} Body padding end ${lastBodyText.slice(expectedCaret.offset)}`
+
+    await expect(main).toContainText(expectedBodyText)
   })
 
   test('keeps header focus when modifier keys follow header typing', async ({
@@ -984,12 +1114,12 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 
     const header = page.locator('#multi-root-header')
-    const main = page.locator('#multi-root-main')
+    const main = page.locator('#multi-root-body')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
 
     await expect(main).toBeFocused()
@@ -1040,7 +1170,7 @@ test.describe('multi-root document example', () => {
         editor: 'visible',
       },
       surface: {
-        scope: '#multi-root-main-surface',
+        scope: '#multi-root-body-surface',
       },
     })
 

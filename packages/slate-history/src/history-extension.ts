@@ -15,18 +15,47 @@ import {
   type Value,
 } from 'slate'
 import {
-  applyOperation,
   applyStatePatches,
   executeCommand,
   getEditorOperationRoot,
   getEditorSelectionRoot,
   getOperationRoot,
-  getRangeRoot as getRangeRootMeta,
   MAIN_ROOT_KEY,
   shouldSaveStatePatch,
 } from 'slate/internal'
 
 import type { Batch, History } from './history'
+import {
+  shouldMergeBatch,
+  shouldMergeExplicitBatch,
+  shouldSaveBatch,
+  shouldSaveHistoryOperation,
+} from './history-merge-policy'
+import { replayHistoricOperations } from './history-replay'
+import {
+  applySelectionPatch,
+  clonePoint,
+  cloneRange,
+  filterHistoricSelectionOperations,
+  filterHistoricUndoOperations,
+  getRangeRoot,
+  restoreHistoricSelection,
+  shouldPreserveHistoricDOMSelection,
+  shouldRestoreHistoricSelection,
+} from './history-selection'
+import {
+  clearHistoryState,
+  getHistory,
+  isMerging,
+  isSaving,
+  isSplittingOnce,
+  setSplittingOnce,
+  withMerging,
+  withNewBatch,
+  withoutMerging,
+  withoutSaving,
+  writeHistory,
+} from './history-state'
 
 export type HistoryStateApi<V extends Value = Value> = {
   /** Read the complete undo/redo history object. */
@@ -74,83 +103,6 @@ declare module 'slate' {
   }
 }
 
-const HISTORY = new WeakMap<Editor, History>()
-const SAVING = new WeakMap<Editor, boolean | undefined>()
-const MERGING = new WeakMap<Editor, boolean | undefined>()
-const SPLITTING_ONCE = new WeakMap<Editor, boolean | undefined>()
-
-const getHistory = <V extends Value>(editor: Editor<V>): History<V> => {
-  let history = HISTORY.get(editor) as History<V> | undefined
-
-  if (!history) {
-    history = { redos: [], undos: [] }
-    HISTORY.set(editor, history as unknown as History)
-  }
-
-  return history
-}
-
-const writeHistory = <V extends Value>(
-  editor: Editor<V>,
-  stack: 'redos' | 'undos',
-  batch: Batch<V>
-) => {
-  getHistory(editor)[stack].push(batch)
-}
-
-const isMerging = (editor: Editor): boolean | undefined => MERGING.get(editor)
-
-const isSaving = (editor: Editor): boolean | undefined => SAVING.get(editor)
-
-const isSplittingOnce = (editor: Editor): boolean | undefined =>
-  SPLITTING_ONCE.get(editor)
-
-const setSplittingOnce = (editor: Editor, value: boolean | undefined) => {
-  SPLITTING_ONCE.set(editor, value)
-}
-
-const withMerging = (editor: Editor, fn: () => void): void => {
-  const previous = isMerging(editor)
-  MERGING.set(editor, true)
-  try {
-    fn()
-  } finally {
-    MERGING.set(editor, previous)
-  }
-}
-
-const withNewBatch = (editor: Editor, fn: () => void): void => {
-  const previous = isMerging(editor)
-  MERGING.set(editor, true)
-  SPLITTING_ONCE.set(editor, true)
-  try {
-    fn()
-  } finally {
-    MERGING.set(editor, previous)
-    SPLITTING_ONCE.delete(editor)
-  }
-}
-
-const withoutMerging = (editor: Editor, fn: () => void): void => {
-  const previous = isMerging(editor)
-  MERGING.set(editor, false)
-  try {
-    fn()
-  } finally {
-    MERGING.set(editor, previous)
-  }
-}
-
-const withoutSaving = (editor: Editor, fn: () => void): void => {
-  const previous = isSaving(editor)
-  SAVING.set(editor, false)
-  try {
-    fn()
-  } finally {
-    SAVING.set(editor, previous)
-  }
-}
-
 const runHistoricUpdate = <V extends Value>(
   editor: Editor<V>,
   batch: Batch<V>,
@@ -177,56 +129,6 @@ const runHistoricUpdate = <V extends Value>(
     skipNormalize: true,
     tag: 'historic',
   })
-}
-
-const replayHistoricOperations = <V extends Value>(
-  editor: Editor<V>,
-  operations: readonly Operation<V>[]
-) => {
-  for (const operation of compactHistoricTextOperations(operations)) {
-    applyOperation(editor, operation)
-  }
-}
-
-const compactHistoricTextOperations = <V extends Value>(
-  operations: readonly Operation<V>[]
-): Operation<V>[] => {
-  const compacted: Operation<V>[] = []
-
-  for (const operation of operations) {
-    const previous = compacted.at(-1)
-
-    if (
-      previous?.type === 'insert_text' &&
-      operation.type === 'insert_text' &&
-      getOperationRoot(previous) === getOperationRoot(operation) &&
-      PathApi.equals(previous.path, operation.path) &&
-      operation.offset === previous.offset + previous.text.length
-    ) {
-      previous.text += operation.text
-      continue
-    }
-
-    if (
-      previous?.type === 'remove_text' &&
-      operation.type === 'remove_text' &&
-      getOperationRoot(previous) === getOperationRoot(operation) &&
-      PathApi.equals(previous.path, operation.path) &&
-      operation.offset + operation.text.length === previous.offset
-    ) {
-      previous.offset = operation.offset
-      previous.text = operation.text + previous.text
-      continue
-    }
-
-    compacted.push(
-      operation.type === 'insert_text' || operation.type === 'remove_text'
-        ? ({ ...operation, path: [...operation.path] } as Operation<V>)
-        : operation
-    )
-  }
-
-  return compacted
 }
 
 const applyRedo = <V extends Value>(editor: Editor<V>) => {
@@ -330,10 +232,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
           },
         },
         cleanup() {
-          HISTORY.delete(editor)
-          SAVING.delete(editor)
-          MERGING.delete(editor)
-          SPLITTING_ONCE.delete(editor)
+          clearHistoryState(editor)
         },
         onCommit({ commit: change }: { commit: EditorCommit }) {
           const committedOps = [...(change?.operations ?? [])]
@@ -424,211 +323,6 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
   return defineEditorExtension(extension)
 }
 
-const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
-  if (
-    prev &&
-    getOperationRoot(op) === getOperationRoot(prev) &&
-    op.type === 'insert_text' &&
-    prev.type === 'insert_text' &&
-    op.offset === prev.offset + prev.text.length &&
-    PathApi.equals(op.path, prev.path)
-  ) {
-    return true
-  }
-
-  if (
-    prev &&
-    getOperationRoot(op) === getOperationRoot(prev) &&
-    op.type === 'remove_text' &&
-    prev.type === 'remove_text' &&
-    op.offset + op.text.length === prev.offset &&
-    PathApi.equals(op.path, prev.path)
-  ) {
-    return true
-  }
-
-  return false
-}
-
-const shouldMergeSelectedReplacementFollowup = (
-  operation: Operation,
-  previousBatch: Batch,
-  previousSaveableOperations: readonly Operation[]
-): boolean => {
-  if (
-    operation.type !== 'insert_text' ||
-    previousBatch.statePatches.length > 0 ||
-    !previousBatch.selectionBefore ||
-    RangeApi.isCollapsed(previousBatch.selectionBefore)
-  ) {
-    return false
-  }
-
-  const previousOperation = previousSaveableOperations.at(-1)
-
-  if (
-    previousOperation?.type !== 'insert_text' ||
-    !shouldMerge(operation, previousOperation)
-  ) {
-    return false
-  }
-
-  const previousRoot = getOperationRoot(previousOperation)
-  const previousBatchSingleRoot = previousSaveableOperations.every(
-    (previous) => getOperationRoot(previous) === previousRoot
-  )
-  const previousBatchDeletedSelection = previousSaveableOperations
-    .slice(0, -1)
-    .some(
-      (previous) =>
-        previous.type === 'remove_text' ||
-        previous.type === 'remove_node' ||
-        previous.type === 'merge_node'
-    )
-
-  return previousBatchSingleRoot && previousBatchDeletedSelection
-}
-
-const shouldMergeSetNodeBatch = (
-  operation: Operation,
-  previousSaveableOperations: readonly Operation[]
-): boolean => {
-  if (operation.type !== 'set_node') {
-    return false
-  }
-
-  const previousRoot = getOperationRoot(operation)
-
-  return (
-    previousSaveableOperations.length > 0 &&
-    previousSaveableOperations.every(
-      (previous) =>
-        previous.type === 'set_node' &&
-        getOperationRoot(previous) === previousRoot &&
-        PathApi.equals(previous.path, operation.path)
-    )
-  )
-}
-
-const shouldMergeBatch = (
-  operations: readonly Operation[],
-  previousBatch: Batch
-): boolean => {
-  const saveableOperations = operations.filter(shouldSave)
-  const previousSaveableOperations = previousBatch.operations.filter(shouldSave)
-  const previousOperation = previousSaveableOperations.at(-1)
-  const previousRoot = previousOperation
-    ? getOperationRoot(previousOperation)
-    : MAIN_ROOT_KEY
-  const previousBatchIsTextOnly =
-    previousOperation != null &&
-    previousSaveableOperations.every(
-      (operation) =>
-        operation.type === previousOperation.type &&
-        getOperationRoot(operation) === previousRoot
-    )
-  const previousBatchIsSingleTextPath =
-    previousOperation != null &&
-    (previousOperation.type === 'insert_text' ||
-      previousOperation.type === 'remove_text') &&
-    previousSaveableOperations.every(
-      (operation) =>
-        (operation.type === 'insert_text' ||
-          operation.type === 'remove_text') &&
-        getOperationRoot(operation) === previousRoot &&
-        PathApi.equals(operation.path, previousOperation.path)
-    )
-
-  return saveableOperations.length === 1
-    ? shouldMergeSelectedReplacementFollowup(
-        saveableOperations[0]!,
-        previousBatch,
-        previousSaveableOperations
-      ) ||
-        shouldMergeSetNodeBatch(
-          saveableOperations[0]!,
-          previousSaveableOperations
-        ) ||
-        ((previousBatchIsTextOnly || previousBatchIsSingleTextPath) &&
-          shouldMerge(saveableOperations[0]!, previousOperation))
-    : false
-}
-
-const shouldMergeExplicitBatch = (
-  operations: readonly Operation[],
-  previousBatch: Batch,
-  metadata: EditorCommit['metadata']
-): boolean => {
-  if (shouldMergeBatch(operations, previousBatch)) {
-    return true
-  }
-
-  const saveableOperations = operations.filter(shouldSave)
-  const previousSaveableOperations = previousBatch.operations.filter(shouldSave)
-
-  if (
-    saveableOperations.length === 0 ||
-    previousSaveableOperations.length === 0 ||
-    previousBatch.statePatches.length > 0
-  ) {
-    return false
-  }
-
-  const allSaveableOperations = [
-    ...previousSaveableOperations,
-    ...saveableOperations,
-  ]
-  const firstOperation = allSaveableOperations[0]!
-  const root = getOperationRoot(firstOperation)
-  const allOperationsShareRoot = allSaveableOperations.every(
-    (operation) => getOperationRoot(operation) === root
-  )
-
-  if (!allOperationsShareRoot) {
-    return false
-  }
-
-  if (metadata.origin?.kind !== 'native-text-input') {
-    return true
-  }
-
-  if (
-    firstOperation.type !== 'insert_text' &&
-    firstOperation.type !== 'remove_text'
-  ) {
-    return false
-  }
-
-  const path = firstOperation.path
-
-  const allOperationsShareTextPath = allSaveableOperations.every(
-    (operation) =>
-      (operation.type === 'insert_text' || operation.type === 'remove_text') &&
-      getOperationRoot(operation) === root &&
-      PathApi.equals(operation.path, path)
-  )
-
-  if (!allOperationsShareTextPath) {
-    return false
-  }
-
-  return allSaveableOperations.every(
-    (operation, index) =>
-      index === 0 || shouldMerge(operation, allSaveableOperations[index - 1])
-  )
-}
-
-const shouldSave = (op: Operation): boolean => {
-  if (op.type === 'set_selection') {
-    return false
-  }
-
-  return true
-}
-
-const shouldSaveBatch = (operations: readonly Operation[]): boolean =>
-  operations.some((operation) => shouldSave(operation))
-
 const isSameOperationRoot = (operation: Operation, applied: Operation) =>
   getOperationRoot(operation) === getOperationRoot(applied)
 
@@ -658,221 +352,6 @@ const appendStatePatches = (
       target.push(structuredClone(patch))
     }
   }
-}
-
-const clonePoint = (point: Range['anchor'], root?: string): Range['anchor'] => {
-  const nextRoot = point.root ?? root
-
-  return {
-    offset: point.offset,
-    path: [...point.path],
-    ...(nextRoot && nextRoot !== MAIN_ROOT_KEY ? { root: nextRoot } : {}),
-  }
-}
-
-const cloneRange = (range: Range | null, root?: string): Range | null =>
-  range
-    ? {
-        anchor: clonePoint(range.anchor, root),
-        focus: clonePoint(range.focus, root),
-      }
-    : null
-
-const getRangeRoot = (range: Range | null): string | undefined =>
-  range ? (getRangeRootMeta(range).root ?? undefined) : undefined
-
-const getRangeRootOrMain = (range: Range | null): string =>
-  getRangeRoot(range) ?? MAIN_ROOT_KEY
-
-const getOperationRootOrMain = (operation: Operation): string =>
-  getOperationRoot(operation)
-
-const getBatchOperationRoot = <V extends Value>(
-  batch: Batch<V>
-): string | undefined => {
-  let root: string | undefined
-
-  for (const operation of batch.operations) {
-    const operationRoot = getOperationRootOrMain(operation)
-
-    if (root === undefined) {
-      root = operationRoot
-      continue
-    }
-
-    if (root !== operationRoot) {
-      return undefined
-    }
-  }
-
-  return root
-}
-
-const getHistoricSelectionRoot = <V extends Value>(
-  batch: Batch<V>
-): string | undefined => {
-  const selectionRoot = getRangeRoot(batch.selectionBefore)
-
-  if (selectionRoot) {
-    return selectionRoot
-  }
-
-  if (batch.selectionBefore == null) {
-    return getBatchOperationRoot(batch)
-  }
-
-  return batch.selectionBeforeRoot ?? MAIN_ROOT_KEY
-}
-
-const batchHasOperationRoot = <V extends Value>(
-  batch: Batch<V>,
-  root: string
-) =>
-  batch.operations.some(
-    (operation) => getOperationRootOrMain(operation) === root
-  )
-
-const filterHistoricSelectionOperations = <V extends Value>(
-  operations: readonly Operation<V>[],
-  root: string
-) =>
-  operations.filter(
-    (operation) =>
-      operation.type !== 'set_selection' ||
-      getOperationRootOrMain(operation) === root
-  )
-
-const filterHistoricUndoOperations = <V extends Value>(
-  operations: readonly Operation<V>[],
-  root: string
-) =>
-  filterHistoricSelectionOperations(operations, root).filter(
-    (operation) => operation.type !== 'set_selection'
-  )
-
-const shouldPreserveHistoricDOMSelection = <V extends Value>(
-  editor: Editor<V>,
-  batch: Batch<V>
-) =>
-  batch.operations.length > 0 &&
-  !batchHasOperationRoot(batch, getEditorOperationRoot(editor))
-
-const shouldRestoreHistoricSelection = <V extends Value>(
-  root: string,
-  batch: Batch<V>
-) => {
-  const selectionRoot = getHistoricSelectionRoot(batch)
-
-  return (
-    batch.operations.length > 0 &&
-    selectionRoot === root &&
-    batchHasOperationRoot(batch, root)
-  )
-}
-
-const createHistoricSelectionOperation = <V extends Value>(
-  previous: Range | null,
-  next: Range | null,
-  root: string
-): Extract<Operation<V>, { type: 'set_selection' }> | null => {
-  if (previous == null && next == null) {
-    return null
-  }
-
-  if (previous == null) {
-    return {
-      newProperties: cloneRange(next)!,
-      properties: null,
-      root,
-      type: 'set_selection',
-    }
-  }
-
-  if (next == null) {
-    return {
-      newProperties: null,
-      properties: cloneRange(previous)!,
-      root,
-      type: 'set_selection',
-    }
-  }
-
-  if (RangeApi.equals(previous, next)) {
-    return null
-  }
-
-  return {
-    newProperties: cloneRange(next)!,
-    properties: cloneRange(previous)!,
-    root,
-    type: 'set_selection',
-  }
-}
-
-const restoreHistoricSelection = <V extends Value>(
-  tx: EditorUpdateTransaction<V>,
-  batch: Batch<V>,
-  viewRoot: string
-) => {
-  const selection = batch.selectionBefore
-  const root = getHistoricSelectionRoot(batch) ?? getRangeRootOrMain(selection)
-
-  if (root === viewRoot && !getRangeRoot(selection)) {
-    tx.selection.set(selection)
-    return
-  }
-
-  const operation = createHistoricSelectionOperation<V>(
-    tx.selection.get(),
-    selection,
-    root
-  )
-
-  if (operation) {
-    tx.operations.replay([operation])
-  }
-}
-
-const applySelectionPatch = (
-  selection: Range | null,
-  newProperties: Partial<Range> | null,
-  root?: string
-): Range | null => {
-  if (newProperties == null) {
-    return null
-  }
-
-  if (selection == null) {
-    if (!(newProperties.anchor && newProperties.focus)) {
-      throw new Error(
-        `set_selection patch requires an existing selection or a full range. Received: ${JSON.stringify(
-          newProperties
-        )}`
-      )
-    }
-
-    return cloneRange(newProperties as Range, root)
-  }
-
-  const next = cloneRange(selection)!
-
-  if (Object.hasOwn(newProperties, 'anchor')) {
-    if (!newProperties.anchor) {
-      throw new Error('Cannot remove the "anchor" selection property')
-    }
-
-    next.anchor = clonePoint(newProperties.anchor, root)
-  }
-
-  if (Object.hasOwn(newProperties, 'focus')) {
-    if (!newProperties.focus) {
-      throw new Error('Cannot remove the "focus" selection property')
-    }
-
-    next.focus = clonePoint(newProperties.focus, root)
-  }
-
-  return next
 }
 
 const getCollapsedRangePoint = (range: Range | null) =>
@@ -1076,7 +555,7 @@ const prepareHistoryBatch = <V extends Value>(
   statePatches: readonly EditorStatePatch[],
   metadata: EditorCommit['metadata']
 ): Batch<V> | null => {
-  const firstSaveableIndex = operations.findIndex(shouldSave)
+  const firstSaveableIndex = operations.findIndex(shouldSaveHistoryOperation)
   const getBatchSelectionBeforeRoot = (selection: Range | null) =>
     selection ? (getRangeRoot(selection) ?? selectionBeforeRoot) : undefined
   const createBatch = (

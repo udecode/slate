@@ -69,6 +69,7 @@ import type {
   CustomElementType,
   CustomText,
   CustomTextKey,
+  ImageElement,
 } from './custom-types.d'
 import { toggleMark } from './mark-utils'
 import {
@@ -858,6 +859,11 @@ type PaginationLineDecorationData = {
 
 const flowProjectedTypes = new Set(['image', 'table', 'thematic-break'])
 
+const isImageElement = (element: Node): element is ImageElement =>
+  NodeApi.isElement(element) &&
+  element.type === 'image' &&
+  typeof element.url === 'string'
+
 const isFlowProjectedType = (type: unknown) =>
   typeof type === 'string' && flowProjectedTypes.has(type)
 
@@ -1205,7 +1211,7 @@ const PaginationElement = (props: PaginationElementProps) => {
     )
   }
 
-  if (elementType === 'image') {
+  if (isImageElement(element)) {
     return (
       <div
         {...attributes}
@@ -1846,13 +1852,15 @@ const PaginationSurface = ({
     [activeFlowBlockKey, nativeFlowEditablePathKeys]
   )
   const paginationDecorationCache = useMemo(
-    () =>
-      new Map<
+    () => ({
+      layout,
+      pageGeometry,
+      snapshot,
+      values: new Map<
         string,
         ReturnType<EditableDecorate<PaginationLineDecorationData>>
       >(),
-    // Reset line-decoration cache when measured pagination inputs change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }),
     [layout, pageGeometry, snapshot]
   )
   const availableWidth = Math.max(
@@ -1921,7 +1929,7 @@ const PaginationSurface = ({
         getSlatePageLayoutPathKey(blockPath)
       )
       const cacheKey = activeFlow ? `${pathKey}:native` : `${pathKey}:projected`
-      const cached = paginationDecorationCache.get(cacheKey)
+      const cached = paginationDecorationCache.values.get(cacheKey)
 
       if (cached) {
         return cached
@@ -1930,7 +1938,7 @@ const PaginationSurface = ({
       const blockFragments = layout.getFragments(blockPath)
 
       if (blockFragments.length === 0) {
-        paginationDecorationCache.set(cacheKey, [])
+        paginationDecorationCache.values.set(cacheKey, [])
         return []
       }
 
@@ -1971,7 +1979,7 @@ const PaginationSurface = ({
           }
         ).get(pathKey) ?? []
 
-      paginationDecorationCache.set(cacheKey, decorations)
+      paginationDecorationCache.values.set(cacheKey, decorations)
 
       return decorations
     },

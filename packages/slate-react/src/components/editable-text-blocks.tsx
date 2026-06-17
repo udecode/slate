@@ -1,18 +1,17 @@
 import type { TextareaHTMLAttributes } from 'react'
 import React, { type CSSProperties, type ReactNode } from 'react'
-import type {
-  Ancestor,
-  Descendant,
-  EditorSnapshot,
-  Path,
-  RootKey,
-  RuntimeId,
-  Element as SlateElementNode,
-  Node as SlateNode,
-  Range as SlateRange,
-  Text as SlateTextNode,
+import {
+  type Ancestor,
+  type Descendant,
+  NodeApi,
+  type Path,
+  type RootKey,
+  type RuntimeId,
+  type Element as SlateElementNode,
+  type Node as SlateNode,
+  type Range as SlateRange,
+  type Text as SlateTextNode,
 } from 'slate'
-import { NodeApi } from 'slate'
 import {
   DOMCoverage,
   type DOMCoverageBoundary,
@@ -43,17 +42,14 @@ import {
 import type { DOMStrategyOptions } from '../dom-strategy/create-segment-plan'
 import { DOMStrategySegmentPlaceholder } from '../dom-strategy/segment-placeholder'
 import {
-  type DOMStrategyVirtualizedConfig,
   getVirtualizerScrollElement,
   useVirtualizedRootPlan,
   type VirtualizedPageLayoutItem,
-  type VirtualizedTopLevelItem,
   type VirtualizedTopLevelLayoutItem,
 } from '../dom-strategy/use-virtualized-root-plan'
 import { DOMStrategyVirtualizedRangeBoundary } from '../dom-strategy/virtualized-range-boundary'
 import { useRootInteractionController } from '../editable/root-interaction-controller'
 import {
-  type DOMStrategyRootConfig,
   useInternalSegmentDOMStrategyRootSources,
   usePlaceholderValue,
   useRootDocumentEpoch,
@@ -64,7 +60,6 @@ import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorReadOnly } from '../hooks/use-editor-read-only'
-import { useElementPath } from '../hooks/use-element-path'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
 import { useSlateContentRoot } from '../hooks/use-slate-content-root'
@@ -87,12 +82,45 @@ import {
 import {
   type EditableDOMBeforeInputHandler,
   EditableDOMRoot,
-  type EditableDOMStrategyCohort,
   type EditableDOMStrategyMetrics,
   type EditableDOMStrategyMetricsBase,
   type EditableKeyDownHandler,
 } from './editable'
+import { readEditableDecorations } from './editable-decorations'
+import { EditableRenderedElement } from './editable-rendered-element'
+import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
+
+export { isSlateReactDevelopmentEnvironment } from './editable-rendered-element'
+
+import {
+  isEditableTextNode,
+  readEditableDescendantBinding,
+} from './editable-descendant-binding'
+import {
+  getDOMStrategyCohort,
+  getDOMStrategyType,
+  getInternalPartialDOMStrategyOptions,
+  getInternalSegmentDOMStrategyConfig,
+  getSnapshotPathKey,
+  getVirtualizedDOMStrategyConfig,
+  getVirtualizedDOMStrategyOptions,
+  INTERNAL_PARTIAL_DOM_SEGMENT_SIZE,
+  mergeMountedRuntimeScope,
+  ROOT_GROUP_THRESHOLD,
+  resolveProjectionRuntimeScope,
+} from './editable-dom-strategy-helpers'
 import { EditableElement } from './editable-element'
+import { sameDescendantBinding, sameRuntimeIds } from './editable-node-equality'
+import {
+  createRootGroupRenderItems,
+  createRootGroups,
+  createVirtualizedTopLevelItemGroups,
+  EditableRootGroupPlaceholder,
+  getActiveRootGroupIds,
+  getRootGroupIdsForBoundary,
+  getRootGroupPlanKey,
+  useMountedRootGroupIds,
+} from './editable-root-groups'
 import {
   EditableText,
   type EditableTextSegment,
@@ -101,345 +129,6 @@ import {
   type RenderTextProps,
 } from './editable-text'
 import { Slate } from './slate'
-import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
-
-const isText = (value: Descendant): value is SlateTextNode =>
-  typeof (value as SlateTextNode).text === 'string'
-
-type ProcessLike = {
-  env?: {
-    NODE_ENV?: string
-  }
-}
-
-export const isSlateReactDevelopmentEnvironment = (
-  processLike: ProcessLike | undefined = (
-    globalThis as { process?: ProcessLike }
-  ).process
-) =>
-  processLike?.env?.NODE_ENV != null &&
-  processLike.env.NODE_ENV !== 'production'
-
-const isDevelopment = isSlateReactDevelopmentEnvironment()
-
-const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
-const EMPTY_DIRECT_TEXT_CHILD_NODES = Object.freeze(
-  []
-) as readonly (SlateTextNode | null)[]
-const EMPTY_DECORATIONS = Object.freeze(
-  []
-) as readonly EditableDecoration<unknown>[]
-const ROOT_GROUP_SIZE = 16
-const ROOT_GROUP_THRESHOLD = 1000
-const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 32
-const INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE = 8
-const getSnapshotPathKey = (path: Path) => path.join('.')
-
-const resolveProjectionRuntimeScope = (
-  runtimeScope: SlateProjectionRuntimeScope | undefined,
-  context: SlateSourceDirtinessContext
-) => {
-  if (!runtimeScope) {
-    return null
-  }
-
-  return typeof runtimeScope === 'function'
-    ? runtimeScope(context)
-    : runtimeScope
-}
-
-const mergeMountedRuntimeScope = (
-  snapshot: EditorSnapshot,
-  explicitRuntimeScope: readonly RuntimeId[] | null,
-  mountedRuntimeScope: readonly RuntimeId[] | null
-) => {
-  if (!mountedRuntimeScope) {
-    return explicitRuntimeScope
-  }
-
-  if (!explicitRuntimeScope) {
-    return mountedRuntimeScope
-  }
-
-  const mountedTopLevelRuntimeIds = new Set(mountedRuntimeScope)
-
-  return explicitRuntimeScope.filter((runtimeId) => {
-    const path = snapshot.index.idToPath[runtimeId]
-    const topLevelPath = path ? [path[0]] : null
-    const topLevelRuntimeId =
-      topLevelPath && typeof topLevelPath[0] === 'number'
-        ? snapshot.index.pathToId[getSnapshotPathKey(topLevelPath)]
-        : null
-
-    return topLevelRuntimeId
-      ? mountedTopLevelRuntimeIds.has(topLevelRuntimeId)
-      : mountedTopLevelRuntimeIds.has(runtimeId)
-  })
-}
-
-const getDOMStrategyType = (
-  domStrategyOptions: InternalDOMStrategyOptions | null | undefined
-) =>
-  typeof domStrategyOptions === 'string'
-    ? domStrategyOptions
-    : (domStrategyOptions?.type ?? 'auto')
-
-type InternalPartialDOMStrategyOptions = {
-  overscan?: number
-  previewChars?: number
-  threshold?: number
-  segmentSize?: number
-  type: 'partial-dom'
-}
-
-type InternalDOMStrategyOptions =
-  | DOMStrategyOptions
-  | InternalPartialDOMStrategyOptions
-
-const getInternalPartialDOMStrategyOptions = (
-  domStrategyOptions: InternalDOMStrategyOptions | null | undefined
-) =>
-  typeof domStrategyOptions === 'object' && domStrategyOptions != null
-    ? domStrategyOptions.type === 'partial-dom'
-      ? domStrategyOptions
-      : null
-    : null
-
-const getVirtualizedDOMStrategyOptions = (
-  domStrategyOptions: DOMStrategyOptions | null | undefined
-) =>
-  typeof domStrategyOptions === 'object' && domStrategyOptions != null
-    ? domStrategyOptions.type === 'virtualized'
-      ? domStrategyOptions
-      : null
-    : null
-
-const isInternalSegmentDOMStrategy = (
-  type: ReturnType<typeof getDOMStrategyType>
-) => type === 'partial-dom'
-
-const getDOMStrategyCohort = (
-  documentSize: number
-): EditableDOMStrategyCohort => {
-  if (documentSize >= 25_000) return 'pathological'
-  if (documentSize >= 10_000) return 'stress'
-  if (documentSize >= 5000) return 'large'
-  if (documentSize >= 1000) return 'medium'
-
-  return 'normal'
-}
-
-const samePath = (left: Path | null, right: Path | null) => {
-  if (left === right) return true
-  if (!left || !right || left.length !== right.length) return false
-
-  return left.every((segment, index) => segment === right[index])
-}
-
-const sameDescendant = (
-  left: Descendant | null,
-  right: Descendant | null
-): boolean => {
-  if (left === right) return true
-  if (!left || !right) return left === right
-
-  if (isText(left) || isText(right)) {
-    if (!isText(left) || !isText(right)) return false
-
-    const leftKeys = Object.keys(left)
-    const rightKeys = Object.keys(right)
-
-    return (
-      leftKeys.length === rightKeys.length &&
-      leftKeys.every((key) =>
-        Object.is(
-          (left as unknown as Record<string, unknown>)[key],
-          (right as unknown as Record<string, unknown>)[key]
-        )
-      )
-    )
-  }
-
-  const leftKeys = Object.keys(left).filter((key) => key !== 'children')
-  const rightKeys = Object.keys(right).filter((key) => key !== 'children')
-
-  return (
-    leftKeys.length === rightKeys.length &&
-    left.children.length === right.children.length &&
-    leftKeys.every((key) =>
-      Object.is(
-        (left as unknown as Record<string, unknown>)[key],
-        (right as unknown as Record<string, unknown>)[key]
-      )
-    )
-  )
-}
-
-const sameRuntimeIds = (
-  left: readonly RuntimeId[],
-  right: readonly RuntimeId[]
-) =>
-  left.length === right.length &&
-  left.every((runtimeId, index) => runtimeId === right[index])
-
-const sameDirectTextChildNodes = (
-  left: readonly (SlateTextNode | null)[],
-  right: readonly (SlateTextNode | null)[]
-) =>
-  left.length === right.length &&
-  left.every((node, index) => node === right[index])
-
-const sameDescendantBinding = (
-  left: {
-    childRuntimeIds: readonly RuntimeId[]
-    directTextChildNodes: readonly (SlateTextNode | null)[]
-    node: Descendant | null
-    path: Path | null
-  } | null,
-  right: {
-    childRuntimeIds: readonly RuntimeId[]
-    directTextChildNodes: readonly (SlateTextNode | null)[]
-    node: Descendant | null
-    path: Path | null
-  }
-) =>
-  left != null &&
-  samePath(left.path, right.path) &&
-  sameDescendant(left.node, right.node) &&
-  sameRuntimeIds(left.childRuntimeIds, right.childRuntimeIds) &&
-  sameDirectTextChildNodes(
-    left.directTextChildNodes,
-    right.directTextChildNodes
-  )
-
-const getNearestEditableBlockText = (editor: Editor, path: Path) => {
-  for (let depth = path.length - 1; depth >= 0; depth -= 1) {
-    const ancestorPath = path.slice(0, depth) as Path
-    const ancestor =
-      ancestorPath.length === 0
-        ? editor
-        : (readRuntimeNode(editor, ancestorPath) as Ancestor | undefined)
-
-    if (!ancestor || !('children' in ancestor)) {
-      continue
-    }
-
-    if (Editor.isEditor(ancestor) || !Editor.isInline(editor, ancestor)) {
-      return NodeApi.string(ancestor)
-    }
-  }
-
-  return ''
-}
-
-const resolveTextZeroWidth = ({
-  editor,
-  node,
-  path,
-}: {
-  editor: Editor
-  node: SlateTextNode
-  path: Path | null
-}) => {
-  if (!path || node.text !== '') {
-    return { isLineBreak: true }
-  }
-
-  if (getNearestEditableBlockText(editor, path) !== '') {
-    return { isLineBreak: false }
-  }
-
-  return { isLineBreak: true }
-}
-
-const EditableRenderedElement = <
-  TElement extends SlateElementNode = SlateElementNode,
->({
-  path,
-  props,
-  renderElement,
-}: {
-  path: Path
-  props: RenderElementProps<TElement>
-  renderElement: RenderElementRenderer<TElement>
-}) => {
-  const editor = useEditor<ReactRuntimeEditor>()
-  const currentPath = useElementPath() ?? path
-  const rendered = renderElement(props)
-
-  useIsomorphicLayoutEffect(() => {
-    if (!isDevelopment) {
-      return
-    }
-
-    let cancelled = false
-    const timeout = globalThis.setTimeout(() => {
-      if (cancelled) {
-        return
-      }
-
-      assertRenderedElementChildrenHaveDOMOrCoverage(editor, {
-        element: props.element,
-        path: currentPath,
-      })
-    }, 0)
-
-    return () => {
-      cancelled = true
-      globalThis.clearTimeout(timeout)
-    }
-  }, [currentPath, editor, props.element])
-
-  return <>{rendered}</>
-}
-
-const getFirstTextPath = (node: Descendant, path: Path): Path | null => {
-  if (isText(node)) {
-    return path
-  }
-
-  for (let index = 0; index < node.children.length; index++) {
-    const textPath = getFirstTextPath(node.children[index]!, [...path, index])
-
-    if (textPath) {
-      return textPath
-    }
-  }
-
-  return null
-}
-
-const assertRenderedElementChildrenHaveDOMOrCoverage = <
-  TElement extends SlateElementNode,
->(
-  editor: ReactRuntimeEditor,
-  { element, path }: { element: TElement; path: Path }
-) => {
-  element.children.forEach((child, index) => {
-    const childPath = [...path, index]
-    const textPath = getFirstTextPath(child, childPath)
-
-    if (!textPath) {
-      return
-    }
-
-    const point = { path: textPath, offset: 0 }
-
-    if (DOMCoverage.getBoundaryForPoint(editor, point)) {
-      return
-    }
-
-    if (!editor.api.dom.resolveDOMPoint(point)) {
-      console.error(
-        `Slate renderElement for "${String(
-          element.type
-        )}" at ${path.join('.')} omitted editable child ${childPath.join(
-          '.'
-        )} without a DOM coverage boundary. Render children or register a DOMCoverage boundary.`
-      )
-    }
-  })
-}
 
 export type EditableDOMCoverageBoundaryScope =
   | {
@@ -487,7 +176,7 @@ export type EditableContentRootSlotOptions = {
 
 type EditableContentRootSlotRenderers<
   T = unknown,
-  TElement extends SlateElementNode = any,
+  TElement extends SlateElementNode = SlateElementNode,
 > = {
   renderElement?: RenderElementRenderer<TElement>
   renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
@@ -830,6 +519,39 @@ function EditableContentRootView({
   )
 }
 
+export type RenderElementProps<
+  TElement extends SlateElementNode = SlateElementNode,
+> = TElement extends SlateElementNode
+  ? {
+      attributes: {
+        'data-slate-inline'?: true
+        'data-slate-node': 'element'
+        'data-slate-path': string
+        'data-slate-runtime-id': RuntimeId
+        'data-slate-void'?: true
+        ref: React.RefCallback<HTMLElement>
+      }
+      children: ReactNode
+      element: TElement
+      isInline: boolean
+      slots: EditableElementSlots
+    }
+  : never
+
+export type RenderElementRenderer<
+  TElement extends SlateElementNode = SlateElementNode,
+> = (props: RenderElementProps<TElement>) => ReactNode
+
+export type RenderVoidProps<
+  TElement extends SlateElementNode = SlateElementNode,
+> = {
+  element: TElement
+}
+
+export type RenderVoidRenderer<
+  TElement extends SlateElementNode = SlateElementNode,
+> = (props: RenderVoidProps<TElement>) => ReactNode
+
 const EditableRenderedVoid = <
   TElement extends SlateElementNode = SlateElementNode,
 >({
@@ -852,35 +574,45 @@ const EditableRenderedVoid = <
   )
 }
 
-export type RenderElementProps<TElement extends SlateElementNode = any> =
-  TElement extends SlateElementNode
-    ? {
-        attributes: {
-          'data-slate-inline'?: true
-          'data-slate-node': 'element'
-          'data-slate-path': string
-          'data-slate-runtime-id': RuntimeId
-          'data-slate-void'?: true
-          ref: React.RefCallback<HTMLElement>
-        }
-        children: ReactNode
-        element: TElement
-        isInline: boolean
-        slots: EditableElementSlots
-      }
-    : never
+const getNearestEditableBlockText = (editor: Editor, path: Path) => {
+  for (let depth = path.length - 1; depth >= 0; depth -= 1) {
+    const ancestorPath = path.slice(0, depth) as Path
+    const ancestor =
+      ancestorPath.length === 0
+        ? editor
+        : (readRuntimeNode(editor, ancestorPath) as Ancestor | undefined)
 
-export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
-  props: RenderElementProps<TElement>
-) => ReactNode
+    if (!ancestor || !('children' in ancestor)) {
+      continue
+    }
 
-export type RenderVoidProps<TElement extends SlateElementNode = any> = {
-  element: TElement
+    if (Editor.isEditor(ancestor) || !Editor.isInline(editor, ancestor)) {
+      return NodeApi.string(ancestor)
+    }
+  }
+
+  return ''
 }
 
-export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (
-  props: RenderVoidProps<TElement>
-) => ReactNode
+const resolveTextZeroWidth = ({
+  editor,
+  node,
+  path,
+}: {
+  editor: Editor
+  node: SlateTextNode
+  path: Path | null
+}) => {
+  if (!path || node.text !== '') {
+    return { isLineBreak: true }
+  }
+
+  if (getNearestEditableBlockText(editor, path) !== '') {
+    return { isLineBreak: false }
+  }
+
+  return { isLineBreak: true }
+}
 
 export type EditableDecoration<T = unknown> = Omit<
   SlateDecoration<T>,
@@ -906,7 +638,7 @@ export type EditableDOMStrategyLayout = {
 
 export type EditableProps<
   T = unknown,
-  TElement extends SlateElementNode = any,
+  TElement extends SlateElementNode = SlateElementNode,
 > = {
   autoFocus?: boolean
   className?: string
@@ -992,42 +724,15 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   const editor = useEditor()
 
   const binding = useMountedNodeRenderSelector(
-    ({ editor: editorValue, node, path }) => {
-      if (!path || !node || Editor.isEditor(node)) {
-        return {
-          childRuntimeIds: EMPTY_RUNTIME_IDS,
-          directTextChildNodes: EMPTY_DIRECT_TEXT_CHILD_NODES,
-          node: null,
-          path: null,
-        }
-      }
-
-      const descendant = node as Descendant
-      const snapshot = Editor.getSnapshot(editorValue)
-      const usesDirectTextChildren =
-        !isText(descendant) && !renderLeaf && !renderSegment && !renderText
-
-      return {
-        childRuntimeIds: isText(descendant)
-          ? EMPTY_RUNTIME_IDS
-          : (descendant.children
-              .map((_, index) => {
-                const childPath = [...path, index] as Path
-
-                return (
-                  snapshot.index.pathToId[getSnapshotPathKey(childPath)] ??
-                  Editor.getRuntimeId(editorValue, childPath) ??
-                  ''
-                )
-              })
-              .filter(Boolean) as RuntimeId[]),
-        directTextChildNodes: usesDirectTextChildren
-          ? descendant.children.map((child) => (isText(child) ? child : null))
-          : EMPTY_DIRECT_TEXT_CHILD_NODES,
-        node: descendant,
+    ({ editor: editorValue, node, path }) =>
+      readEditableDescendantBinding({
+        editor: editorValue,
+        node,
         path,
-      }
-    },
+        renderLeaf,
+        renderSegment,
+        renderText,
+      }),
     sameDescendantBinding,
     { runtimeId }
   )
@@ -1053,7 +758,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     }
   }
 
-  if (isText(node)) {
+  if (isEditableTextNode(node)) {
     const { text: _text, ...marks } = node
 
     return (
@@ -1089,7 +794,13 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     child: Descendant | undefined,
     index: number
   ) => {
-    if (!child || !isText(child) || renderLeaf || renderSegment || renderText) {
+    if (
+      !child ||
+      !isEditableTextNode(child) ||
+      renderLeaf ||
+      renderSegment ||
+      renderText
+    ) {
       return null
     }
 
@@ -1239,197 +950,6 @@ const EditableDescendantNode = React.memo(
   EditableDescendantNodeInner
 ) as typeof EditableDescendantNodeInner
 
-const createRootGroups = (
-  runtimeIds: readonly RuntimeId[],
-  groupSize = ROOT_GROUP_SIZE
-) => {
-  const groups: {
-    endIndex: number
-    groupId: string
-    runtimeIds: readonly RuntimeId[]
-    startIndex: number
-  }[] = []
-
-  for (
-    let startIndex = 0;
-    startIndex < runtimeIds.length;
-    startIndex += groupSize
-  ) {
-    const endIndex = Math.min(runtimeIds.length - 1, startIndex + groupSize - 1)
-
-    groups.push({
-      endIndex,
-      groupId: `${startIndex}-${endIndex}`,
-      runtimeIds: runtimeIds.slice(startIndex, endIndex + 1),
-      startIndex,
-    })
-  }
-
-  return groups
-}
-
-type EditableRootGroupRecord = ReturnType<typeof createRootGroups>[number]
-
-const getRootGroupPlanKey = (
-  runtimeIds: readonly RuntimeId[],
-  documentEpoch: number
-) => `${documentEpoch}:${runtimeIds.join('\u001f')}`
-
-const getActiveRootGroupIds = (
-  groups: readonly EditableRootGroupRecord[] | null,
-  selectedTopLevelIndex: number | null
-) => {
-  if (!groups || groups.length === 0) {
-    return new Set<string>()
-  }
-
-  const targetIndex = selectedTopLevelIndex ?? 0
-  const targetGroupIndex = Math.max(
-    0,
-    groups.findIndex(
-      (group) =>
-        group.startIndex <= targetIndex && group.endIndex >= targetIndex
-    )
-  )
-  const groupIds = new Set<string>()
-  const targetGroup = groups[targetGroupIndex]
-
-  if (!targetGroup) {
-    return groupIds
-  }
-
-  groupIds.add(targetGroup.groupId)
-
-  if (targetIndex <= targetGroup.startIndex + 1) {
-    const previousGroup = groups[targetGroupIndex - 1]
-
-    if (previousGroup) {
-      groupIds.add(previousGroup.groupId)
-    }
-  }
-
-  if (targetIndex >= targetGroup.endIndex - 1) {
-    const nextGroup = groups[targetGroupIndex + 1]
-
-    if (nextGroup) {
-      groupIds.add(nextGroup.groupId)
-    }
-  }
-
-  return groupIds
-}
-
-const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
-  left.size === right.size && [...left].every((value) => right.has(value))
-
-const getRootGroupIdsForBoundary = (
-  groups: readonly EditableRootGroupRecord[] | null,
-  boundary: DOMCoverageBoundary,
-  targetRange?: SlateRange
-) => {
-  if (!groups || boundary.reason !== 'rendering-staged') {
-    return []
-  }
-
-  const pathRanges = targetRange
-    ? [{ anchor: targetRange.anchor.path, focus: targetRange.focus.path }]
-    : boundary.coveredPathRanges
-
-  return groups
-    .filter((group) =>
-      pathRanges.some((range) => {
-        const anchor = range.anchor[0]
-        const focus = range.focus[0]
-
-        if (typeof anchor !== 'number' || typeof focus !== 'number') {
-          return false
-        }
-
-        const start = Math.min(anchor, focus)
-        const end = Math.max(anchor, focus)
-
-        return group.startIndex <= end && group.endIndex >= start
-      })
-    )
-    .map((group) => group.groupId)
-}
-
-const useMountedRootGroupIds = ({
-  activeGroupIds,
-  groups,
-  planKey,
-}: {
-  activeGroupIds: ReadonlySet<string>
-  groups: readonly EditableRootGroupRecord[] | null
-  planKey: string | null
-}) => {
-  const [mountedState, setMountedState] = React.useState<{
-    groupIds: ReadonlySet<string>
-    planKey: string | null
-  }>(() => ({
-    groupIds: new Set(),
-    planKey: null,
-  }))
-
-  const mountedGroupIds =
-    mountedState.planKey === planKey ? mountedState.groupIds : new Set<string>()
-  const mountGroupIds = React.useCallback(
-    (groupIds: readonly string[]) => {
-      if (!planKey || groupIds.length === 0) {
-        return
-      }
-
-      setMountedState((previous) => {
-        const nextGroupIds =
-          previous.planKey === planKey
-            ? new Set(previous.groupIds)
-            : new Set<string>()
-        let changed = previous.planKey !== planKey
-
-        for (const groupId of groupIds) {
-          if (!nextGroupIds.has(groupId)) {
-            nextGroupIds.add(groupId)
-            changed = true
-          }
-        }
-
-        return changed ? { groupIds: nextGroupIds, planKey } : previous
-      })
-    },
-    [planKey]
-  )
-
-  React.useEffect(() => {
-    if (!groups || !planKey) {
-      setMountedState((previous) =>
-        previous.planKey == null && previous.groupIds.size === 0
-          ? previous
-          : { groupIds: new Set(), planKey: null }
-      )
-
-      return
-    }
-
-    setMountedState((previous) => {
-      const nextGroupIds =
-        previous.planKey === planKey
-          ? new Set(previous.groupIds)
-          : new Set<string>()
-
-      for (const groupId of activeGroupIds) {
-        nextGroupIds.add(groupId)
-      }
-
-      return previous.planKey === planKey &&
-        sameStringSet(previous.groupIds, nextGroupIds)
-        ? previous
-        : { groupIds: nextGroupIds, planKey }
-    })
-  }, [activeGroupIds, groups, planKey])
-
-  return { activeGroupIds, mountedGroupIds, mountGroupIds }
-}
-
 const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   endIndex,
   groupId,
@@ -1502,158 +1022,6 @@ const EditableRootGroup = React.memo(
     sameRuntimeIds(previous.runtimeIds, next.runtimeIds)
 ) as typeof EditableRootGroupInner
 
-const EditableRootGroupPlaceholder = ({
-  anchorRuntimeId,
-  endIndex,
-  focusRuntimeId,
-  groupId,
-  startIndex,
-}: {
-  anchorRuntimeId: RuntimeId | null
-  endIndex: number
-  focusRuntimeId: RuntimeId | null
-  groupId: string
-  startIndex: number
-}) => {
-  const editor = useEditor()
-  const boundaryId = `rendering-staged:${groupId}`
-  const boundary = React.useMemo(
-    () => ({
-      anchor: { type: 'placeholder' as const },
-      boundaryId,
-      copyPolicy: 'materialize' as const,
-      coveredPathRanges: [
-        {
-          anchor: [startIndex] as Path,
-          focus: [endIndex] as Path,
-        },
-      ],
-      coveredRuntimeRanges:
-        anchorRuntimeId && focusRuntimeId
-          ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
-          : [],
-      findPolicy: 'native' as const,
-      ownerPath: [] as Path,
-      ownerRuntimeId: null,
-      reason: 'rendering-staged' as const,
-      selectionPolicy: 'materialize' as const,
-      state: 'pending-mount' as const,
-      version: 1,
-    }),
-    [anchorRuntimeId, boundaryId, endIndex, focusRuntimeId, startIndex]
-  )
-
-  useIsomorphicLayoutEffect(
-    () => DOMCoverage.registerBoundary(editor, boundary),
-    [boundary, editor]
-  )
-
-  return (
-    <div
-      aria-hidden="true"
-      contentEditable={false}
-      data-slate-dom-coverage-boundary={boundaryId}
-      data-slate-dom-coverage-edge="owner"
-      data-slate-root-group="true"
-      data-slate-root-group-end={endIndex}
-      data-slate-root-group-id={groupId}
-      data-slate-root-group-start={startIndex}
-      data-slate-root-group-state="pending-mount"
-      style={{ display: 'none' }}
-    />
-  )
-}
-
-const createRootGroupRenderItems = (
-  groups: readonly (EditableRootGroupRecord & { isMounted: boolean })[]
-) => {
-  const items: (
-    | {
-        group: EditableRootGroupRecord
-        kind: 'mounted'
-      }
-    | {
-        anchorRuntimeId: RuntimeId | null
-        endIndex: number
-        focusRuntimeId: RuntimeId | null
-        groupId: string
-        kind: 'pending'
-        startIndex: number
-      }
-  )[] = []
-  let pendingStartGroup: EditableRootGroupRecord | null = null
-  let pendingEndGroup: EditableRootGroupRecord | null = null
-
-  const flushPendingGroups = () => {
-    if (!pendingStartGroup || !pendingEndGroup) {
-      return
-    }
-
-    items.push({
-      anchorRuntimeId: pendingStartGroup.runtimeIds[0] ?? null,
-      endIndex: pendingEndGroup.endIndex,
-      focusRuntimeId: pendingEndGroup.runtimeIds.at(-1) ?? null,
-      groupId: `${pendingStartGroup.groupId}-${pendingEndGroup.groupId}`,
-      kind: 'pending',
-      startIndex: pendingStartGroup.startIndex,
-    })
-    pendingStartGroup = null
-    pendingEndGroup = null
-  }
-
-  for (const group of groups) {
-    if (group.isMounted) {
-      flushPendingGroups()
-      items.push({ group, kind: 'mounted' })
-      continue
-    }
-
-    pendingStartGroup ??= group
-    pendingEndGroup = group
-  }
-
-  flushPendingGroups()
-
-  return items
-}
-
-type VirtualizedTopLevelItemGroup = {
-  groupId: string
-  items: VirtualizedTopLevelItem[]
-  start: number
-}
-
-const createVirtualizedTopLevelItemGroups = (
-  items: readonly VirtualizedTopLevelItem[]
-): VirtualizedTopLevelItemGroup[] => {
-  const groups: VirtualizedTopLevelItemGroup[] = []
-
-  for (const item of items) {
-    const currentGroup = groups.at(-1)
-    const previousItem = currentGroup?.items.at(-1)
-    const previousEnd =
-      previousItem == null ? null : previousItem.start + previousItem.size
-
-    if (
-      !currentGroup ||
-      previousItem?.index !== item.index - 1 ||
-      previousEnd !== item.start
-    ) {
-      groups.push({
-        groupId: `virtual-row-group:${item.index}:${String(item.key)}`,
-        items: [item],
-        start: item.start,
-      })
-      continue
-    }
-
-    currentGroup.items.push(item)
-    currentGroup.groupId = `virtual-row-group:${currentGroup.items[0]!.index}:${item.index}`
-  }
-
-  return groups
-}
-
 const EditableInner = <T, TElement extends SlateElementNode>({
   autoFocus,
   className,
@@ -1719,83 +1087,8 @@ const EditableInner = <T, TElement extends SlateElementNode>({
     return createDecorationSource<T>(editor, {
       dirtiness: decorateDirtiness,
       id: 'editable-decorate',
-      read: ({ runtimeScope, snapshot }) => {
-        const readDecorations = decorateCell.current
-
-        if (!readDecorations) {
-          return EMPTY_DECORATIONS as readonly SlateDecoration<T>[]
-        }
-
-        const root = { children: snapshot.children } as Ancestor
-        const decorations: SlateDecoration<T>[] = []
-        const visitedPathKeys = new Set<string>()
-
-        const addDecorations = (node: Descendant, path: Path) => {
-          if (path.length === 0) {
-            return
-          }
-
-          const pathKey = getSnapshotPathKey(path)
-
-          if (visitedPathKeys.has(pathKey)) {
-            return
-          }
-
-          visitedPathKeys.add(pathKey)
-
-          const entryDecorations = readDecorations(
-            [node as Descendant, path],
-            editor
-          )
-
-          entryDecorations.forEach((decoration, index) => {
-            decorations.push({
-              ...decoration,
-              key:
-                decoration.key ??
-                `decorate:${path.join('.') || 'root'}:${index}`,
-            })
-          })
-        }
-
-        if (runtimeScope) {
-          for (const runtimeId of runtimeScope) {
-            const scopedRootPath = snapshot.index.idToPath[runtimeId]
-
-            if (!scopedRootPath) {
-              continue
-            }
-
-            const scopedRootNode = NodeApi.getIf(root, scopedRootPath) as
-              | Descendant
-              | undefined
-
-            if (!scopedRootNode) {
-              continue
-            }
-
-            if (isText(scopedRootNode)) {
-              addDecorations(scopedRootNode, scopedRootPath)
-              continue
-            }
-
-            for (const [node, path] of NodeApi.nodes(scopedRootNode)) {
-              addDecorations(
-                node as Descendant,
-                [...scopedRootPath, ...path] as Path
-              )
-            }
-          }
-
-          return decorations
-        }
-
-        for (const [node, path] of NodeApi.nodes(root)) {
-          addDecorations(node as Descendant, path)
-        }
-
-        return decorations
-      },
+      read: (context) =>
+        readEditableDecorations(editor, decorateCell.current, context),
       runtimeScope: activeDecorateRuntimeScope,
     })
   }, [
@@ -1868,22 +1161,13 @@ const EditableInner = <T, TElement extends SlateElementNode>({
     virtualizedDOMStrategyOptions?.threshold ?? 25_000
   const internalSegmentDOMStrategyConfig = React.useMemo(
     () =>
-      isInternalSegmentDOMStrategy(domStrategyType) ||
-      domStrategyType === 'auto'
-        ? ({
-            overscan: Math.max(0, internalPartialDOMStrategyOverscan),
-            segmentSize: Math.max(1, internalPartialDOMStrategySegmentSize),
-            previewChars: Math.max(16, internalPartialDOMStrategyPreviewChars),
-            promotionWindowSize: Math.min(
-              Math.max(1, INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE),
-              Math.max(1, internalPartialDOMStrategySegmentSize)
-            ),
-            threshold:
-              domStrategyType === 'auto'
-                ? ROOT_GROUP_THRESHOLD
-                : Math.max(1, internalPartialDOMStrategyThreshold),
-          } satisfies DOMStrategyRootConfig)
-        : null,
+      getInternalSegmentDOMStrategyConfig({
+        domStrategyType,
+        overscan: internalPartialDOMStrategyOverscan,
+        previewChars: internalPartialDOMStrategyPreviewChars,
+        segmentSize: internalPartialDOMStrategySegmentSize,
+        threshold: internalPartialDOMStrategyThreshold,
+      }),
     [
       domStrategyType,
       internalPartialDOMStrategyOverscan,
@@ -1894,16 +1178,12 @@ const EditableInner = <T, TElement extends SlateElementNode>({
   )
   const virtualizedDOMStrategyConfig = React.useMemo(
     () =>
-      domStrategyType === 'virtualized'
-        ? ({
-            estimatedBlockSize: Math.max(
-              1,
-              domStrategyVirtualizedEstimatedBlockSize
-            ),
-            overscan: Math.max(0, domStrategyVirtualizedOverscan),
-            threshold: Math.max(1, domStrategyVirtualizedThreshold),
-          } satisfies DOMStrategyVirtualizedConfig)
-        : null,
+      getVirtualizedDOMStrategyConfig({
+        domStrategyType,
+        estimatedBlockSize: domStrategyVirtualizedEstimatedBlockSize,
+        overscan: domStrategyVirtualizedOverscan,
+        threshold: domStrategyVirtualizedThreshold,
+      }),
     [
       domStrategyType,
       domStrategyVirtualizedEstimatedBlockSize,

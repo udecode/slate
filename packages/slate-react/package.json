@@ -4,6 +4,10 @@
   "version": "0.124.0",
   "license": "MIT",
   "repository": "https://github.com/ianstormtaylor/slate.git",
+  "homepage": "https://docs.slatejs.org/",
+  "bugs": {
+    "url": "https://github.com/ianstormtaylor/slate/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -23,7 +27,7 @@
     "@juggle/resize-observer": "^3.4.0",
     "@tanstack/react-virtual": "^3.13.25",
     "lodash": "^4.17.21",
-    "slate-history": ">=0.115.0"
+    "slate-history": "0.115.0"
   },
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
@@ -51,8 +55,8 @@
   "peerDependencies": {
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
-    "slate": ">=0.124.2",
-    "slate-dom": ">=0.124.2"
+    "slate": "0.124.1",
+    "slate-dom": "0.124.1"
   },
   "keywords": [
     "canvas",
@@ -69,7 +73,6 @@
     "paper",
     "react",
     "rich",
-    "richtext",
     "richtext",
     "slate",
     "text",

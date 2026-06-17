@@ -1,11 +1,11 @@
 import type { Range } from 'slate'
+import { MAIN_ROOT_KEY } from '../root-key'
 
 const INTERACTIVE_CHROME_TARGET =
   'a[href], button, input, select, textarea, [contenteditable="true"]:not([data-slate-editor="true"]), [role="button"], [data-slate-root-chrome-ignore="true"]'
 const NATIVE_EDITABLE_TARGET =
   '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"], [data-slate-node="element"]'
 const EDITABLE_ROOT_TARGET = '[data-slate-editor="true"]'
-const MAIN_ROOT_KEY = 'main'
 
 export type RootInteractionTarget =
   | { kind: 'external' }

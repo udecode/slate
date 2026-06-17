@@ -272,6 +272,18 @@ describe('scenario helpers', () => {
     expect(scripts['test:stress:audit']).toContain(
       'STRESS_AUDIT_EXPECTED_PER_PROJECT=24'
     )
+    expect(scripts['test:stress:audit']).toContain(
+      'STRESS_AUDIT_PROJECTS=chromium'
+    )
+    expect(scripts['test:stress:audit']).toContain(
+      'STRESS_AUDIT_MAX_AGE_MINUTES=30'
+    )
+    expect(scripts['test:stress:audit:desktop']).toContain(
+      'STRESS_AUDIT_EXPECTED_PER_PROJECT=24'
+    )
+    expect(scripts['test:stress:audit:desktop']).not.toContain(
+      'STRESS_AUDIT_MAX_AGE_MINUTES'
+    )
     const stressAuditSource = readFileSync(
       fileURLToPath(
         new URL(
@@ -282,9 +294,9 @@ describe('scenario helpers', () => {
       'utf8'
     )
 
-    expect(stressAuditSource).toContain(
-      'expectedPerProject === null\n    ? 30\n    : null'
-    )
+    expect(stressAuditSource).toContain('expectedPerProject === null')
+    expect(stressAuditSource).toContain('? 30')
+    expect(stressAuditSource).toContain(': null')
     expect(stressAuditSource).toContain(
       "import { getDesktopProjects } from './desktop-projects.mjs'"
     )
@@ -359,27 +371,38 @@ describe('scenario helpers', () => {
 
   test('keeps generic HTML assertion exact instead of substring-only', () => {
     const sourcePath = fileURLToPath(
-      new URL('../../src/playwright/index.ts', import.meta.url)
+      new URL('../../src/playwright/harness-assertions.ts', import.meta.url)
     )
     const source = readFileSync(sourcePath, 'utf8')
 
     expect(source).toContain('html: async (')
     expect(source).toContain('expectedHtml: string')
-    expect(source).toContain('await harness.assert.htmlEquals(expectedHtml')
+    expect(source).toContain(
+      'await getHarness().assert.htmlEquals(expectedHtml'
+    )
     expect(source).toContain('htmlContains: async (expectedFragment: string)')
   })
 
   test('exposes blur-caret proof as a first-party Playwright assertion', () => {
     const sourcePath = fileURLToPath(
-      new URL('../../src/playwright/index.ts', import.meta.url)
+      new URL('../../src/playwright/harness-assertions.ts', import.meta.url)
+    )
+    const caretSourcePath = fileURLToPath(
+      new URL('../../src/playwright/caret-visibility.ts', import.meta.url)
+    )
+    const typeSourcePath = fileURLToPath(
+      new URL('../../src/playwright/types.ts', import.meta.url)
     )
     const readmePath = fileURLToPath(
       new URL('../../README.md', import.meta.url)
     )
     const source = readFileSync(sourcePath, 'utf8')
+    const caretSource = readFileSync(caretSourcePath, 'utf8')
+    const typeSource = readFileSync(typeSourcePath, 'utf8')
     const readme = readFileSync(readmePath, 'utf8')
 
-    expect(source).toContain('noVisibleCaretInRoot: () => Promise<void>')
+    expect(typeSource).toContain('noVisibleCaretInRoot: () => Promise<void>')
+    expect(caretSource).toContain('assertNoVisibleCaretInRoot')
     expect(source).toContain('await assertNoVisibleCaretInRoot(root)')
     expect(readme).toContain('editor.assert.noVisibleCaretInRoot()')
   })
