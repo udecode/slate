@@ -258,7 +258,6 @@ describe('primitive method runtime contract', () => {
       {
         offset: 0,
         path: [0, 0],
-        root: 'main',
         text: 'U',
         type: 'insert_text',
       },

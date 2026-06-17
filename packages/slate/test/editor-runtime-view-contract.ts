@@ -1504,6 +1504,65 @@ describe('editor runtime/view contract', () => {
     )
   })
 
+  it('replays exported primary commit operations against the primary document inside root views', () => {
+    const source = createEditorRuntime({
+      initialValue: {
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
+      },
+    })
+
+    source.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 4,
+          path: [0, 0],
+          text: '!',
+          type: 'insert_text',
+        },
+      ])
+    })
+
+    const operations = Editor.getLastCommit(source.editor)?.operations
+    assert.deepEqual(operations, [
+      {
+        offset: 4,
+        path: [0, 0],
+        text: '!',
+        type: 'insert_text',
+      },
+    ])
+    assert(operations)
+
+    const target = createEditorRuntime({
+      initialValue: {
+        children: [paragraph('body')],
+        roots: { header: [paragraph('header')] },
+      },
+    })
+    const headerEditor = createEditorView(target, { root: 'header' })
+
+    headerEditor.update((tx) => {
+      tx.operations.replay(operations)
+    })
+
+    assert.deepEqual(
+      target.read((state) => state.value.get()),
+      {
+        children: [paragraph('body!')],
+        roots: { header: [paragraph('header')] },
+      }
+    )
+    assert.deepEqual(Editor.getLastCommit(target.editor)?.operations, [
+      {
+        offset: 4,
+        path: [0, 0],
+        text: '!',
+        type: 'insert_text',
+      },
+    ])
+  })
+
   it('preserves nested non-main root replay operations inside another root update', () => {
     const runtime = createEditorRuntime({
       initialValue: {

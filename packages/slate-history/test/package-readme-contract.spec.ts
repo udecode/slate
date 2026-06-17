@@ -26,6 +26,7 @@ describe('slate-history package README contract', () => {
     assert.match(readme, /state\.history\.get\(\)/)
     assert.match(readme, /tx\.history\.undo\(\)/)
     assert.match(readme, /editor\.api\.history/)
+    assert.match(readme, /History\.isHistory\(state\.history\.get\(\)\)/)
     assert.match(readme, /History\.isHistory\(value\)/)
     assert.match(readme, /`useSlateEditor` installs history by default/)
     assert.doesNotMatch(readme, /createReactEditor/)

@@ -39,6 +39,70 @@ const getProjectedClipboardFormatKey = (editor: RuntimeEditor) => {
     : viewEditorKey
 }
 
+export const getProjectedClipboardFragmentData = (
+  editor: RuntimeEditor,
+  data: Pick<DataTransfer, 'getData'>
+) => {
+  const clipboardFormatKey = getDOMClipboardFormatKey(editor)
+  const clipboardFragment = data.getData(`application/${clipboardFormatKey}`)
+
+  if (clipboardFragment) {
+    return clipboardFragment
+  }
+
+  const html = data.getData('text/html')
+  const DOMParser = globalThis.DOMParser
+
+  if (!html || typeof DOMParser !== 'function') {
+    return ''
+  }
+
+  const document = new DOMParser().parseFromString(html, 'text/html')
+  const htmlFragment = document.querySelector('[data-slate-fragment]')
+
+  if (!htmlFragment) {
+    return ''
+  }
+
+  const htmlFragmentData =
+    htmlFragment.getAttribute('data-slate-fragment') ?? ''
+
+  if (!htmlFragmentData) {
+    return ''
+  }
+
+  const fragmentFormat =
+    htmlFragment.getAttribute(SLATE_FRAGMENT_FORMAT_ATTRIBUTE) ?? undefined
+
+  if (fragmentFormat) {
+    return fragmentFormat === clipboardFormatKey ? htmlFragmentData : ''
+  }
+
+  return clipboardFormatKey === DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY
+    ? htmlFragmentData
+    : ''
+}
+
+export const decodeProjectedClipboardFragment = (
+  editor: RuntimeEditor,
+  data: Pick<DataTransfer, 'getData'>
+): Descendant[] | null => {
+  const fragment = getProjectedClipboardFragmentData(editor, data)
+
+  if (!fragment || typeof globalThis.atob !== 'function') {
+    return null
+  }
+
+  try {
+    const decoded = decodeURIComponent(globalThis.atob(fragment))
+    const parsed = JSON.parse(decoded)
+
+    return Array.isArray(parsed) ? (parsed as Descendant[]) : null
+  } catch {
+    return null
+  }
+}
+
 const getProjectedViewSelectionClipboardRanges = (
   editor: RuntimeEditor,
   viewSelection: SlateViewSelection

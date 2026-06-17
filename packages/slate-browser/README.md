@@ -276,4 +276,6 @@ The package-local `test` script covers:
 
 - `test:core`
 - `test:dom`
-- `test:selection`
+
+Run `test:selection` separately when you need the focused browser-selection
+lane.

@@ -5,7 +5,6 @@ import {
   type Point,
   type Range,
   RangeApi,
-  type RuntimeId,
   type Editor as SlateEditor,
   TextApi,
   type Value,
@@ -45,99 +44,42 @@ import {
   IS_NODE_MAP_DIRTY,
   IS_READ_ONLY,
   NODE_TO_ELEMENT,
-  NODE_TO_INDEX,
   NODE_TO_KEY,
-  NODE_TO_PARENT,
-  NODE_TO_RUNTIME_ID,
 } from '../utils/weak-maps'
 import {
   insertDOMData,
   insertDOMFragmentData,
   insertDOMTextData,
-  readDOMFragmentData,
   writeDOMSelectionData,
 } from './dom-clipboard-runtime'
 import { DOMCoverage } from './dom-coverage'
+import {
+  eventCarriesBlockFragment,
+  resolveBlockFragmentDropRange,
+  resolveVoidEventRange,
+} from './dom-event-range-targets'
+import {
+  findMountedDOMNodeByPath,
+  isSamePath,
+  parseSlateDOMPath,
+  resolveMountedDOMPath,
+  resolveSlateNodePath,
+  toMountedDOMNodeByPath,
+} from './dom-node-path'
+import {
+  getCollapsedTextOffsetRect,
+  getLogicalEdgeFromPhysicalEdge,
+  getRectHorizontalDistance,
+  getRectVerticalCenterDistance,
+  getRectVerticalDistance,
+  getSlateStringLineEdgeTextOffset,
+  getSlateStringLineOffsetAtX,
+  getUsableRangeRect,
+} from './slate-string-coordinate-placement'
 
 /**
  * A DOM-specific version of the `Editor` interface.
  */
-
-const CSS_BREAK_WHITESPACE_PATTERN = /^[\t\n\f\r ]+$/
-
-const eventCarriesBlockFragment = <V extends Value>(
-  editor: DOMEditor<V>,
-  event: DragEvent | ClipboardEvent
-) => {
-  const data =
-    'dataTransfer' in event ? event.dataTransfer : event.clipboardData
-
-  if (!data) {
-    return false
-  }
-
-  const fragment = readDOMFragmentData(editor, data)
-
-  return (
-    fragment?.some(
-      (node) => NodeApi.isElement(node) && !Editor.isInline(editor, node)
-    ) ?? false
-  )
-}
-
-const resolveBlockFragmentDropRange = <V extends Value>(
-  editor: DOMEditor<V>,
-  {
-    path,
-    target,
-    y,
-  }: {
-    path: Path | null
-    target: EventTarget | null
-    y: number
-  }
-) => {
-  if (!path || !isDOMNode(target)) {
-    return null
-  }
-
-  const targetNode = NodeApi.get(editor, path)
-  const blockMatch =
-    NodeApi.isElement(targetNode) && Editor.isBlock(editor, targetNode)
-      ? ([targetNode, path] as const)
-      : Editor.above(editor, {
-          at: path,
-          match: (node) =>
-            NodeApi.isElement(node) && Editor.isBlock(editor, node),
-        })
-
-  if (!blockMatch) {
-    return null
-  }
-
-  const [block, blockPath] = blockMatch
-
-  if (!NodeApi.isElement(block) || Editor.isVoid(editor, block)) {
-    return null
-  }
-
-  const blockElement = DOMEditor.resolveDOMNode(editor, block)
-
-  if (!blockElement) {
-    return null
-  }
-
-  const rect = blockElement.getBoundingClientRect()
-  const isBefore = y - rect.top < rect.bottom - y
-  const edge = Editor.point(editor, blockPath, {
-    edge: isBefore ? 'start' : 'end',
-  })
-  const point = isBefore
-    ? (Editor.before(editor, edge) ?? edge)
-    : (Editor.after(editor, edge) ?? edge)
-
-  return Editor.range(editor, point)
-}
 
 export interface DOMEditor<V extends Value = Value> extends SlateEditor<V> {
   dom: DOMEditorCapability
@@ -523,126 +465,6 @@ export interface DOMEditorInterface {
   ) => Range
 }
 
-const parseSlateDOMPath = (value: string | null): Path | null => {
-  if (!value) {
-    return null
-  }
-
-  const path = value.split(',').map((part) => Number.parseInt(part, 10))
-
-  return path.every(Number.isFinite) ? (path as Path) : null
-}
-
-const getSlateDOMRuntimePath = (
-  editor: DOMEditor<any>,
-  element: HTMLElement
-): Path | null => {
-  const runtimeId = element.getAttribute(
-    'data-slate-runtime-id'
-  ) as RuntimeId | null
-
-  return runtimeId ? Editor.getPathByRuntimeId(editor, runtimeId) : null
-}
-
-const isSamePath = (left: Path, right: Path) =>
-  left.length === right.length &&
-  left.every((part, index) => part === right[index])
-
-const resolveMountedDOMPath = (
-  editor: DOMEditor<any>,
-  element: HTMLElement
-): Path | null => {
-  const runtimePath = getSlateDOMRuntimePath(editor, element)
-
-  if (runtimePath && Editor.hasPath(editor, runtimePath)) {
-    return runtimePath
-  }
-
-  const attributePath = parseSlateDOMPath(
-    element.getAttribute('data-slate-path')
-  )
-
-  if (attributePath && Editor.hasPath(editor, attributePath)) {
-    return attributePath
-  }
-
-  return null
-}
-
-const findMountedDOMNodeByPath = (
-  editor: DOMEditor<any>,
-  path: Path
-): HTMLElement | null => {
-  const editorEl = EDITOR_TO_ELEMENT.get(editor)
-
-  if (!editorEl) {
-    return null
-  }
-
-  const pathAttr = path.join(',')
-  const runtimeId = Editor.getRuntimeId(editor, path)
-  const elements = Array.from(
-    editorEl.querySelectorAll(`[data-slate-path="${pathAttr}"]`)
-  )
-
-  const domEl = elements.find(
-    (element) =>
-      isDOMElement(element) &&
-      element.getAttribute('data-slate-node') &&
-      (!runtimeId ||
-        element.getAttribute('data-slate-runtime-id') === runtimeId)
-  )
-
-  return domEl ? (domEl as HTMLElement) : null
-}
-
-const toMountedDOMNodeByPath = (
-  editor: DOMEditor<any>,
-  node: Node
-): HTMLElement | null => {
-  if (node === editor) {
-    return null
-  }
-
-  const path = resolveSlateNodePath(editor, node)
-
-  return path ? findMountedDOMNodeByPath(editor, path) : null
-}
-
-const resolveSlateNodePath = (
-  editor: DOMEditor<any>,
-  node: Node
-): Path | null => {
-  const runtimeId = NODE_TO_RUNTIME_ID.get(node)
-  const runtimePath = runtimeId
-    ? Editor.getPathByRuntimeId(editor, runtimeId)
-    : null
-
-  if (runtimePath) {
-    return runtimePath
-  }
-
-  const path: Path = []
-  let child = node
-
-  while (true) {
-    const parent = NODE_TO_PARENT.get(child)
-
-    if (parent == null) {
-      return child === editor ? path : null
-    }
-
-    const i = NODE_TO_INDEX.get(child)
-
-    if (i == null) {
-      return null
-    }
-
-    path.unshift(i)
-    child = parent
-  }
-}
-
 const cacheSlateDOMNode = (
   editor: DOMEditor<any>,
   node: Node,
@@ -736,520 +558,6 @@ const resolveSlateTextPoint = ({
   return null
 }
 
-const getUsableDOMRangeRects = (range: globalThis.Range): DOMRect[] => {
-  const hasRect = (rect: DOMRect | null): rect is DOMRect =>
-    !!rect && (rect.width > 0 || rect.height > 0)
-  const clientRects =
-    typeof range.getClientRects === 'function'
-      ? Array.from(range.getClientRects()).filter(hasRect)
-      : []
-
-  if (clientRects.length > 0) {
-    return clientRects
-  }
-
-  const boundingRect =
-    typeof range.getBoundingClientRect === 'function'
-      ? range.getBoundingClientRect()
-      : null
-
-  return hasRect(boundingRect) ? [boundingRect] : []
-}
-
-const getUsableDOMRangeRect = (range: globalThis.Range): DOMRect | null =>
-  getUsableDOMRangeRects(range)[0] ?? null
-
-const getRectVerticalDistance = (rect: DOMRect, y: number) =>
-  y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
-
-const getRectHorizontalDistance = (rect: DOMRect, x: number) =>
-  x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0
-
-const getRectVerticalCenterDistance = (rect: DOMRect, y: number) =>
-  Math.abs(rect.top + rect.height / 2 - y)
-
-const getDOMStringDirection = (string: HTMLElement) => {
-  const textHost = string.closest<HTMLElement>('[data-slate-node="text"]')
-  const element =
-    textHost?.closest<HTMLElement>('[data-slate-node="element"]') ??
-    textHost ??
-    string
-  const view = string.ownerDocument.defaultView
-
-  return view?.getComputedStyle(element).direction === 'rtl' ? 'rtl' : 'ltr'
-}
-
-const getLogicalEdgeFromPhysicalEdge = (
-  string: HTMLElement,
-  physicalEdge: 'left' | 'right'
-) => {
-  const direction = getDOMStringDirection(string)
-
-  if (direction === 'rtl') {
-    return physicalEdge === 'left' ? 'end' : 'start'
-  }
-
-  return physicalEdge === 'left' ? 'start' : 'end'
-}
-
-const getPhysicalEdgeFromLogicalEdge = (
-  string: HTMLElement,
-  logicalEdge: 'end' | 'start'
-) => {
-  const direction = getDOMStringDirection(string)
-
-  if (direction === 'rtl') {
-    return logicalEdge === 'start' ? 'right' : 'left'
-  }
-
-  return logicalEdge === 'start' ? 'left' : 'right'
-}
-
-const getGraphemeBoundaryOffsets = (text: string) => {
-  const segmenter =
-    typeof Intl !== 'undefined' && 'Segmenter' in Intl
-      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-      : null
-
-  if (segmenter) {
-    return [
-      0,
-      ...Array.from(segmenter.segment(text), ({ index, segment }) => {
-        return index + segment.length
-      }),
-    ]
-  }
-
-  let offset = 0
-
-  return [
-    0,
-    ...Array.from(text, (character) => {
-      offset += character.length
-
-      return offset
-    }),
-  ]
-}
-
-const getCollapsedOffsetLineRelation = ({
-  document,
-  offset,
-  rect,
-  textNode,
-}: {
-  document: Document
-  offset: number
-  rect: DOMRect
-  textNode: globalThis.Node
-}): 'inside' | 'outside' | 'unavailable' => {
-  const range = document.createRange()
-
-  range.setStart(textNode, offset)
-  range.setEnd(textNode, offset)
-
-  const collapsedRects = getUsableDOMRangeRects(range)
-
-  if (collapsedRects.length === 0) {
-    return 'unavailable'
-  }
-
-  const y = rect.top + rect.height / 2
-  const tolerance = Math.max(2, rect.height / 4)
-
-  return collapsedRects.every(
-    (collapsedRect) => getRectVerticalDistance(collapsedRect, y) > tolerance
-  )
-    ? 'outside'
-    : 'inside'
-}
-
-const areSegmentRectsOutsideLine = ({
-  document,
-  end,
-  rect,
-  start,
-  textNode,
-}: {
-  document: Document
-  end: number
-  rect: DOMRect
-  start: number
-  textNode: globalThis.Node
-}) => {
-  const range = document.createRange()
-
-  range.setStart(textNode, start)
-  range.setEnd(textNode, end)
-
-  const segmentRects = getUsableDOMRangeRects(range)
-
-  if (segmentRects.length === 0) {
-    return false
-  }
-
-  const y = rect.top + rect.height / 2
-  const tolerance = Math.max(2, rect.height / 4)
-
-  return segmentRects.every(
-    (segmentRect) => getRectVerticalDistance(segmentRect, y) > tolerance
-  )
-}
-
-const isNextDOMStringSegmentOutsideLine = ({
-  document,
-  rect,
-  string,
-}: {
-  document: Document
-  rect: DOMRect
-  string: HTMLElement
-}) => {
-  const textHost = string.closest<HTMLElement>('[data-slate-node="text"]')
-  const scope = textHost?.parentElement ?? textHost
-
-  if (!scope) {
-    return false
-  }
-
-  const strings = Array.from(
-    scope.querySelectorAll<HTMLElement>(
-      '[data-slate-string], [data-slate-zero-width]'
-    )
-  )
-  const stringIndex = strings.indexOf(string)
-
-  if (stringIndex === -1) {
-    return false
-  }
-
-  for (const nextString of strings.slice(stringIndex + 1)) {
-    if (nextString.hasAttribute('data-slate-zero-width')) {
-      continue
-    }
-
-    const nextTextNode = Array.from(nextString.childNodes).find(
-      (node) => node.nodeType === 3
-    )
-    const nextText = nextTextNode?.textContent ?? ''
-
-    if (!nextTextNode || nextText.length === 0) {
-      continue
-    }
-
-    const nextOffsets = getGraphemeBoundaryOffsets(nextText)
-    const nextEnd = nextOffsets[1]
-
-    return nextEnd == null
-      ? false
-      : areSegmentRectsOutsideLine({
-          document,
-          end: nextEnd,
-          rect,
-          start: 0,
-          textNode: nextTextNode,
-        })
-  }
-
-  return false
-}
-
-const getSegmentEndOffset = ({
-  document,
-  end,
-  index,
-  offsets,
-  rect,
-  segment,
-  segmentRect,
-  start,
-  string,
-  textNode,
-}: {
-  document: Document
-  end: number
-  index: number
-  offsets: number[]
-  rect: DOMRect
-  segment: string
-  segmentRect: DOMRect
-  start: number
-  string: HTMLElement
-  textNode: globalThis.Node
-}) => {
-  const nextEnd = offsets[index + 2]
-  const collapsedRelation = CSS_BREAK_WHITESPACE_PATTERN.test(segment)
-    ? getCollapsedOffsetLineRelation({ document, offset: end, rect, textNode })
-    : 'inside'
-
-  return CSS_BREAK_WHITESPACE_PATTERN.test(segment) &&
-    (collapsedRelation === 'outside' ||
-      (nextEnd != null &&
-        collapsedRelation === 'unavailable' &&
-        segmentRect.width === 0 &&
-        areSegmentRectsOutsideLine({
-          document,
-          end: nextEnd,
-          rect,
-          start: end,
-          textNode,
-        })) ||
-      (nextEnd == null &&
-        collapsedRelation === 'unavailable' &&
-        segmentRect.width === 0 &&
-        isNextDOMStringSegmentOutsideLine({ document, rect, string })))
-    ? start
-    : end
-}
-
-const getDOMStringLineEdgeOffset = ({
-  document,
-  edge,
-  rect,
-  string,
-  textNode,
-}: {
-  document: Document
-  edge: 'end' | 'start'
-  rect: DOMRect
-  string: HTMLElement
-  textNode: globalThis.Node
-}) => {
-  const text = textNode.textContent ?? ''
-
-  if (text.length === 0) {
-    return 0
-  }
-
-  const offsets = getGraphemeBoundaryOffsets(text)
-  const physicalEdge = getPhysicalEdgeFromLogicalEdge(string, edge)
-  let best: {
-    horizontal: number
-    offset: number
-    verticalCenter: number
-    verticalDistance: number
-  } | null = null
-
-  for (let index = 0; index < offsets.length - 1; index++) {
-    const start = offsets[index]!
-    const end = offsets[index + 1]!
-    const range = document.createRange()
-
-    range.setStart(textNode, start)
-    range.setEnd(textNode, end)
-
-    const characterRect = getUsableDOMRangeRect(range)
-
-    if (!characterRect) {
-      continue
-    }
-
-    const segment = text.slice(start, end)
-    const offset =
-      edge === 'start'
-        ? start
-        : getSegmentEndOffset({
-            document,
-            end,
-            index,
-            offsets,
-            rect,
-            segment,
-            segmentRect: characterRect,
-            start,
-            string,
-            textNode,
-          })
-    const candidate = {
-      horizontal:
-        physicalEdge === 'left'
-          ? Math.abs(characterRect.left - rect.left)
-          : Math.abs(characterRect.right - rect.right),
-      offset,
-      verticalCenter: getRectVerticalCenterDistance(
-        characterRect,
-        rect.top + rect.height / 2
-      ),
-      verticalDistance: getRectVerticalDistance(
-        characterRect,
-        rect.top + rect.height / 2
-      ),
-    }
-
-    if (
-      !best ||
-      candidate.verticalDistance < best.verticalDistance ||
-      (candidate.verticalDistance === best.verticalDistance &&
-        candidate.horizontal < best.horizontal) ||
-      (candidate.verticalDistance === best.verticalDistance &&
-        candidate.horizontal === best.horizontal &&
-        candidate.verticalCenter < best.verticalCenter)
-    ) {
-      best = candidate
-    }
-  }
-
-  return best?.offset ?? (edge === 'start' ? 0 : text.length)
-}
-
-const getDOMStringLineOffsetAtX = ({
-  document,
-  rect,
-  string,
-  textNode,
-  x,
-  y,
-}: {
-  document: Document
-  rect: DOMRect
-  string: HTMLElement
-  textNode: globalThis.Node
-  x: number
-  y: number
-}) => {
-  const text = textNode.textContent ?? ''
-
-  if (text.length === 0) {
-    return 0
-  }
-
-  const direction = getDOMStringDirection(string)
-  const offsets = getGraphemeBoundaryOffsets(text)
-  let best: {
-    horizontalDistance: number
-    offset: number
-    verticalCenterDistance: number
-    verticalDistance: number
-  } | null = null
-
-  for (let index = 0; index < offsets.length - 1; index++) {
-    const start = offsets[index]!
-    const end = offsets[index + 1]!
-    const range = document.createRange()
-
-    range.setStart(textNode, start)
-    range.setEnd(textNode, end)
-
-    for (const characterRect of getUsableDOMRangeRects(range)) {
-      const midpoint = characterRect.left + characterRect.width / 2
-      const segment = text.slice(start, end)
-      const endOffset = getSegmentEndOffset({
-        document,
-        end,
-        index,
-        offsets,
-        rect,
-        segment,
-        segmentRect: characterRect,
-        start,
-        string,
-        textNode,
-      })
-      const offset =
-        direction === 'rtl'
-          ? x <= midpoint
-            ? endOffset
-            : start
-          : x <= midpoint
-            ? start
-            : endOffset
-      const horizontalDistance =
-        x < characterRect.left
-          ? characterRect.left - x
-          : x > characterRect.right
-            ? x - characterRect.right
-            : 0
-      const candidate = {
-        horizontalDistance,
-        offset,
-        verticalCenterDistance: getRectVerticalCenterDistance(characterRect, y),
-        verticalDistance: getRectVerticalDistance(characterRect, y),
-      }
-
-      if (
-        !best ||
-        candidate.verticalDistance < best.verticalDistance ||
-        (candidate.verticalDistance === best.verticalDistance &&
-          candidate.horizontalDistance < best.horizontalDistance) ||
-        (candidate.verticalDistance === best.verticalDistance &&
-          candidate.horizontalDistance === best.horizontalDistance &&
-          candidate.verticalCenterDistance < best.verticalCenterDistance)
-      ) {
-        best = candidate
-      }
-    }
-  }
-
-  return best?.verticalDistance != null &&
-    best.verticalDistance <= Math.max(rect.height, 16)
-    ? best.offset
-    : null
-}
-
-const getCollapsedTextOffsetRect = (
-  document: Document,
-  textNode: globalThis.Node,
-  offset: number
-): {
-  distance: (point: { x: number; y: number }) => {
-    horizontal: number
-    vertical: number
-  }
-  offset: number
-} | null => {
-  const textLength = textNode.textContent?.length ?? 0
-  const safeOffset = Math.max(0, Math.min(offset, textLength))
-  const range = document.createRange()
-
-  range.setStart(textNode, safeOffset)
-  range.collapse(true)
-
-  const rect = getUsableDOMRangeRect(range)
-
-  if (rect) {
-    return {
-      distance: ({ x, y }) => ({
-        horizontal: Math.abs(rect.left - x),
-        vertical: getRectVerticalDistance(rect, y),
-      }),
-      offset: safeOffset,
-    }
-  }
-
-  if (textLength === 0) {
-    return null
-  }
-
-  const probeStart =
-    safeOffset >= textLength ? Math.max(0, textLength - 1) : safeOffset
-  const probeEnd = Math.min(textLength, probeStart + 1)
-
-  if (probeEnd <= probeStart) {
-    return null
-  }
-
-  const probeRange = document.createRange()
-
-  probeRange.setStart(textNode, probeStart)
-  probeRange.setEnd(textNode, probeEnd)
-
-  const probeRect = getUsableDOMRangeRect(probeRange)
-
-  if (!probeRect) {
-    return null
-  }
-
-  return {
-    distance: ({ x, y }) => ({
-      horizontal: Math.abs(
-        safeOffset >= textLength ? probeRect.right - x : probeRect.left - x
-      ),
-      vertical: getRectVerticalDistance(probeRect, y),
-    }),
-    offset: safeOffset,
-  }
-}
-
 const resolvePointNearCoordinatesFromSlateStrings = (
   editor: DOMEditor<any>,
   strings: HTMLElement[],
@@ -1334,24 +642,19 @@ const resolvePointNearCoordinatesFromSlateStrings = (
 
   if (lineRect && edge) {
     return resolveOffset(
-      getDOMStringLineEdgeOffset({
-        document,
+      getSlateStringLineEdgeTextOffset({
         edge,
         rect: lineRect,
         string: bestString,
-        textNode,
       })
     )
   }
 
   if (lineRect) {
-    const offset = getDOMStringLineOffsetAtX({
-      document,
+    const offset = getSlateStringLineOffsetAtX({
+      event: { clientX: x, clientY: y },
       rect: lineRect,
       string: bestString,
-      textNode,
-      x,
-      y,
     })
 
     if (offset != null) {
@@ -1454,7 +757,7 @@ const shouldUseNearestEventPoint = ({
     return true
   }
 
-  const rect = getUsableDOMRangeRect(domRange)
+  const rect = getUsableRangeRect(domRange)
 
   return !rect || x < rect.left - 8 || x > rect.right + 8
 }
@@ -1557,48 +860,29 @@ export const DOMEditor: DOMEditorInterface = {
       return null
     }
 
-    // If the drop target is inside a void node, move it into either the
-    // next or previous node, depending on which side the `x` and `y`
-    // coordinates are closest to.
-    if (
-      node &&
-      path &&
-      NodeApi.isElement(node) &&
-      Editor.isVoid(editor, node)
-    ) {
-      const targetElement = isDOMElement(target) ? target : target.parentElement
+    const voidRange = resolveVoidEventRange(editor, {
+      node,
+      path,
+      target,
+      x,
+      y,
+    })
 
-      if (!targetElement) {
-        return null
-      }
-
-      const rect = targetElement.getBoundingClientRect()
-      const isPrev = Editor.isInline(editor, node)
-        ? x - rect.left < rect.left + rect.width - x
-        : y - rect.top < rect.top + rect.height - y
-
-      const edge = Editor.point(editor, path, {
-        edge: isPrev ? 'start' : 'end',
-      })
-      const point = isPrev
-        ? Editor.before(editor, edge)
-        : Editor.after(editor, edge)
-
-      if (point) {
-        const range = Editor.range(editor, point)
-        return range
-      }
+    if (voidRange) {
+      return voidRange
     }
 
     if (
       eventCarriesBlockFragment(
         editor,
         resolvedEvent as DragEvent | ClipboardEvent
-      )
+      ) &&
+      isDOMNode(target)
     ) {
       const blockFragmentRange = resolveBlockFragmentDropRange(editor, {
         path,
-        target,
+        resolveDOMNode: (targetNode) =>
+          DOMEditor.resolveDOMNode(editor, targetNode),
         y,
       })
 

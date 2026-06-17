@@ -5,6 +5,7 @@ import type {
   CustomEditor,
   CustomElement,
   CustomElementType,
+  CustomText,
 } from './custom-types.d'
 
 interface ElementAttributes {
@@ -27,6 +28,9 @@ interface TextAttributes {
   bold?: boolean
   underline?: boolean
 }
+
+type DeserializedChild = string | Descendant
+type DeserializedResult = DeserializedChild | DeserializedChild[] | null
 
 const ELEMENT_TAGS: Record<string, (el: HTMLElement) => ElementAttributes> = {
   A: (el) => ({ type: 'link', url: el.getAttribute('href')! }),
@@ -201,7 +205,26 @@ const getStyledTextAttributes = (el: HTMLElement): TextAttributes => {
   return attrs
 }
 
-const applyTextAttributes = (children: any[], attrs: TextAttributes): any[] => {
+const isTextDescendant = (child: DeserializedChild): child is CustomText =>
+  typeof child === 'object' &&
+  child != null &&
+  'text' in child &&
+  !('children' in child)
+
+const isElementDescendant = (
+  child: DeserializedChild
+): child is CustomElement =>
+  typeof child === 'object' && child != null && 'children' in child
+
+const isDescendant = (child: DeserializedChild): child is Descendant =>
+  typeof child === 'object' &&
+  child != null &&
+  ('text' in child || 'children' in child)
+
+const applyTextAttributes = (
+  children: DeserializedChild[],
+  attrs: TextAttributes
+): DeserializedChild[] => {
   if (!hasTextAttributes(attrs)) {
     return children
   }
@@ -211,16 +234,16 @@ const applyTextAttributes = (children: any[], attrs: TextAttributes): any[] => {
       return jsx('text', attrs, child)
     }
 
-    if (child && typeof child === 'object') {
-      if ('text' in child && !('children' in child)) {
-        return { ...attrs, ...child }
-      }
+    if (isTextDescendant(child)) {
+      return { ...attrs, ...child }
+    }
 
-      if (Array.isArray(child.children)) {
-        return {
-          ...child,
-          children: applyTextAttributes(child.children, attrs),
-        }
+    if (isElementDescendant(child)) {
+      return {
+        ...child,
+        children: applyTextAttributes(child.children, attrs).filter(
+          isDescendant
+        ),
       }
     }
 
@@ -228,7 +251,7 @@ const applyTextAttributes = (children: any[], attrs: TextAttributes): any[] => {
   })
 }
 
-const normalizeInlineChildren = (children: any[]) =>
+const normalizeInlineChildren = (children: DeserializedChild[]) =>
   children.map((child) =>
     typeof child === 'string' ? jsx('text', {}, child) : child
   )
@@ -362,12 +385,12 @@ const isTopLevelBlock = (node: unknown): node is CustomElement =>
   'type' in node &&
   !INLINE_ELEMENT_TYPES.has((node as CustomElement).type)
 
-const getMeaningfulChildren = (children: any[]) =>
+const getMeaningfulChildren = (children: DeserializedChild[]) =>
   children.filter(
     (child) => !(typeof child === 'string' && child.trim() === '')
   )
 
-const isOnlyLineBreakChildren = (children: any[]) =>
+const isOnlyLineBreakChildren = (children: DeserializedChild[]) =>
   children.length > 0 &&
   children.every(
     (child) =>
@@ -389,9 +412,9 @@ const deserializeChild = (
   index: number,
   siblings: ChildNode[],
   parentNodeName: string
-): any[] => {
+): DeserializedChild[] => {
   const value = deserialize(child)
-  const values = Array.isArray(value) ? value : [value]
+  const values = Array.isArray(value) ? value : value == null ? [] : [value]
   const meaningfulValues = getMeaningfulChildren(values)
 
   if (
@@ -452,9 +475,9 @@ const getCommentBoundedFragmentRoot = (body: HTMLElement): HTMLElement => {
   return root
 }
 
-const normalizeBodyFragment = (children: any[]): Descendant[] => {
+const normalizeBodyFragment = (children: DeserializedChild[]): Descendant[] => {
   const fragment: Descendant[] = []
-  let inlineChildren: any[] = []
+  let inlineChildren: DeserializedChild[] = []
   let orphanListItems: CustomElement[] = []
 
   const flushInlineChildren = () => {
@@ -520,7 +543,9 @@ const normalizeBodyFragment = (children: any[]): Descendant[] => {
   return fragment
 }
 
-export const deserialize = (el: HTMLElement | ChildNode): any => {
+export const deserialize = (
+  el: HTMLElement | ChildNode
+): DeserializedResult => {
   if (el.nodeType === 3) {
     return normalizeTextNode(el)
   }
@@ -625,7 +650,13 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
 
   const parsed = new DOMParser().parseFromString(html, 'text/html')
   const deserialized = deserialize(getCommentBoundedFragmentRoot(parsed.body))
-  const fragment = Array.isArray(deserialized) ? deserialized : [deserialized]
+  const fragment = (
+    Array.isArray(deserialized)
+      ? deserialized
+      : deserialized == null
+        ? []
+        : [deserialized]
+  ).filter(isDescendant)
   editor.update((tx) => {
     tx.fragment.insert(fragment)
   })

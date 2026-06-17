@@ -6,15 +6,15 @@ Slate gives you a small document model, a transaction runtime, and a React rende
 
 ## Why?
 
-Most rich text editors make the simple case feel easy. The hard part starts when your editor needs comments, embeds, mentions, tables, collaborative editing, or a document model that belongs to your application instead of the editor library.
+Most rich text editors make the simple case feel easy. The hard part starts when your editor needs comments, embeds, mentions, tables, operation replay, or a document model that belongs to your application instead of the editor library.
 
 Slate is built for that harder case.
 
 - **Your document model is yours.** Slate stores documents as nested JSON nodes, so paragraphs, links, images, tables, comments, and domain-specific elements all use the same tree model.
 - **Core stays small.** Slate gives you primitives for reading, updating, normalizing, rendering, and replaying operations. It does not decide what a "blog post", "comment", or "task" node should mean.
-- **Programmatic editing is explicit.** Reads go through `editor.read(...)`; writes go through `editor.update(...)`. This keeps user edits, app commands, history, and collaboration adapters on the same runtime path.
+- **Programmatic editing is explicit.** Reads go through `editor.read(...)`; writes go through `editor.update(...)`. This keeps user edits, app commands, history, and operation replay on the same runtime path.
 - **React is the view layer.** `slate-react` renders the editor and subscribes to committed editor state. App components render content; the runtime owns selection, DOM repair, void shells, and browser editing details.
-- **Collaboration can target the operation model.** Slate exposes snapshots, commits, tags, and operation replay so a collaboration adapter can import and export document changes without persisting React or DOM state.
+- **Adapters can target the operation model.** Slate exposes snapshots, commits, tags, and operation replay so sync, import, export, and audit adapters can move document changes without persisting React or DOM state.
 
 If that sounds like the shape of editor you need, Slate is probably a good fit.
 
@@ -25,7 +25,7 @@ Slate follows a few principles:
 1. **Schema-less core.** Slate's core does not bake in paragraphs, headings, lists, or images. Those are conventions you define with elements, text, rendering, and normalization.
 2. **Nested document model.** Slate documents are recursive trees. This makes simple editors straightforward and gives complex editors enough room for tables, embeds, captions, and nested blocks.
 3. **Explicit transactions.** Slate separates reads from writes. You read committed state with `editor.read(...)` and make document changes inside `editor.update(...)`.
-4. **Operations as the shared layer.** User edits, commands, history, and collaboration all meet at the operation and commit layer.
+4. **Operations as the shared layer.** User edits, commands, history, import/export, and replay all meet at the operation and commit layer.
 5. **React as projection.** React renders the editor, but hot editing policy stays in the runtime. Renderers subscribe to the smallest editor facts they actually display.
 6. **Unopinionated extension points.** Slate exposes low-level extension hooks for schema, namespaced reads and writes, normalization, commit listeners, operation middleware, and rendering. Product frameworks like Plate can build richer command conventions on top.
 

@@ -57,9 +57,7 @@ const MAIN_ROOT_KEY = 'main'
 
 const resolvePublicViewRoot = (root: RootKey | undefined): RootKey => {
   if (root === MAIN_ROOT_KEY) {
-    throw new Error(
-      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
-    )
+    throw new Error('[Slate] Omit root to target the primary document.')
   }
 
   return root ?? MAIN_ROOT_KEY

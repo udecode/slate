@@ -3,8 +3,8 @@
 Slate is a customizable framework for building rich-text editors. It owns the
 document model, selection model, operations, history, DOM bridge, and React
 editable runtime while leaving product features such as toolbars, schema rules,
-serialization, comments, collaboration adapters, and layout to application code
-or extensions.
+serialization, comments, sync adapters, and layout to application code or
+extensions.
 
 The current public lifecycle is:
 

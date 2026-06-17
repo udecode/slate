@@ -7,13 +7,7 @@ import {
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { elementReadOnly } from '../editor/element-read-only'
-import {
-  LocationApi,
-  type Range,
-  RangeApi,
-  type Editor as SlateEditor,
-  type Value,
-} from '../interfaces'
+import { LocationApi, RangeApi, type Value } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type {
   TextInsertTextOptions,
@@ -25,31 +19,10 @@ import {
 } from '../internal/range-text-marks'
 import { getLocationRoot } from '../internal/root-location'
 import { getDefaultInsertLocation } from '../utils'
-
-const samePoint = (
-  left: { offset: number; path: readonly number[] },
-  right: { offset: number; path: readonly number[] }
-) =>
-  left.offset === right.offset &&
-  left.path.length === right.path.length &&
-  left.path.every((segment, index) => segment === right.path[index])
-
-const isFullDocumentRange = (editor: SlateEditor, range: Range) => {
-  if (Editor.getChildren(editor).length === 0) {
-    return false
-  }
-
-  const start = Editor.point(editor, [], { edge: 'start' })
-  const end = Editor.point(editor, [], { edge: 'end' })
-
-  return (
-    (samePoint(range.anchor, start) && samePoint(range.focus, end)) ||
-    (samePoint(range.anchor, end) && samePoint(range.focus, start))
-  )
-}
+import { isFullDocumentRange } from './full-document-range'
 
 const createFullDocumentTextReplacement = (
-  editor: SlateEditor,
+  editor: Editor,
   text: string,
   marks: TextMarks | null = null
 ) => {

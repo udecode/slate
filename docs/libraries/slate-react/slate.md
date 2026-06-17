@@ -105,8 +105,8 @@ changes.
 ```
 
 Use `editor.subscribeCommit(...)` for low-level commit subscribers that do not
-belong in React render props, such as collaboration adapters, operation replay,
-and instrumentation.
+belong in React render props, such as sync adapters, operation replay, and
+instrumentation.
 
 Use `onValueChange` when a React component only cares about provider-root value
 changes.

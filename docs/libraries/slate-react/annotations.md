@@ -27,8 +27,8 @@ type SlateAnnotation<TData, TProjection> = {
 ```
 
 `anchor` resolves the current range. A local `Bookmark` satisfies this contract.
-Adapters can use the same contract for service-owned anchors, Yjs relative
-positions, or document-embedded ids.
+Adapters can use the same contract for service-owned anchors, remote positions,
+or document-embedded ids.
 
 `data` is application metadata. It is returned by `useSlateAnnotation` and
 `useSlateAnnotations`.
@@ -116,7 +116,7 @@ anchor.unref()
 ## External Comment Stores
 
 Comment bodies, permissions, resolved state, and audit events belong to the app
-or collaboration service. The Slate document value owns document content.
+or sync service. The Slate document value owns document content.
 Use [Document State](../../concepts/14-document-state.md) for document metadata
 and settings that should persist with the document.
 
@@ -174,8 +174,8 @@ annotationStore.refresh({ ids: [threadId], reason: 'annotation' })
 ```
 
 A read-only reviewer can select text, create a comment anchor, and update a
-thread without document-write permission. The collaboration adapter resolves the
-anchor against the current document snapshot for rendering.
+thread without document-write permission. The adapter resolves the anchor
+against the current document snapshot for rendering.
 
 The `comment-mode` example renders this as two panes:
 
@@ -224,19 +224,19 @@ const widgetStore = useSlateWidgetStore(editor, {
 Use `useSlateWidgets(store)` for panels that render every widget. Use
 `useSlateWidget(store, id)` when one component watches one widget.
 
-## Yjs-Style Adapter
+## External Anchor Adapter
 
-A Yjs adapter can keep the document and comments in separate shared types.
+An external adapter can keep the document and comments in separate stores.
 
 ```ts
-type YjsAnnotationAnchor = {
+type ExternalAnnotationAnchor = {
   resolve(): Range | null
   unref(): Range | null
 }
 
-const anchor = yjsAnnotationAdapter.anchorFromSlateRange(editor, range)
+const anchor = externalAnnotationAdapter.anchorFromSlateRange(editor, range)
 
-yComments.set(threadId, {
+commentChannel.set(threadId, {
   anchor,
   body,
   status: 'open',
@@ -253,7 +253,7 @@ serialize, or travel with document content.
 
 Use this as an adapter strategy, not as the default storage model for comment
 bodies or permissions. The document may store a lightweight id; the comment
-thread still belongs to the app or collaboration service.
+thread still belongs to the app or sync service.
 
 ## Performance Rules
 

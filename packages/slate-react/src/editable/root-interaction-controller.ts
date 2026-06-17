@@ -6,13 +6,12 @@ import {
   useRef,
 } from 'react'
 import {
-  type BaseSelection,
-  type Path,
   PathApi,
   type Point,
   type Range,
   RangeApi,
   type RootKey,
+  type Selection,
   TextApi,
 } from 'slate'
 
@@ -24,6 +23,7 @@ import {
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { MAIN_ROOT_KEY } from '../root-key'
 import { getSlateRootBoundaryPoint } from '../view-boundary-graph'
 import {
   createSlateViewSelection,
@@ -34,8 +34,26 @@ import {
   createContentRootProjectionGraph,
   findContentRootOwners,
 } from './content-root-navigation'
+import {
+  getContentRootOwnerFromTarget,
+  getEditableRootFromTarget,
+  isSameOwner,
+  mouseEventTargetToElement,
+} from './content-root-owner-target'
+import { getDragAutoScrollTarget } from './drag-auto-scroll-target'
 import type { EditableDOMSelectionSyncOptions } from './input-controller'
 import { writeCollapsedModelSelectionDOMPreference } from './model-selection-dom-preference'
+import {
+  getExpandedDOMSelectionInTarget,
+  hasExpandedDOMSelectionInTarget,
+  isPointInsideDOMSelection,
+  needsMouseUpDOMSelectionReplay,
+  restoreDOMSelectionInTarget,
+  shouldReplayMouseUpDOMSelection,
+} from './root-interaction-dom-selection-replay'
+
+export { shouldReplayMouseUpDOMSelection } from './root-interaction-dom-selection-replay'
+
 import {
   isRootInteractionEditableFocused,
   type RootInteractionFocusSelection,
@@ -56,9 +74,10 @@ import {
 } from './slate-string-coordinate-placement'
 
 type SlateFocusableEditor = Parameters<typeof focusSlateEditable>[0]
-const MAIN_ROOT_KEY: RootKey = 'main'
 const NATIVE_EDITABLE_TEXT_TARGET =
   '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"]'
+
+export { canScrollY, getDragAutoScrollTarget } from './drag-auto-scroll-target'
 
 export type RootInteractionEditor = ReactRuntimeEditor &
   SlateFocusableEditor & {
@@ -74,7 +93,7 @@ export type RootInteractionEditor = ReactRuntimeEditor &
 export type RootInteractionControllerOptions = {
   disabled: boolean
   editor: RootInteractionEditor
-  getLastSelectionForRoot: (root: RootKey) => BaseSelection
+  getLastSelectionForRoot: (root: RootKey) => Selection
   getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
   ignoreBlankEditableRootClicks?: boolean
   root: RootKey
@@ -140,10 +159,6 @@ type PendingDragAutoScrollRef = {
 
 let pendingProjectedDrag: PendingProjectedDrag | null = null
 
-const DRAG_AUTOSCROLL_EDGE_SIZE = 48
-const DRAG_AUTOSCROLL_MAX_DELTA = 28
-const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
-
 const measureRootMouseDownPhase = <T>(id: string, run: () => T): T => {
   if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
     return run()
@@ -162,12 +177,6 @@ const measureRootMouseDownPhase = <T>(id: string, run: () => T): T => {
   }
 }
 
-const clampDragAutoScrollCoordinate = (
-  value: number,
-  min: number,
-  max: number
-) => Math.min(Math.max(value, min), Math.max(min, max - 1))
-
 const withInteractionRangeRoot = (range: Range, root: RootKey): Range => {
   if (root === MAIN_ROOT_KEY) {
     return range
@@ -183,153 +192,6 @@ const withInteractionRangeRoot = (range: Range, root: RootKey): Range => {
   }
 }
 
-const hasExpandedDOMSelectionInTarget = (target: HTMLElement) => {
-  const rootNode = target.getRootNode() as Document | ShadowRoot
-  const selection =
-    'getSelection' in rootNode
-      ? rootNode.getSelection()
-      : target.ownerDocument.getSelection()
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return false
-  }
-
-  const { anchorNode, focusNode } = selection
-
-  return (
-    !!anchorNode &&
-    !!focusNode &&
-    target.contains(anchorNode) &&
-    target.contains(focusNode)
-  )
-}
-
-const FIREFOX_USER_AGENT_RE = /\bFirefox\//
-
-type ExpandedDOMSelectionSnapshot = {
-  anchorNode: Node
-  anchorOffset: number
-  focusNode: Node
-  focusOffset: number
-}
-
-const getExpandedDOMSelectionInTarget = (
-  target: HTMLElement
-): ExpandedDOMSelectionSnapshot | null => {
-  const rootNode = target.getRootNode() as Document | ShadowRoot
-  const selection =
-    'getSelection' in rootNode
-      ? rootNode.getSelection()
-      : target.ownerDocument.getSelection()
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return null
-  }
-
-  const { anchorNode, focusNode } = selection
-
-  if (
-    !anchorNode ||
-    !focusNode ||
-    !target.contains(anchorNode) ||
-    !target.contains(focusNode)
-  ) {
-    return null
-  }
-
-  return {
-    anchorNode,
-    anchorOffset: selection.anchorOffset,
-    focusNode,
-    focusOffset: selection.focusOffset,
-  }
-}
-
-const restoreDOMSelectionInTarget = (
-  target: HTMLElement,
-  snapshot: ExpandedDOMSelectionSnapshot
-) => {
-  if (
-    !target.contains(snapshot.anchorNode) ||
-    !target.contains(snapshot.focusNode)
-  ) {
-    return
-  }
-
-  const rootNode = target.getRootNode() as Document | ShadowRoot
-  const selection =
-    'getSelection' in rootNode
-      ? rootNode.getSelection()
-      : target.ownerDocument.getSelection()
-
-  if (!selection) {
-    return
-  }
-
-  selection.removeAllRanges()
-  selection.setBaseAndExtent(
-    snapshot.anchorNode,
-    snapshot.anchorOffset,
-    snapshot.focusNode,
-    snapshot.focusOffset
-  )
-}
-
-const needsMouseUpDOMSelectionReplay = (target: HTMLElement) =>
-  FIREFOX_USER_AGENT_RE.test(
-    target.ownerDocument.defaultView?.navigator.userAgent ?? ''
-  )
-
-export const shouldReplayMouseUpDOMSelection = ({
-  hasExpandedDOMRange,
-  isFirefox,
-  nativeSelectedTextClick,
-  pointerMoved,
-}: {
-  hasExpandedDOMRange: boolean
-  isFirefox: boolean
-  nativeSelectedTextClick: boolean
-  pointerMoved: boolean
-}) =>
-  hasExpandedDOMRange && isFirefox && pointerMoved && !nativeSelectedTextClick
-
-const isPointInsideDOMSelection = ({
-  clientX,
-  clientY,
-  target,
-}: {
-  clientX: number
-  clientY: number
-  target: HTMLElement
-}) => {
-  const rootNode = target.getRootNode() as Document | ShadowRoot
-  const selection =
-    'getSelection' in rootNode
-      ? rootNode.getSelection()
-      : target.ownerDocument.getSelection()
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return false
-  }
-
-  for (let index = 0; index < selection.rangeCount; index++) {
-    const range = selection.getRangeAt(index)
-
-    for (const rect of Array.from(range.getClientRects())) {
-      if (
-        clientX >= rect.left &&
-        clientX <= rect.right &&
-        clientY >= rect.top &&
-        clientY <= rect.bottom
-      ) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
-
 const ignoreInteraction = (): PendingRootInteraction => ({
   action: { type: 'ignore' },
   clientX: 0,
@@ -341,272 +203,6 @@ const ignoreInteraction = (): PendingRootInteraction => ({
   preventNativeSelection: false,
   startRange: null,
 })
-
-const mouseEventTargetToElement = (
-  target: EventTarget | null
-): Element | null => {
-  if (target instanceof Element) {
-    return target
-  }
-
-  if (typeof Text !== 'undefined' && target instanceof Text) {
-    return target.parentElement
-  }
-
-  return null
-}
-
-const getComposedParentElement = (element: HTMLElement) => {
-  if (element.parentElement) {
-    return element.parentElement
-  }
-
-  const window = element.ownerDocument.defaultView
-
-  if (!window) {
-    return null
-  }
-
-  const ShadowRootConstructor = window.ShadowRoot
-  const root = element.getRootNode()
-
-  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
-    const { host } = root
-
-    return host instanceof window.HTMLElement ? host : null
-  }
-
-  return null
-}
-
-export const canScrollY = (element: HTMLElement) => {
-  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
-  const overflowY = style?.overflowY ?? ''
-
-  return (
-    SCROLLABLE_OVERFLOW_PATTERN.test(overflowY) &&
-    element.scrollHeight > element.clientHeight
-  )
-}
-
-const getDragAutoScrollDelta = ({
-  clientY,
-  rect,
-}: {
-  clientY: number
-  rect: Pick<DOMRect, 'bottom' | 'top'>
-}) => {
-  const topDistance = clientY - rect.top
-  const bottomDistance = rect.bottom - clientY
-
-  if (
-    topDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
-    topDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
-  ) {
-    const intensity = 1 - Math.max(0, topDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
-
-    return -Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
-  }
-
-  if (
-    bottomDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
-    bottomDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
-  ) {
-    const intensity =
-      1 - Math.max(0, bottomDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
-
-    return Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
-  }
-
-  return 0
-}
-
-export const getDragAutoScrollTarget = ({
-  clientX,
-  clientY,
-  rootElement,
-}: {
-  clientX: number
-  clientY: number
-  rootElement: HTMLElement
-}): null | {
-  clientX: number
-  clientY: number
-  delta: number
-  scroll: () => boolean
-} => {
-  for (
-    let parent: HTMLElement | null = rootElement;
-    parent;
-    parent = getComposedParentElement(parent)
-  ) {
-    if (!canScrollY(parent)) {
-      continue
-    }
-
-    const rect = parent.getBoundingClientRect()
-
-    if (
-      clientX < rect.left ||
-      clientX > rect.right ||
-      clientY < rect.top - DRAG_AUTOSCROLL_EDGE_SIZE ||
-      clientY > rect.bottom + DRAG_AUTOSCROLL_EDGE_SIZE
-    ) {
-      continue
-    }
-
-    const delta = getDragAutoScrollDelta({ clientY, rect })
-
-    if (delta === 0) {
-      continue
-    }
-
-    const maxScrollTop = parent.scrollHeight - parent.clientHeight
-    const canMove =
-      delta < 0 ? parent.scrollTop > 0 : parent.scrollTop < maxScrollTop
-
-    if (!canMove) {
-      continue
-    }
-
-    return {
-      clientX: clampDragAutoScrollCoordinate(clientX, rect.left, rect.right),
-      clientY: clampDragAutoScrollCoordinate(clientY, rect.top, rect.bottom),
-      delta,
-      scroll: () => {
-        const previousScrollTop = parent.scrollTop
-
-        parent.scrollTop += delta
-
-        return parent.scrollTop !== previousScrollTop
-      },
-    }
-  }
-
-  const window = rootElement.ownerDocument.defaultView
-  const scrollingElement = rootElement.ownerDocument.scrollingElement
-
-  if (!window || !scrollingElement) {
-    return null
-  }
-
-  if (
-    clientX < 0 ||
-    clientX > window.innerWidth ||
-    clientY < -DRAG_AUTOSCROLL_EDGE_SIZE ||
-    clientY > window.innerHeight + DRAG_AUTOSCROLL_EDGE_SIZE ||
-    scrollingElement.scrollHeight <= scrollingElement.clientHeight
-  ) {
-    return null
-  }
-
-  const delta = getDragAutoScrollDelta({
-    clientY,
-    rect: { bottom: window.innerHeight, top: 0 },
-  })
-
-  if (delta === 0) {
-    return null
-  }
-
-  const maxScrollTop =
-    scrollingElement.scrollHeight - scrollingElement.clientHeight
-  const canMove =
-    delta < 0
-      ? scrollingElement.scrollTop > 0
-      : scrollingElement.scrollTop < maxScrollTop
-
-  if (!canMove) {
-    return null
-  }
-
-  return {
-    clientX: clampDragAutoScrollCoordinate(clientX, 0, window.innerWidth),
-    clientY: clampDragAutoScrollCoordinate(clientY, 0, window.innerHeight),
-    delta,
-    scroll: () => {
-      const previousScrollTop = scrollingElement.scrollTop
-
-      window.scrollBy(0, delta)
-
-      return scrollingElement.scrollTop !== previousScrollTop
-    },
-  }
-}
-
-const getEditableRootFromTarget = (target: EventTarget | null): RootKey => {
-  const element = mouseEventTargetToElement(target)
-  const editableRoot = element?.closest('[data-slate-editor="true"]')
-
-  return (editableRoot?.getAttribute('data-slate-root') ??
-    MAIN_ROOT_KEY) as RootKey
-}
-
-const parseContentRootOwnerPath = (value: string | null): Path | null => {
-  if (!value) {
-    return null
-  }
-
-  const path = value.split(',').map((part) => Number.parseInt(part, 10))
-
-  return path.every(Number.isFinite) ? (path as Path) : null
-}
-
-const getContentRootOwnerFromTarget = ({
-  childRoot,
-  target,
-}: {
-  childRoot: RootKey
-  target: EventTarget | null
-}): ContentRootOwner | null => {
-  if (childRoot === MAIN_ROOT_KEY) {
-    return null
-  }
-
-  const element = mouseEventTargetToElement(target)
-  const slotElement = element?.closest('[data-slate-content-root-slot]')
-  const slotOwnerPath =
-    slotElement instanceof HTMLElement
-      ? parseContentRootOwnerPath(
-          slotElement.getAttribute('data-slate-content-root-owner-path')
-        )
-      : null
-  const slotOwnerRoot =
-    slotElement instanceof HTMLElement
-      ? slotElement.getAttribute('data-slate-content-root-owner-root')
-      : null
-  const ownerElement = slotElement?.parentElement?.closest(
-    '[data-slate-node="element"][data-slate-path]'
-  )
-  const ownerEditorElement = ownerElement?.closest('[data-slate-editor="true"]')
-  const ownerPath =
-    slotOwnerPath ??
-    (ownerElement instanceof HTMLElement
-      ? getSlateNodePathFromDOMElement(ownerElement)
-      : null)
-  const ownerRoot = (slotOwnerRoot ??
-    ownerEditorElement?.getAttribute('data-slate-root') ??
-    MAIN_ROOT_KEY) as RootKey
-
-  return ownerPath
-    ? {
-        childRoot,
-        ownerPath,
-        ownerRoot,
-      }
-    : null
-}
-
-const isSameOwner = (
-  left: ContentRootOwner | null | undefined,
-  right: ContentRootOwner | null | undefined
-) =>
-  (!left && !right) ||
-  (!!left &&
-    !!right &&
-    left.childRoot === right.childRoot &&
-    left.ownerRoot === right.ownerRoot &&
-    PathApi.equals(left.ownerPath, right.ownerPath))
 
 const isSameProjectedEndpoint = (
   left: RootInteractionDragEndpoint,

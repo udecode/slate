@@ -6,6 +6,11 @@ import {
   type HistoryDirection,
 } from '../editable/history-keyboard'
 import {
+  getOperationRoot,
+  MAIN_ROOT_KEY,
+  toPublicRootOption,
+} from '../root-key'
+import {
   readSlateViewSelection,
   readSlateViewSelectionHistoryEntry,
   writeSlateViewSelection,
@@ -17,14 +22,6 @@ import {
   useSlateRootEditor,
   useSlateRuntimeState,
 } from './use-slate-runtime'
-
-const MAIN_ROOT_KEY: RootKey = 'main'
-
-const toPublicRootOption = (root: RootKey): RootKey | undefined =>
-  root === MAIN_ROOT_KEY ? undefined : root
-
-const getOperationRoot = (operation: Operation): RootKey =>
-  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
 /** Focus behavior after undo or redo commands. */
 export type SlateHistoryFocusPolicy = 'none' | 'preserve' | 'restore-root'
@@ -186,7 +183,7 @@ export function useSlateHistory({
 }: UseSlateHistoryOptions = {}): SlateHistoryController {
   if (fixedRoot === MAIN_ROOT_KEY) {
     throw new Error(
-      '[Slate] Omit root to bind history to the primary document. `main` is an internal root key.'
+      '[Slate] Omit root to bind history to the primary document.'
     )
   }
 

@@ -19,8 +19,7 @@ import {
   type SlateProjectionGraphRangeSegments,
   type SlateProjectionOwner,
 } from './projection-graph'
-
-const MAIN_ROOT_KEY: RootKey = 'main'
+import { getPointRoot, MAIN_ROOT_KEY } from './root-key'
 
 export type SlateViewBoundaryOwner = SlateProjectionOwner
 export type SlateViewBoundaryGraphNodeInput = SlateProjectionGraphNodeInput
@@ -88,7 +87,7 @@ export const rootSlatePoint = (point: Point, root: RootKey): Point => ({
 export const getSlatePointRoot = (
   point: Point,
   fallbackRoot: RootKey = MAIN_ROOT_KEY
-): RootKey => (point.root ?? fallbackRoot) as RootKey
+): RootKey => getPointRoot(point, fallbackRoot)
 
 export const getSlateViewBoundaryPointRoot = (
   point: SlateViewBoundaryPoint

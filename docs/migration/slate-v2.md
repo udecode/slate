@@ -72,7 +72,7 @@ into archaeology.
 | `createEditor()` plus `withReact(editor)`        | `useSlateEditor({ initialValue })` in React, or `createReactEditor({ initialValue })` outside a component |
 | `withHistory(editor)`                            | `useSlateEditor(...)` for the default React editor, or `history()` when building an editor manually       |
 | `<Slate editor={editor} initialValue={value}>`   | `const editor = useSlateEditor({ initialValue }); <Slate editor={editor}>`                                |
-| `Transforms.*(editor, ...)`                      | `editor.update((tx) => tx.*...)`                                                                          |
+| Slate 0.x transform helper calls                 | `editor.update((tx) => tx.*...)`                                                                          |
 | `Editor.*` reads that inspect the current editor | `editor.read((state) => state.*...)`                                                                      |
 | Pure node, point, path, range, and text helpers  | `NodeApi`, `ElementApi`, `PointApi`, `PathApi`, `RangeApi`, and `TextApi` from `slate`                    |
 | `ReactEditor.*` DOM bridge calls                 | `editor.api.dom.*`, `editor.api.react.*`, or renderer hooks such as `useElementPath()`                    |
@@ -85,16 +85,15 @@ into archaeology.
 
 ## Step 1: Install The Packages
 
-For a published v2 package set, install the core editor, DOM helpers, React
+For a published beta package set, install the core editor, DOM helpers, React
 renderer, and React peer packages.
 
 ```text
 npm install slate slate-dom slate-react react react-dom
 ```
 
-Do not run any `npm install` command in this section against npm until the v2
-release lane publishes those packages. During repo-local migration work, use the
-workspace packages.
+Use the equivalent command for pnpm, Yarn, or Bun when your app uses another
+package manager.
 
 Install the optional packages only when your app imports them directly.
 
@@ -180,23 +179,9 @@ const editor = createEditor({
 Slate v2 separates reads from writes. Reads happen inside `editor.read(...)`.
 Writes happen inside `editor.update(...)`.
 
-Slate 0.x:
-
-```tsx
-import { Editor, Element, Transforms } from 'slate'
-
-const isCodeBlockActive = Editor.nodes(editor, {
-  match: node => Element.isElement(node) && node.type === 'code',
-})
-
-Transforms.setNodes(
-  editor,
-  { type: 'code' },
-  {
-    match: node => Element.isElement(node) && Editor.isBlock(editor, node),
-  }
-)
-```
+Slate 0.x commands often mixed read helpers and transform helpers directly
+against the editor object. In Slate v2, read the committed runtime state and
+write through a transaction.
 
 Slate v2:
 
@@ -332,19 +317,9 @@ and decide whether Slate continues.
 - Return `false` when Slate should run its default handler.
 - Return nothing when Slate should decide from the DOM event state.
 
-Slate 0.x:
-
-```tsx
-import { Text, Transforms } from 'slate'
-;<Editable
-  onKeyDown={event => {
-    if (!(event.metaKey && event.key === 'b')) return
-
-    event.preventDefault()
-    Transforms.setNodes(editor, { bold: true }, { match: Text.isText })
-  }}
-/>
-```
+Slate 0.x event handlers often prevented the browser event and mutated text
+nodes directly. In Slate v2, return a handler decision and route the write
+through the editor runtime.
 
 Slate v2:
 

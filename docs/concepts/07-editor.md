@@ -36,7 +36,7 @@ editor.update((tx) => {
 })
 ```
 
-All writes in the callback become one commit. That gives history, operation replay, collaboration adapters, and React rendering one consistent change to observe.
+All writes in the callback become one commit. That gives history, operation replay, sync adapters, and React rendering one consistent change to observe.
 
 ## Snapshots And Commits
 

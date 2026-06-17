@@ -1,8 +1,7 @@
 import type { Path, RootKey } from 'slate'
 
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
-
-const MAIN_ROOT_KEY: RootKey = 'main'
+import { MAIN_ROOT_KEY } from '../root-key'
 
 export type HistoryContentRootOwner = {
   childRoot: RootKey

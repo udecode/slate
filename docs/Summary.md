@@ -4,7 +4,7 @@
 
 ## Releases
 
-- [Slate v2 Release Draft](releases/slate-v2.md)
+- [Slate v2](releases/slate-v2.md)
 
 ## Migration
 
@@ -18,7 +18,7 @@
 - [Applying Custom Formatting](walkthroughs/04-applying-custom-formatting.md)
 - [Executing Commands](walkthroughs/05-executing-commands.md)
 - [Saving to a Database](walkthroughs/06-saving-to-a-database.md)
-- [Collaborative Editing Substrate](walkthroughs/07-enabling-collaborative-editing.md)
+- [Operation Replay Substrate](walkthroughs/07-operation-replay-substrate.md)
 - [Improving Performance](walkthroughs/09-performance.md)
 
 ## Concepts

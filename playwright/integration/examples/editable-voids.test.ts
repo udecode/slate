@@ -857,6 +857,9 @@ test.describe('editable voids', () => {
       'editable-voids-child-root',
       childEditor
     )
+    // Native vertical navigation preserves the x-column, which lands mid-word.
+    const aboveOuterExitOffset = 94
+    const belowOuterExitOffset = 'The editable void '.length
 
     await expect(childEditor).toContainText('This is editable')
 
@@ -888,8 +891,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toMatchObject({
-        anchor: { path: [0, 0] },
-        focus: { path: [0, 0] },
+        anchor: { path: [0, 0], offset: aboveOuterExitOffset },
+        focus: { path: [0, 0], offset: aboveOuterExitOffset },
       })
     expectSameVisualColumn(
       beforeExitAboveRect,
@@ -903,15 +906,20 @@ test.describe('editable voids', () => {
     await childEditor.evaluate((element: HTMLElement) => {
       element.focus()
     })
+    const beforeExitBelowRect = await getCollapsedSelectionRect(page)
 
     await childRoot.press('ArrowDown')
     await expect(outerEditor).toBeFocused()
     await expect
       .poll(() => outer.selection.get())
-      .toEqual({
-        anchor: { path: [2, 0], offset: 0 },
-        focus: { path: [2, 0], offset: 0 },
+      .toMatchObject({
+        anchor: { path: [2, 0], offset: belowOuterExitOffset },
+        focus: { path: [2, 0], offset: belowOuterExitOffset },
       })
+    expectSameVisualColumn(
+      beforeExitBelowRect,
+      await getCollapsedSelectionRect(page)
+    )
   })
 
   test('extends keyboard selection from editable void child root into outer siblings', async ({

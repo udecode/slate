@@ -14,6 +14,7 @@ import type {
   SlateProjectionRuntimeScope,
   SlateSourceDirtiness,
 } from './projection-store'
+import { MAIN_ROOT_KEY } from './root-key'
 import {
   createSlateViewBoundaryRootMap,
   getSlateBoundaryPoint,
@@ -51,8 +52,6 @@ export type SlateViewSelectionDecorationData = Readonly<{
 export type SlateViewSelectionDecorationSourceOptions = Readonly<{
   runtimeScope?: SlateProjectionRuntimeScope
 }>
-
-const MAIN_ROOT_KEY: RootKey = 'main'
 
 const EMPTY_DECORATIONS = Object.freeze(
   []

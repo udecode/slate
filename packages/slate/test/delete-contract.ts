@@ -45,24 +45,31 @@ const table = (): Descendant => ({
 
 describe('slate delete contract', () => {
   it('profiles whole-block range delete phases for huge-document attribution', () => {
-    const source = readFileSync(
-      new URL('../src/transforms-text/delete-text.ts', import.meta.url),
+    const wholeBlockSource = readFileSync(
+      new URL(
+        '../src/transforms-text/delete-text-whole-blocks.ts',
+        import.meta.url
+      ),
       'utf8'
     )
     const publicStateSource = readFileSync(
       new URL('../src/core/public-state.ts', import.meta.url),
       'utf8'
     )
+    const operationReplaySource = readFileSync(
+      new URL('../src/core/operation-replay.ts', import.meta.url),
+      'utf8'
+    )
 
-    assert.match(source, /delete-whole-range-edge-check/)
-    assert.match(source, /delete-whole-range-block-scan/)
-    assert.match(source, /delete-whole-range-children-slice/)
-    assert.match(source, /delete-whole-range-apply/)
+    assert.match(wholeBlockSource, /delete-whole-range-edge-check/)
+    assert.match(wholeBlockSource, /delete-whole-range-block-scan/)
+    assert.match(wholeBlockSource, /delete-whole-range-children-slice/)
+    assert.match(wholeBlockSource, /delete-whole-range-apply/)
     assert.match(publicStateSource, /operation-replay-clone:replace_children/)
     assert.match(publicStateSource, /markInternalOwnedReplayOperation/)
-    assert.match(publicStateSource, /INTERNAL_OWNED_REPLAY_OPERATIONS/)
+    assert.match(operationReplaySource, /INTERNAL_OWNED_REPLAY_OPERATIONS/)
     assert.match(
-      publicStateSource,
+      operationReplaySource,
       /INTERNAL_OWNED_REPLAY_OPERATIONS\.delete\(operation\)/
     )
     assert.match(publicStateSource, /build-snapshot-change:node-impact/)

@@ -1,12 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
-import {
-  NodeApi,
-  type Operation,
-  type Path,
-  type Range,
-  RangeApi,
-  type RootKey,
-} from 'slate'
+import { NodeApi, type Path, type Range, RangeApi, type RootKey } from 'slate'
 import {
   getSelection,
   HAS_BEFORE_INPUT_SUPPORT,
@@ -23,6 +16,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { getOperationRoot, MAIN_ROOT_KEY } from '../root-key'
 import {
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
@@ -199,8 +193,6 @@ const selectionSpansNativeTextInputBoundary = ({
   )
 }
 
-const MAIN_ROOT_KEY: RootKey = 'main'
-
 const getSelectionRootKey = (selection: Range | null): RootKey =>
   (selection?.anchor.root ?? selection?.focus.root ?? MAIN_ROOT_KEY) as RootKey
 
@@ -331,9 +323,6 @@ const isReadOnlyNativeEditingKey = (nativeEvent: KeyboardEvent) => {
     nativeEvent.key === 'Enter'
   )
 }
-
-const getOperationRoot = (operation: Operation): RootKey =>
-  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
 const getLastCommitSingleOperationRoot = (
   editor: ReactRuntimeEditor

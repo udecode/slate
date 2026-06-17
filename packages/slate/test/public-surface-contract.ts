@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
@@ -97,6 +97,11 @@ const publicMarkdownFiles = [
   ...publicDocumentationFiles,
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/general')),
 ].sort()
+const structuralPublicMarkdownFiles = [
+  ...publicMarkdownFiles,
+  ...collectMarkdownFiles(resolve(repoRoot, 'docs/migration')),
+  ...collectMarkdownFiles(resolve(repoRoot, 'docs/releases')),
+].sort()
 const publicAuthoringFiles = [
   ...collectExampleFiles(resolve(repoRoot, 'site/examples')),
   ...collectExampleFiles(resolve(repoRoot, 'docs/api')),
@@ -137,8 +142,8 @@ const classifiedPrimitiveWriteFiles = new Map([
     'normalizer examples run inside normalization policy, not normal authoring command handlers',
   ],
   [
-    'docs/walkthroughs/07-enabling-collaborative-editing.md',
-    'collaboration setup uses normalizer bootstrap code, not normal authoring command handlers',
+    'docs/walkthroughs/07-operation-replay-substrate.md',
+    'operation replay setup uses normalizer bootstrap code, not normal authoring command handlers',
   ],
   [
     'site/examples/ts/forced-layout.tsx',
@@ -179,12 +184,32 @@ const bannedPublicExampleTypeSlop = [
     reason: 'public examples should carry the actual editor value type',
   },
   {
+    pattern: /:\s*any\b/,
+    reason: 'public examples should not teach untyped parameters or returns',
+  },
+  {
+    pattern: /\bany\[\]|\bArray<\s*any\s*>/,
+    reason: 'public examples should model collection element types',
+  },
+  {
+    pattern: /\bas any\b/,
+    reason: 'public examples should not cast away type information',
+  },
+  {
     pattern: /\bas never\b/,
     reason: 'public examples should not use impossible casts to appease types',
   },
   {
     pattern: /@ts-expect-error/,
     reason: 'public examples should model missing platform types explicitly',
+  },
+  {
+    pattern: /@ts-ignore/,
+    reason: 'public examples should not hide type errors',
+  },
+  {
+    pattern: /eslint-disable|biome-ignore/,
+    reason: 'public examples should not ship local suppression comments',
   },
 ]
 
@@ -300,6 +325,14 @@ const allowedSlateInternalBridgeImporters = new Map([
     'DOM editor bridge needs internal editor helpers to resolve Slate ranges against browser DOM state',
   ],
   [
+    'packages/slate-dom/src/plugin/dom-event-range-targets.ts',
+    'DOM event range targeting needs internal editor/root helpers and fragment inline classification for void and fragment drop resolution',
+  ],
+  [
+    'packages/slate-dom/src/plugin/dom-node-path.ts',
+    'DOM node path resolution needs internal runtime identifiers to map mounted DOM nodes to Slate paths',
+  ],
+  [
     'packages/slate-dom/src/plugin/with-dom.ts',
     'DOM extension setup needs internal transform registry access and root-scoped operation helpers',
   ],
@@ -318,6 +351,18 @@ const allowedSlateInternalBridgeImporters = new Map([
   [
     'packages/slate-history/src/history-extension.ts',
     'history extension needs internal runtime/registry helpers to install core history behavior',
+  ],
+  [
+    'packages/slate-history/src/history-merge-policy.ts',
+    'history merge policy needs internal operation-root helpers to keep undo batches scoped to the active root',
+  ],
+  [
+    'packages/slate-history/src/history-replay.ts',
+    'history replay needs internal operation application and primary-root normalization for historic operations',
+  ],
+  [
+    'packages/slate-history/src/history-selection.ts',
+    'history selection snapshots need internal operation and range root helpers to restore root-local selection state',
   ],
   [
     'packages/slate-history/src/history.ts',
@@ -381,6 +426,7 @@ const readPackageJson = (packageName: string) =>
       'utf8'
     )
   ) as {
+    dependencies?: Record<string, string>
     exports?: Record<string, unknown>
     main?: string
     module?: string
@@ -491,18 +537,22 @@ const expectedPublicPackageExportTargets: Record<
     exports: {
       './browser': {
         types: './dist/browser/index.d.ts',
+        import: './dist/browser/index.js',
         default: './dist/browser/index.js',
       },
       './core': {
         types: './dist/core/index.d.ts',
+        import: './dist/core/index.js',
         default: './dist/core/index.js',
       },
       './playwright': {
         types: './dist/playwright/index.d.ts',
+        import: './dist/playwright/index.js',
         default: './dist/playwright/index.js',
       },
       './transports': {
         types: './dist/transports/index.d.ts',
+        import: './dist/transports/index.js',
         default: './dist/transports/index.js',
       },
     },
@@ -634,7 +684,7 @@ const exportTargetToBuildEntry = (target: unknown): string => {
 const collectPublicSlateImportSpecifiers = () => {
   const importSpecifiers = new Map<string, string[]>()
   const sourceFiles = [
-    ...publicMarkdownFiles,
+    ...structuralPublicMarkdownFiles,
     ...collectFiles(resolve(repoRoot, 'site/examples'), /\.(ts|tsx|js|jsx)$/),
   ].sort()
   const importSpecifierPattern =
@@ -662,6 +712,189 @@ const collectPublicSlateImportSpecifiers = () => {
       )
       .sort(([left], [right]) => left.localeCompare(right))
   )
+}
+
+const publicPackageEntryPointFiles = new Map([
+  ['slate', 'packages/slate/src/index.ts'],
+  [
+    'slate-browser/playwright',
+    'packages/slate-browser/src/playwright/index.ts',
+  ],
+  ['slate-dom', 'packages/slate-dom/src/index.ts'],
+  ['slate-history', 'packages/slate-history/src/index.ts'],
+  ['slate-hyperscript', 'packages/slate-hyperscript/src/index.ts'],
+  ['slate-layout', 'packages/slate-layout/src/index.ts'],
+  ['slate-layout/react', 'packages/slate-layout/src/react.tsx'],
+  ['slate-react', 'packages/slate-react/src/index.ts'],
+] as const)
+
+const resolveSourceModule = (fromRelativePath: string, specifier: string) => {
+  if (!specifier.startsWith('.')) return null
+
+  const basePath = resolve(repoRoot, dirname(fromRelativePath), specifier)
+  const candidates = [
+    basePath,
+    `${basePath}.ts`,
+    `${basePath}.tsx`,
+    join(basePath, 'index.ts'),
+    join(basePath, 'index.tsx'),
+  ]
+  const match = candidates.find(
+    (candidate) => existsSync(candidate) && !statSync(candidate).isDirectory()
+  )
+
+  return match ? relative(repoRoot, match).replaceAll('\\', '/') : null
+}
+
+const normalizeExportSpecifierName = (specifier: string) =>
+  specifier
+    .trim()
+    .replace(/^type\s+/, '')
+    .split(/\s+as\s+/)[0]
+    ?.trim()
+
+const collectExportedNamesFromFile = (
+  relativePath: string,
+  seen = new Set<string>()
+): Set<string> => {
+  if (seen.has(relativePath)) return new Set()
+
+  seen.add(relativePath)
+
+  const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+  const names = new Set<string>()
+  const braceExportPattern =
+    /export\s+(?:type\s+)?\{([\s\S]*?)\}(?:\s+from\s+['"]([^'"]+)['"])?/g
+  const starExportPattern = /export\s+(?:type\s+)?\*\s+from\s+['"]([^'"]+)['"]/g
+  const valueDeclarationPattern =
+    /export\s+(?:declare\s+)?(?:abstract\s+)?(?:const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g
+  const functionDeclarationPattern =
+    /export\s+(?:declare\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g
+
+  for (const match of source.matchAll(braceExportPattern)) {
+    const exportSource = match[2]
+
+    if (exportSource?.startsWith('.')) {
+      const resolved = resolveSourceModule(relativePath, exportSource)
+
+      if (resolved) {
+        const exportedNames = collectExportedNamesFromFile(resolved, seen)
+
+        for (const specifier of match[1].split(',')) {
+          const name = normalizeExportSpecifierName(specifier)
+
+          if (name && exportedNames.has(name)) {
+            names.add(name)
+          } else if (name) {
+            names.add(name)
+          }
+        }
+      }
+      continue
+    }
+
+    for (const specifier of match[1].split(',')) {
+      const name = normalizeExportSpecifierName(specifier)
+
+      if (name) names.add(name)
+    }
+  }
+
+  for (const match of source.matchAll(starExportPattern)) {
+    const resolved = resolveSourceModule(relativePath, match[1])
+
+    if (!resolved) continue
+
+    for (const name of collectExportedNamesFromFile(resolved, seen)) {
+      names.add(name)
+    }
+  }
+
+  for (const match of source.matchAll(valueDeclarationPattern)) {
+    names.add(match[1])
+  }
+
+  for (const match of source.matchAll(functionDeclarationPattern)) {
+    names.add(match[1])
+  }
+
+  return names
+}
+
+const publicPackageNamedExports = new Map(
+  [...publicPackageEntryPointFiles].map(([specifier, relativePath]) => [
+    specifier,
+    collectExportedNamesFromFile(relativePath),
+  ])
+)
+
+const collectPublicSlateNamedImports = () => {
+  const imports: {
+    imported: string
+    module: string
+    source: string
+  }[] = []
+  const sourceFiles = [
+    ...collectFiles(resolve(repoRoot, 'site/examples'), /\.(ts|tsx|js|jsx)$/),
+  ].sort()
+
+  const collectFromSource = (source: string, relativePath: string) => {
+    const sourceFile = ts.createSourceFile(
+      relativePath,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      relativePath.endsWith('.tsx') || relativePath.endsWith('.jsx')
+        ? ts.ScriptKind.TSX
+        : ts.ScriptKind.TS
+    )
+
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement)) continue
+      if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+
+      const module = statement.moduleSpecifier.text
+
+      if (!publicPackageEntryPointFiles.has(module)) continue
+
+      if (statement.importClause?.name) {
+        imports.push({
+          imported: 'default',
+          module,
+          source: relativePath,
+        })
+      }
+
+      const namedBindings = statement.importClause?.namedBindings
+
+      if (!namedBindings || !ts.isNamedImports(namedBindings)) continue
+
+      for (const element of namedBindings.elements) {
+        imports.push({
+          imported: (element.propertyName ?? element.name).text,
+          module,
+          source: relativePath,
+        })
+      }
+    }
+  }
+
+  for (const relativePath of publicMarkdownFiles) {
+    const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+    for (const block of getPublicMarkdownCodeFences(source)) {
+      collectFromSource(block.body, `${relativePath}#code-block-${block.index}`)
+    }
+  }
+
+  for (const relativePath of sourceFiles) {
+    collectFromSource(
+      readFileSync(resolve(repoRoot, relativePath), 'utf8'),
+      relativePath
+    )
+  }
+
+  return imports
 }
 
 const publicMarkdownCodeFenceLanguages = new Map([
@@ -693,23 +926,6 @@ const getPublicMarkdownCodeFences = (source: string) => {
   })
 }
 
-const hasPendingChangesetRelease = (packageName: string) => {
-  const changesetRoot = resolve(repoRoot, '.changeset')
-
-  for (const file of readdirSync(changesetRoot)) {
-    if (!file.endsWith('.md')) continue
-
-    const source = readFileSync(resolve(changesetRoot, file), 'utf8')
-    const match = source.match(
-      new RegExp(`"${packageName}"\\s*:\\s*(major|minor|patch)`)
-    )
-
-    if (match) return true
-  }
-
-  return false
-}
-
 const getMarkdownHeadingSection = (source: string, heading: string) => {
   const headingPattern = new RegExp(`^#### ${escapeRegExp(heading)}$`, 'm')
   const headingMatch = source.match(headingPattern)
@@ -738,25 +954,14 @@ const collectNamedTypeExports = (source: string, exportSource: string) => {
     .sort()
 }
 
-const bumpPatchVersion = (version: string) => {
-  const [major = 0, minor = 0, patch = 0] = version
-    .split('.')
-    .map((part) => Number(part))
-
-  return `${major}.${minor}.${patch + 1}`
-}
-
-const expectedSiblingRuntimePeerFloor = (packageName: string) => {
+const expectedSiblingRuntimePeerRange = (packageName: string) => {
   const packageJson = readPackageJson(packageName)
-  const version = hasPendingChangesetRelease(packageName)
-    ? bumpPatchVersion(packageJson.version)
-    : packageJson.version
 
-  return `>=${version}`
+  return packageJson.version
 }
 
 const markdownAnchorsByFile = new Map(
-  publicMarkdownFiles.map((relativePath) => [
+  structuralPublicMarkdownFiles.map((relativePath) => [
     relativePath,
     collectMarkdownAnchors(relativePath),
   ])
@@ -931,6 +1136,25 @@ describe('public example metadata', () => {
     assert.doesNotMatch(layout, /\bNew\b/)
     assert.doesNotMatch(styles, /example-badge-new/)
   })
+
+  it('keeps the examples README current for Bun and v2-only proof routes', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'site/examples/Readme.md'),
+      'utf8'
+    )
+
+    assert.match(source, /bun install/)
+    assert.match(source, /bun dev/)
+    assert.match(source, /hidden DOM coverage/)
+    assert.match(source, /multi-root\s+documents/)
+    assert.match(source, /Pagination is an alpha example/)
+    assert.match(
+      source,
+      /bun run playwright playwright\/integration\/examples\/richtext\.test\.ts --project=chromium/
+    )
+    assert.doesNotMatch(source, /\byarn\b/i)
+    assert.doesNotMatch(source, /glorified `<textarea>`/)
+  })
 })
 
 describe('public data helper namespace examples', () => {
@@ -972,10 +1196,205 @@ describe('public current-state wording', () => {
       assert.doesNotMatch(source, /\balias(?:es)?\b/i)
     })
   }
+
+  for (const relativePath of ['packages/slate-dom/README.md']) {
+    it(`${relativePath} routes external code to extensions, not plugins`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      assert.doesNotMatch(source, /\bApps, plugins, and framework adapters\b/)
+      assert.match(
+        source,
+        /\bApps, extension libraries, and framework adapters\b/
+      )
+    })
+  }
+
+  for (const relativePath of publicMarkdownFiles) {
+    it(`${relativePath} keeps editor.api docs on runtime service namespaces`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const invalidNamespaces = [
+        ...source.matchAll(/\beditor\.api\.([A-Za-z0-9_]+)/g),
+      ]
+        .map((match) => match[1]!)
+        .filter(
+          (namespace) =>
+            !['clipboard', 'dom', 'history', 'react'].includes(namespace)
+        )
+
+      assert.deepEqual([...new Set(invalidNamespaces)].sort(), [])
+    })
+  }
+
+  it('keeps resources as links, not stale API utility guidance', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/general/resources.md'),
+      'utf8'
+    )
+
+    assert.match(source, /The Slate v2 docs and package READMEs are/)
+    assert.match(source, /Check Slate v2 support before installing/)
+    assert.match(source, /Adjacent Editor References/)
+    assert.doesNotMatch(source, /\bHotkeys\b/)
+    assert.doesNotMatch(source, /\bProducts\b/)
+    assert.doesNotMatch(source, /Quill Forms/)
+    assert.doesNotMatch(source, /Discord/)
+    assert.doesNotMatch(source, /semantic editor checks/i)
+  })
+})
+
+describe('release docs', () => {
+  it('keeps release docs public-facing and treats lower-level editor helpers as escape hatches', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/releases/slate-v2.md'),
+      'utf8'
+    )
+    const summary = readFileSync(resolve(repoRoot, 'docs/Summary.md'), 'utf8')
+
+    assert.doesNotMatch(source, /\blegacy\b/i)
+    assert.match(summary, /- \[Slate v2\]\(releases\/slate-v2\.md\)/)
+    assert.doesNotMatch(summary, /Slate v2 Release Draft/)
+    assert.match(
+      summary,
+      /- \[Operation Replay Substrate\]\(walkthroughs\/07-operation-replay-substrate\.md\)/
+    )
+    assert.doesNotMatch(summary, /Collaborative Editing Substrate/)
+    assert.match(
+      source,
+      /The lower-level `Editor\.\*` helpers remain public for runtime bridges, tests,\nand advanced package code\./
+    )
+    assert.match(
+      source,
+      /For a published beta package set, install the React editor with:/
+    )
+    assert.match(
+      source,
+      /Use the equivalent command for pnpm, Yarn, or Bun when your app uses another\npackage manager\./
+    )
+    assert.match(source, /multi-root document/)
+    assert.match(source, /synced blocks/)
+    assert.match(source, /document state/)
+    assert.match(source, /DOM coverage boundaries/)
+    assert.match(source, /pagination remains alpha/)
+    assert.doesNotMatch(
+      source,
+      /Use that command once the beta packages are published\./
+    )
+    assert.doesNotMatch(source, /^\*\*New\*\*$/m)
+  })
+})
+
+describe('public root value model', () => {
+  const publicRootModelFiles = [
+    ...new Set([...publicMarkdownFiles, ...publicAuthoringFiles]),
+  ].sort()
+  const publicRootErrorSourceFiles = [
+    'packages/slate/src/core/public-state.ts',
+    'packages/slate/src/editor-runtime-view.ts',
+    'packages/slate-layout/src/index.ts',
+    'packages/slate-react/src/hooks/use-slate-history.ts',
+    'packages/slate-react/src/hooks/use-slate-root-chrome.ts',
+    'packages/slate-react/src/hooks/use-slate-runtime.tsx',
+  ]
+
+  for (const relativePath of publicRootModelFiles) {
+    it(`${relativePath} does not expose a public main root key`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      assert.doesNotMatch(source, /\bmain root\b/i)
+      assert.doesNotMatch(source, /\bprimary root\b/i)
+      assert.doesNotMatch(source, /\bMAIN_ROOT_KEY\b/)
+      assert.doesNotMatch(source, /\bnamedRoots\b/)
+      assert.doesNotMatch(source, /\broot\s*[:=]\s*['"]main['"]/)
+      assert.doesNotMatch(source, /\.root\s*\(\s*['"]main['"]\s*\)/)
+    })
+  }
+
+  it('teaches children as the primary document and roots as extras', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/concepts/13-roots.md'),
+      'utf8'
+    )
+
+    assert.match(
+      source,
+      /Slate stores the primary document as a normal block array\./
+    )
+    assert.match(
+      source,
+      /Pass `initialValue\.children` plus `initialValue\.roots`/
+    )
+    assert.match(source, /root="header"/)
+    assert.doesNotMatch(source, /root: ['"]main['"]/)
+  })
+
+  it('keeps public root hook errors on primary-document wording', () => {
+    const failures = publicRootErrorSourceFiles.flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      return /internal root key/.test(source)
+        ? [
+            `${relativePath} should not mention the internal root key in user-facing errors`,
+          ]
+        : []
+    })
+
+    assert.deepEqual(failures, [])
+  })
+
+  it('documents serialized operation root semantics for replay', () => {
+    const operationApi = readFileSync(
+      resolve(repoRoot, 'docs/api/operations/operation.md'),
+      'utf8'
+    )
+    const operationReplay = readFileSync(
+      resolve(repoRoot, 'docs/walkthroughs/07-operation-replay-substrate.md'),
+      'utf8'
+    )
+
+    for (const source of [operationApi, operationReplay]) {
+      assert.match(source, /primary-document operations\s+omit `root`/)
+      assert.match(source, /extra-root operations (?:preserve|keep) `root`/)
+      assert.match(
+        source,
+        /Replay (?:serialized or )?remote [\s\S]*base editor\/runtime/
+      )
+      assert.match(
+        source,
+        /root-bound [\s\S]*local commands scoped to\s+that root/
+      )
+      assert.doesNotMatch(source, /root: ['"]main['"]/)
+    }
+  })
+
+  it('keeps the multi-root example and browser proof on the body public root', () => {
+    const sources = [
+      'site/examples/ts/multi-root-document.tsx',
+      'playwright/integration/examples/multi-root-document.test.ts',
+    ].map((relativePath) =>
+      readFileSync(resolve(repoRoot, relativePath), 'utf8')
+    )
+
+    for (const source of sources) {
+      assert.doesNotMatch(source, /multi-root-main/)
+      assert.doesNotMatch(source, /\broots:main\b/)
+      assert.doesNotMatch(source, /\bmain:/)
+      assert.doesNotMatch(
+        source,
+        /root === undefined \|\| root === ['"]main['"]/
+      )
+    }
+    assert.match(sources.join('\n'), /multi-root-body-surface/)
+    assert.match(sources.join('\n'), /multi-root-body-status/)
+    assert.match(sources.join('\n'), /\broots:body\b/)
+    assert.match(
+      sources.join('\n'),
+      /root === undefined \? ['"]body['"] : root/
+    )
+  })
 })
 
 describe('public markdown code fences', () => {
-  for (const relativePath of publicMarkdownFiles) {
+  for (const relativePath of structuralPublicMarkdownFiles) {
     it(`${relativePath} keeps TypeScript and JavaScript fences parseable`, () => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
       const codeFences = getPublicMarkdownCodeFences(source)
@@ -1008,6 +1427,26 @@ describe('public markdown code fences', () => {
       )
     })
   }
+
+  it('keeps current docs and examples on exported package names', () => {
+    const failures = collectPublicSlateNamedImports().flatMap(
+      ({ imported, module, source }) => {
+        if (imported === 'default') {
+          return [`${source}: ${module} has no default export`]
+        }
+
+        const exportedNames = publicPackageNamedExports.get(module)
+
+        if (!exportedNames?.has(imported)) {
+          return [`${source}: ${module} does not export ${imported}`]
+        }
+
+        return []
+      }
+    )
+
+    assert.deepEqual(failures, [])
+  })
 })
 
 describe('public predicate input types', () => {
@@ -1032,7 +1471,7 @@ describe('public predicate input types', () => {
 describe('primary public internal import boundaries', () => {
   for (const relativePath of [
     ...publicAuthoringFiles,
-    ...publicMarkdownFiles,
+    ...structuralPublicMarkdownFiles,
   ]) {
     it(`${relativePath} does not import internal package paths`, () => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
@@ -1072,7 +1511,7 @@ describe('sibling runtime bridge peer floors', () => {
   })
 
   it('keeps packages importing slate/internal on the current Slate peer floor', () => {
-    const expectedFloor = expectedSiblingRuntimePeerFloor('slate')
+    const expectedRange = expectedSiblingRuntimePeerRange('slate')
     const violations = packageSourceFiles.flatMap((relativePath) => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
 
@@ -1083,10 +1522,10 @@ describe('sibling runtime bridge peer floors', () => {
 
       if (packageJson.private) return []
 
-      return packageJson.peerDependencies?.slate === expectedFloor
+      return packageJson.peerDependencies?.slate === expectedRange
         ? []
         : [
-            `${packageName}: expected slate ${expectedFloor}, got ${packageJson.peerDependencies?.slate ?? 'missing'}`,
+            `${packageName}: expected slate ${expectedRange}, got ${packageJson.peerDependencies?.slate ?? 'missing'}`,
           ]
     })
 
@@ -1094,7 +1533,7 @@ describe('sibling runtime bridge peer floors', () => {
   })
 
   it('keeps packages importing slate-dom/internal on the current Slate DOM peer floor', () => {
-    const expectedFloor = expectedSiblingRuntimePeerFloor('slate-dom')
+    const expectedRange = expectedSiblingRuntimePeerRange('slate-dom')
     const violations = packageSourceFiles.flatMap((relativePath) => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
 
@@ -1105,14 +1544,32 @@ describe('sibling runtime bridge peer floors', () => {
 
       if (packageJson.private) return []
 
-      return packageJson.peerDependencies?.['slate-dom'] === expectedFloor
+      return packageJson.peerDependencies?.['slate-dom'] === expectedRange
         ? []
         : [
-            `${packageName}: expected slate-dom ${expectedFloor}, got ${packageJson.peerDependencies?.['slate-dom'] ?? 'missing'}`,
+            `${packageName}: expected slate-dom ${expectedRange}, got ${packageJson.peerDependencies?.['slate-dom'] ?? 'missing'}`,
           ]
     })
 
     assert.deepEqual(violations, [])
+  })
+
+  it('keeps sibling package runtime edges exact before changeset versioning', () => {
+    const slateLayoutPackage = readPackageJson('slate-layout')
+    const slateReactPackage = readPackageJson('slate-react')
+
+    assert.equal(
+      slateLayoutPackage.peerDependencies?.slate,
+      readPackageJson('slate').version
+    )
+    assert.equal(
+      slateLayoutPackage.peerDependencies?.['slate-react'],
+      readPackageJson('slate-react').version
+    )
+    assert.equal(
+      slateReactPackage.dependencies?.['slate-history'],
+      readPackageJson('slate-history').version
+    )
   })
 })
 
@@ -1129,7 +1586,7 @@ describe('primary public markdown links', () => {
     assert.deepEqual(missing, [])
   })
 
-  for (const relativePath of publicMarkdownFiles) {
+  for (const relativePath of structuralPublicMarkdownFiles) {
     it(`${relativePath} links to existing markdown files and anchors`, () => {
       const source = stripFencedCodeBlocks(
         readFileSync(resolve(repoRoot, relativePath), 'utf8')
@@ -1283,7 +1740,7 @@ describe('slate-react public docs', () => {
       slateDocs,
       /Use `editor\.subscribeCommit\(\.\.\.\)` for low-level commit subscribers/
     )
-    assert.match(slateDocs, /collaboration adapters, operation replay/)
+    assert.match(slateDocs, /sync adapters, operation replay/)
     assert.match(
       editorDocs,
       /#### `editor\.subscribe\(listener\) => \(\) => void`/
@@ -1480,7 +1937,6 @@ describe('core package library docs', () => {
       './interfaces/editor'
     )
     const deliberatelyGroupedRootEditorTypeExports = new Map([
-      ['BaseSelection', 'selection detail covered by Selection'],
       ['CreateEditorOptions', 'factory option detail covered by createEditor'],
       ['DirtyRegion', 'dirty-range internals'],
       ['EditorCanonicalUpdateTag', 'update-tag detail'],
@@ -1489,10 +1945,10 @@ describe('core package library docs', () => {
       ['EditorCommitContext', 'commit implementation detail'],
       ['EditorCommitHandler', 'commit implementation detail'],
       ['EditorCommitSource', 'commit source detail'],
-      ['EditorCoreStateView', 'core state alias covered by EditorStateView'],
+      ['EditorCoreStateView', 'core state base covered by EditorStateView'],
       [
         'EditorCoreUpdateTransaction',
-        'core transaction alias covered by EditorUpdateTransaction',
+        'core transaction base covered by EditorUpdateTransaction',
       ],
       ['EditorDocumentValue', 'value detail covered by Value'],
       ['EditorFragmentReadOptions', 'read option detail'],
@@ -1958,6 +2414,15 @@ describe('core package library docs', () => {
       resolve(repoRoot, 'docs/general/docs-proof-map.md'),
       'utf8'
     )
+    const docsPrefixes = [
+      'api/',
+      'concepts/',
+      'general/',
+      'libraries/',
+      'migration/',
+      'releases/',
+      'walkthroughs/',
+    ]
 
     assert.match(source, /Core Slate owns the editor runtime/)
     assert.match(source, /Slate DOM owns DOM bridge helpers/)
@@ -1976,6 +2441,50 @@ describe('core package library docs', () => {
     assert.match(source, /Example route proof coverage/)
     assert.match(source, /Example navigation metadata/)
     assert.match(source, /Visual\/native selection screenshots/)
+
+    const unresolvedReferences = [...source.matchAll(/`([^`]+)`/g)].flatMap(
+      (match) => {
+        const reference = match[1]!
+
+        if (
+          reference.includes('*') ||
+          reference.includes(' ') ||
+          reference.includes('<') ||
+          reference.includes('>') ||
+          reference.includes('=') ||
+          reference.includes('(') ||
+          reference.includes(')') ||
+          reference.includes('\\') ||
+          reference.startsWith('temp-copy')
+        ) {
+          return []
+        }
+        if (
+          !reference.includes('/') &&
+          !/\.(?:md|ts|tsx|json)$/.test(reference) &&
+          reference !== 'Readme.md' &&
+          reference !== 'package.json'
+        ) {
+          return []
+        }
+
+        const candidates = [
+          ...(docsPrefixes.some((prefix) => reference.startsWith(prefix)) ||
+          (/\.md$/.test(reference) && !reference.includes('/'))
+            ? [`docs/${reference}`]
+            : []),
+          reference,
+        ]
+
+        return candidates.some((candidate) =>
+          existsSync(resolve(repoRoot, candidate))
+        )
+          ? []
+          : [reference]
+      }
+    )
+
+    assert.deepEqual([...new Set(unresolvedReferences)].sort(), [])
   })
 
   it('documents transaction transform methods with source-backed options', () => {
@@ -2636,7 +3145,6 @@ describe('primary slate package surface', () => {
       'packages/slate/src/interfaces/node.ts:AncestorIn',
       'packages/slate/src/interfaces/element.ts:Element',
       'packages/slate/src/interfaces/element.ts:ElementIn',
-      'packages/slate/src/interfaces/element.ts:TElement',
       'packages/slate/src/interfaces/node.ts:DescendantEntryIn',
       'packages/slate/src/interfaces/node.ts:DescendantEntryOf',
       'packages/slate/src/interfaces/node.ts:DescendantIn',
@@ -2645,7 +3153,6 @@ describe('primary slate package surface', () => {
       'packages/slate/src/interfaces/node.ts:NodeEntryOf',
       'packages/slate/src/interfaces/node.ts:TextEntryIn',
       'packages/slate/src/interfaces/node.ts:TextEntryOf',
-      'packages/slate/src/interfaces/node.ts:TNode',
       'packages/slate/src/interfaces/operation.ts:InsertTextOperation',
       'packages/slate/src/interfaces/operation.ts:MoveNodeOperation',
       'packages/slate/src/interfaces/operation.ts:RemoveTextOperation',
@@ -2658,7 +3165,6 @@ describe('primary slate package surface', () => {
       'packages/slate/src/interfaces/text.ts:MarksOf',
       'packages/slate/src/interfaces/text.ts:Text',
       'packages/slate/src/interfaces/text.ts:TextIn',
-      'packages/slate/src/interfaces/text.ts:TText',
       'packages/slate/src/internal/range-text-marks.ts:TextMarks',
       'packages/slate/src/transforms-selection/set-selection.ts:SetSelectionCommand',
     ])

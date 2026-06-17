@@ -97,7 +97,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.124.2",
+        "slate": "0.124.1",
       },
     },
     "packages/slate-history": {
@@ -108,7 +108,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.124.2",
+        "slate": "0.124.1",
       },
     },
     "packages/slate-hyperscript": {
@@ -118,7 +118,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.124.2",
+        "slate": "0.124.1",
       },
     },
     "packages/slate-layout": {
@@ -140,8 +140,8 @@
       "peerDependencies": {
         "react": ">=19.2.0",
         "react-dom": ">=19.2.0",
-        "slate": ">=0.124.1",
-        "slate-react": ">=0.124.0",
+        "slate": "0.124.1",
+        "slate-react": "0.124.0",
       },
     },
     "packages/slate-react": {
@@ -151,7 +151,7 @@
         "@juggle/resize-observer": "^3.4.0",
         "@tanstack/react-virtual": "^3.13.25",
         "lodash": "^4.17.21",
-        "slate-history": ">=0.115.0",
+        "slate-history": "0.115.0",
       },
       "devDependencies": {
         "@testing-library/dom": "^10.4.1",
@@ -172,8 +172,8 @@
       "peerDependencies": {
         "react": ">=19.2.0",
         "react-dom": ">=19.2.0",
-        "slate": ">=0.124.2",
-        "slate-dom": ">=0.124.2",
+        "slate": "0.124.1",
+        "slate-dom": "0.124.1",
       },
     },
     "packages/slate-yjs": {

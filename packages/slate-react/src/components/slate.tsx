@@ -2,7 +2,6 @@ import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import {
-  type BaseSelection,
   createEditorView,
   type EditorCommit,
   type EditorSnapshot,
@@ -11,6 +10,7 @@ import {
   type Path,
   RangeApi,
   type RootKey,
+  type Selection,
   type Value,
 } from 'slate'
 import { EDITOR_TO_ROOT_VIEW_EDITORS } from 'slate-dom/internal'
@@ -76,7 +76,7 @@ const profileRuntimeDuration = <T,>(id: string, callback: () => T): T => {
   }
 }
 
-const isSelectionEqual = (a: BaseSelection, b: BaseSelection) => {
+const isSelectionEqual = (a: Selection, b: Selection) => {
   if (!a && !b) return true
   if (!a || !b) return false
 

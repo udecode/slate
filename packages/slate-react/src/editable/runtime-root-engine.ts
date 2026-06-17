@@ -4,10 +4,8 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
-import type { Range } from 'slate'
 import type { DOMRange } from 'slate-dom'
 import { IS_READ_ONLY } from 'slate-dom/internal'
 import type {
@@ -15,31 +13,23 @@ import type {
   EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
-import { isSelectionPartialDOMBacked } from '../dom-strategy/dom-strategy-commands'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
-import { useTrackUserInput } from '../hooks/use-track-user-input'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { usePendingInsertionMarksEffect } from './composition-state'
-import type { DOMRepairQueue } from './dom-repair-queue'
-import {
-  createEditableInputController,
-  createEditableInputControllerState,
-} from './input-controller'
+import { createEditableInputController } from './input-controller'
 import { useEditableRootRef } from './input-router'
-import type { DeferredOperation } from './model-input-strategy'
 import { useProjectionDOMRepairBridge } from './projection-repair-bridge'
 import { useEditableRootCommitWakeup } from './root-selector-sources'
 import { useRuntimeAndroidEngine } from './runtime-android-engine'
 import { useRuntimeCompositionEngine } from './runtime-composition-engine'
-import type { Editor } from './runtime-editor-api'
 import { useEditableEventRuntime } from './runtime-event-engine'
 import { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeRepairEngine } from './runtime-repair-engine'
 import { useEditableRootGlobalLifecycle } from './runtime-root-lifecycle'
 import { useEditableRootSelectionExport } from './runtime-root-selection-export'
 import { useEditableRootSelectionImport } from './runtime-root-selection-import'
-import { readRuntimeSelection } from './runtime-selection-state'
+import { useEditableRootRuntimeState } from './runtime-root-state'
 import { setEditableModelSelectionPreference } from './selection-controller'
 import { useEditableSelectionReconciler } from './selection-reconciler'
 
@@ -119,76 +109,31 @@ export const useEditableRootRuntime = ({
   useEditableRootCommitWakeup()
   useFlushDeferredSelectorsOnRender()
 
-  const [isComposing, setIsComposing] = useState(false)
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const browserHandleRangeRefs = useRef(
-    new Map<string, ReturnType<typeof Editor.rangeRef>>()
-  )
-  const browserHandleNextId = useRef(0)
-  const deferredOperations = useRef<DeferredOperation[]>([])
-  const handledDOMBeforeInputRef = useRef(false)
-  const [preferModelSelectionForInputRef] = useState(() => ({
-    current: false,
-  }))
-  const detachNativeInputListenersRef = useRef<(() => void) | null>(null)
-  const [domRepairQueueRef] = useState<{ current: DOMRepairQueue | null }>(
-    () => ({
-      current: null,
-    })
-  )
-  const processing = useRef(false)
-  const { onUserInput, receivedUserInput } = useTrackUserInput()
-
-  useEffect(
-    () => () => {
-      browserHandleRangeRefs.current.forEach((rangeRef) => {
-        rangeRef.unref()
-      })
-      browserHandleRangeRefs.current.clear()
-    },
-    []
-  )
+  const rootRuntimeState = useEditableRootRuntimeState({
+    domStrategyRuntime,
+    editor,
+  })
+  const {
+    browserHandleNextId,
+    browserHandleRangeRefs,
+    controllerState,
+    deferredOperations,
+    detachNativeInputListenersRef,
+    domRepairQueueRef,
+    handledDOMBeforeInputRef,
+    isComposing,
+    isPartialDOMBackedSelection,
+    onUserInput,
+    partialDOMBackedSelection,
+    preferModelSelectionForInputRef,
+    processing,
+    receivedUserInput,
+    rootRef,
+    setExplicitPartialDOMBackedSelection,
+    setIsComposing,
+  } = rootRuntimeState
 
   IS_READ_ONLY.set(editor, readOnly)
-
-  const [domStrategyRuntimeCell] = useState(() => ({
-    current: domStrategyRuntime,
-  }))
-  domStrategyRuntimeCell.current = domStrategyRuntime
-
-  const [
-    explicitPartialDOMBackedSelection,
-    setExplicitPartialDOMBackedSelection,
-  ] = useState(false)
-  const isPartialDOMBackedSelection = useCallback(
-    (selection: Range | null) => {
-      const currentDOMStrategyRuntime = domStrategyRuntimeCell.current
-
-      return currentDOMStrategyRuntime?.type === 'partial-dom' ||
-        currentDOMStrategyRuntime?.type === 'staged' ||
-        currentDOMStrategyRuntime?.type === 'virtualized'
-        ? isSelectionPartialDOMBacked(
-            selection,
-            currentDOMStrategyRuntime.mountedTopLevelRuntimeIds,
-            currentDOMStrategyRuntime.mountedTopLevelRanges ?? null
-          )
-        : false
-    },
-    [domStrategyRuntimeCell]
-  )
-  const modelSelection = readRuntimeSelection(editor)
-  const modelPartialDOMBackedSelection =
-    isPartialDOMBackedSelection(modelSelection)
-  const partialDOMBackedSelection =
-    explicitPartialDOMBackedSelection || modelPartialDOMBackedSelection
-
-  useEffect(() => {
-    if (explicitPartialDOMBackedSelection && !modelPartialDOMBackedSelection) {
-      setExplicitPartialDOMBackedSelection(false)
-    }
-  }, [explicitPartialDOMBackedSelection, modelPartialDOMBackedSelection])
-
-  const [controllerState] = useState(createEditableInputControllerState)
   const inputController = useMemo(
     () =>
       createEditableInputController({
@@ -209,7 +154,7 @@ export const useEditableRootRuntime = ({
     if (rootRef.current && autoFocus) {
       rootRef.current.focus()
     }
-  }, [autoFocus])
+  }, [autoFocus, rootRef])
 
   const [androidInputManagerRef] = useState<{
     current: AndroidInputManager | null | undefined

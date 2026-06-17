@@ -768,7 +768,6 @@ describe('slate transaction contract', () => {
       {
         offset: 3,
         path: [0, 0],
-        root: 'main',
         text: '!',
         type: 'insert_text',
       },
@@ -812,7 +811,6 @@ describe('slate transaction contract', () => {
       {
         offset: 3,
         path: [0, 0],
-        root: 'main',
         text: '!',
         type: 'insert_text',
       },
@@ -969,7 +967,6 @@ describe('slate transaction contract', () => {
     assert.deepEqual(backwardCommit.operations[0], {
       offset: 2,
       path: [0, 0],
-      root: 'main',
       text: 'e',
       type: 'remove_text',
     })
@@ -1115,7 +1112,6 @@ describe('slate transaction contract', () => {
           focus: { path: [0, 0], offset: 2 },
         },
         properties: null,
-        root: 'main',
         type: 'set_selection',
       },
     ])

@@ -4,15 +4,7 @@ import {
   type RefObject,
   useCallback,
 } from 'react'
-import {
-  NodeApi,
-  type Path,
-  PathApi,
-  type Point,
-  type Range,
-  RangeApi,
-  type RuntimeId,
-} from 'slate'
+import { NodeApi, PathApi, type Range, RangeApi } from 'slate'
 import {
   containsShadowAware,
   type DOMElement,
@@ -39,7 +31,6 @@ import {
 } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   readSlateViewSelection,
@@ -61,14 +52,29 @@ import {
 } from './input-controller'
 import { readModelSelectionDOMPreference } from './model-selection-dom-preference'
 import { Editor } from './runtime-editor-api'
-import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
 import { writeRuntimeSelection } from './runtime-mutation-state'
 import { readRuntimeSelection } from './runtime-selection-state'
+import {
+  resolveSlateRangeFromDOMSelection,
+  resolveSlateRangeFromDOMTextRange,
+} from './selection-dom-range'
 import {
   shouldSkipDOMSelection,
   shouldSkipSelectionFocus,
   shouldSkipSelectionScroll,
 } from './selection-side-effect-policy'
+import { exportTripleClickSelectionToDOM } from './selection-triple-click'
+import {
+  preferModelSelectionForVoidTarget,
+  resolveEditableClickTarget,
+  resolveEditableVoidClickTarget,
+  selectEditableVoidTarget,
+} from './selection-void-target'
+
+export {
+  selectEditableVoidPath,
+  selectEditableVoidTarget,
+} from './selection-void-target'
 
 const getDOMSelectionOffsetLimit = (node: globalThis.Node) =>
   isDOMText(node) ? (node.textContent?.length ?? 0) : node.childNodes.length
@@ -80,148 +86,6 @@ const clampDOMSelectionPoint = (
   node,
   Math.max(0, Math.min(offset, getDOMSelectionOffsetLimit(node))),
 ]
-
-const resolveSlateTextPointFromDOMPoint = (
-  editor: Editor,
-  anchorNode: globalThis.Node | null,
-  anchorOffset: number,
-  {
-    requireCurrentRuntimeBinding = false,
-  }: { requireCurrentRuntimeBinding?: boolean } = {}
-): Point | null => {
-  const anchorElement = isDOMText(anchorNode)
-    ? anchorNode.parentElement
-    : isDOMElement(anchorNode)
-      ? anchorNode
-      : null
-  const textHost = anchorElement?.closest('[data-slate-node="text"]')
-  const stringHost = anchorElement?.closest(
-    '[data-slate-string], [data-slate-zero-width]'
-  )
-
-  if (!textHost || !stringHost) {
-    return null
-  }
-
-  const path = getSlateNodePathFromDOMElement(textHost)
-  const slateNode = path ? readRuntimeText(editor, path) : null
-
-  if (!path || !slateNode) return null
-
-  if (requireCurrentRuntimeBinding) {
-    const runtimeId = textHost.getAttribute(
-      'data-slate-runtime-id'
-    ) as RuntimeId | null
-    const currentPath = runtimeId
-      ? Editor.getPathByRuntimeId(editor, runtimeId)
-      : null
-
-    if (!currentPath || !PathApi.equals(currentPath, path)) {
-      return null
-    }
-  }
-
-  if (!isDOMText(anchorNode)) {
-    return null
-  }
-
-  const strings = Array.from(
-    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
-  )
-  let offset = 0
-
-  for (const string of strings) {
-    const lengthAttribute = string.getAttribute('data-slate-length')
-    const length =
-      lengthAttribute == null
-        ? (string.textContent?.length ?? 0)
-        : Number.parseInt(lengthAttribute, 10)
-
-    if (string === stringHost) {
-      const nextOffset = Math.max(
-        0,
-        Math.min(slateNode.text.length, offset + anchorOffset)
-      )
-
-      return { path, offset: nextOffset }
-    }
-
-    offset += Number.isFinite(length) ? length : 0
-  }
-
-  return null
-}
-
-export const resolveSlateCollapsedRangeFromDOMSelection = (
-  editor: Editor,
-  domSelection: globalThis.Selection
-): Range | null => {
-  if (!domSelection.isCollapsed) {
-    return null
-  }
-
-  const anchor = resolveSlateTextPointFromDOMPoint(
-    editor,
-    domSelection.anchorNode,
-    domSelection.anchorOffset
-  )
-
-  return anchor ? { anchor, focus: anchor } : null
-}
-
-const resolveSlateRangeFromDOMTextRange = (
-  editor: Editor,
-  domRange: StaticRange,
-  {
-    requireCurrentRuntimeBinding = false,
-  }: { requireCurrentRuntimeBinding?: boolean } = {}
-): Range | null => {
-  const anchor = resolveSlateTextPointFromDOMPoint(
-    editor,
-    domRange.startContainer,
-    domRange.startOffset,
-    { requireCurrentRuntimeBinding }
-  )
-  const focus = resolveSlateTextPointFromDOMPoint(
-    editor,
-    domRange.endContainer,
-    domRange.endOffset,
-    { requireCurrentRuntimeBinding }
-  )
-
-  return anchor && focus ? { anchor, focus } : null
-}
-
-export const resolveSlateRangeFromDOMSelection = (
-  editor: Editor,
-  domSelection: globalThis.Selection,
-  editorElement: HTMLElement
-): Range | null => {
-  if (domSelection.isCollapsed) {
-    return resolveSlateCollapsedRangeFromDOMSelection(editor, domSelection)
-  }
-
-  if (
-    domSelection.anchorNode === editorElement &&
-    domSelection.focusNode === editorElement
-  ) {
-    const start = Math.min(domSelection.anchorOffset, domSelection.focusOffset)
-    const end = Math.max(domSelection.anchorOffset, domSelection.focusOffset)
-
-    if (start === 0 && end >= editorElement.childNodes.length) {
-      return Editor.range(editor, [])
-    }
-  }
-
-  const selectedText = domSelection.toString().replace(/\uFEFF/g, '')
-  const editorText = editorElement.textContent?.replace(/\uFEFF/g, '') ?? ''
-
-  if (selectedText && selectedText === editorText) {
-    return Editor.range(editor, [])
-  }
-
-  return null
-}
 
 export type EditableSelectionReconcilerState = {
   isUpdatingSelection: boolean
@@ -444,234 +308,6 @@ export const applyEditableFocus = ({
   }
 
   return false
-}
-
-const resolveEditableClickTarget = (
-  editor: ReactRuntimeEditor,
-  target: EventTarget
-) => {
-  if (!isDOMNode(target)) {
-    return null
-  }
-
-  const targetElement = isDOMText(target)
-    ? target.parentElement
-    : isDOMElement(target)
-      ? target
-      : null
-  const slateHost = targetElement?.closest('[data-slate-node]')
-  const path =
-    slateHost instanceof Element
-      ? getSlateNodePathFromDOMElement(slateHost)
-      : null
-
-  if (path != null) {
-    const liveNode = readRuntimeNode(editor, path)
-
-    if (liveNode) {
-      return { node: liveNode, path }
-    }
-
-    if (Editor.hasPath(editor, path)) {
-      const [node] = editor.read((state) => state.nodes.get(path))
-      return { node, path }
-    }
-  }
-
-  try {
-    const node = ReactEditor.resolveSlateNode(editor, target)
-    const fallbackPath = node ? ReactEditor.resolvePath(editor, node) : null
-
-    // At this time, the Slate document may be arbitrarily different,
-    // because onClick handlers can change the document before we get here.
-    // Therefore we must check that this path actually exists,
-    // and that it still refers to the same node.
-    if (
-      !node ||
-      !fallbackPath ||
-      !Editor.hasPath(editor, fallbackPath) ||
-      NodeApi.get(editor, fallbackPath) !== node
-    ) {
-      return null
-    }
-
-    return { node, path: fallbackPath }
-  } catch {
-    return null
-  }
-}
-
-const resolveEditableVoidClickTarget = (
-  editor: ReactRuntimeEditor,
-  target: EventTarget
-) => {
-  const resolvedTarget = resolveEditableClickTarget(editor, target)
-
-  if (
-    resolvedTarget &&
-    NodeApi.isElement(resolvedTarget.node) &&
-    Editor.isVoid(editor, resolvedTarget.node)
-  ) {
-    return resolvedTarget
-  }
-
-  return null
-}
-
-const preferModelSelectionForVoidTarget = ({
-  editor,
-  inputController,
-  target,
-}: {
-  editor: ReactRuntimeEditor
-  inputController: EditableInputController
-  target: EventTarget | null
-}) => {
-  if (
-    !isDOMNode(target) ||
-    !ReactEditor.isTargetInsideNonReadonlyVoid(editor, target)
-  ) {
-    return false
-  }
-
-  setEditableModelSelectionPreference({
-    inputController,
-    preferModelSelection: true,
-    reason: 'programmatic-export',
-    selectionSource: 'model-owned',
-  })
-  inputController.state.selectionChangeOrigin = 'programmatic-export'
-  return true
-}
-
-export const selectEditableVoidPath = ({
-  editor,
-  inputController,
-  path,
-}: {
-  editor: ReactRuntimeEditor
-  inputController: EditableInputController
-  path: Path
-}) => {
-  if (!Editor.hasPath(editor, path)) {
-    return null
-  }
-
-  const [node] = editor.read((state) => state.nodes.get(path))
-
-  if (!NodeApi.isElement(node) || !Editor.isVoid(editor, node)) {
-    return null
-  }
-
-  setEditableModelSelectionPreference({
-    inputController,
-    preferModelSelection: true,
-    reason: 'programmatic-export',
-    selectionSource: 'model-owned',
-  })
-  inputController.state.selectionChangeOrigin = 'programmatic-export'
-
-  const start = Editor.point(editor, path, { edge: 'start' })
-  const range = Editor.range(editor, start)
-
-  ReactEditor.focus(editor)
-  writeSlateViewSelection(editor, null)
-  editor.update((tx) => {
-    tx.selection.set(range)
-  })
-
-  return path
-}
-
-export const selectEditableVoidTarget = ({
-  editor,
-  inputController,
-  target,
-}: {
-  editor: ReactRuntimeEditor
-  inputController: EditableInputController
-  target: EventTarget | null
-}) => {
-  const voidTarget = isDOMNode(target)
-    ? resolveEditableVoidClickTarget(editor, target)
-    : null
-
-  if (voidTarget) {
-    return selectEditableVoidPath({
-      editor,
-      inputController,
-      path: voidTarget.path,
-    })
-  }
-
-  return null
-}
-
-const exportTripleClickSelectionToDOM = ({
-  editor,
-  inputController,
-  range,
-}: {
-  editor: ReactRuntimeEditor
-  inputController: EditableInputController
-  range: Range
-}) => {
-  const editorElement = EDITOR_TO_ELEMENT.get(editor)
-
-  if (!editorElement) {
-    return
-  }
-
-  const domRange = ReactEditor.resolveDOMRange(editor, range)
-
-  if (!domRange) {
-    return
-  }
-
-  const root = editorElement.getRootNode() as Document | ShadowRoot
-  const domSelection = getSelection(root)
-
-  if (!domSelection) {
-    return
-  }
-
-  inputController.state.isUpdatingSelection = true
-  inputController.state.selectionChangeOrigin = 'programmatic-export'
-
-  try {
-    if (RangeApi.isBackward(range)) {
-      domSelection.setBaseAndExtent(
-        domRange.endContainer,
-        domRange.endOffset,
-        domRange.startContainer,
-        domRange.startOffset
-      )
-    } else {
-      domSelection.setBaseAndExtent(
-        domRange.startContainer,
-        domRange.startOffset,
-        domRange.endContainer,
-        domRange.endOffset
-      )
-    }
-  } catch {
-    domSelection.removeAllRanges()
-    domSelection.addRange(domRange)
-  }
-
-  editorElement.ownerDocument.dispatchEvent(
-    new Event('selectionchange', { bubbles: true })
-  )
-  const rootWindow = getDefaultView(editorElement)
-  const resetUpdatingSelection = () => {
-    inputController.state.isUpdatingSelection = false
-  }
-
-  if (rootWindow) {
-    rootWindow.setTimeout(resetUpdatingSelection)
-  } else {
-    setTimeout(resetUpdatingSelection)
-  }
 }
 
 export const applyEditableClick = ({

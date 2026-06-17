@@ -1,5 +1,9 @@
 import { getEditorSchema } from '../core/editor-runtime'
-import { applyOperation, runEditorTransaction } from '../core/public-state'
+import {
+  applyOperation,
+  profileCoreDuration,
+  runEditorTransaction,
+} from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
@@ -11,38 +15,6 @@ import type { Point } from '../interfaces/point'
 import type { PointRef } from '../interfaces/point-ref'
 import { type Range, RangeApi } from '../interfaces/range'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
-
-const now = () => globalThis.performance?.now?.() ?? Date.now()
-
-const profileSplitNodesDuration = <T>(id: string, callback: () => T): T => {
-  const profiler = (
-    globalThis as typeof globalThis & {
-      __SLATE_REACT_RENDER_PROFILER__?: {
-        record?: (event: {
-          duration: number
-          id: string
-          kind: 'core-time'
-        }) => void
-      }
-    }
-  ).__SLATE_REACT_RENDER_PROFILER__
-
-  if (!profiler) {
-    return callback()
-  }
-
-  const start = now()
-
-  try {
-    return callback()
-  } finally {
-    profiler.record?.({
-      duration: now() - start,
-      id,
-      kind: 'core-time',
-    })
-  }
-}
 
 const deleteRange = (editor: Editor, range: Range): Point | null => {
   if (RangeApi.isCollapsed(range)) {
@@ -130,12 +102,12 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
   options = {}
 ) => {
   runEditorTransaction(editor, (tx) => {
-    profileSplitNodesDuration('split-nodes-without-normalizing', () => {
+    profileCoreDuration('split-nodes-without-normalizing', () => {
       Editor.withoutNormalizing(editor, () => {
         const transforms = getEditorTransformRegistry(editor)
         const { mode = 'lowest', voids = false } = options
         let { match, height = 0, always = false } = options
-        let at = profileSplitNodesDuration('split-nodes-resolve-target', () =>
+        let at = profileCoreDuration('split-nodes-resolve-target', () =>
           tx.resolveTarget({ at: options.at })
         )
 
@@ -178,13 +150,11 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           }
 
           const path = at
-          const point = profileSplitNodesDuration(
-            'split-nodes-path-point',
-            () => Editor.point(editor, path)
+          const point = profileCoreDuration('split-nodes-path-point', () =>
+            Editor.point(editor, path)
           )
-          const [parent] = profileSplitNodesDuration(
-            'split-nodes-path-parent',
-            () => Editor.parent(editor, path)
+          const [parent] = profileCoreDuration('split-nodes-path-parent', () =>
+            Editor.parent(editor, path)
           )
 
           match = (n) => n === parent
@@ -198,7 +168,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
         }
 
         let splitPoint: Point = at
-        const beforeRef = profileSplitNodesDuration(
+        const beforeRef = profileCoreDuration(
           'split-nodes-before-point-ref',
           () =>
             Editor.pointRef(editor, splitPoint, {
@@ -208,7 +178,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
         let afterRef: PointRef | undefined
 
         try {
-          const [highest] = profileSplitNodesDuration(
+          const [highest] = profileCoreDuration(
             'split-nodes-find-highest',
             () =>
               getNodes(editor, {
@@ -223,13 +193,11 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
             return
           }
 
-          const voidMatch = profileSplitNodesDuration(
-            'split-nodes-void-match',
-            () =>
-              Editor.void(editor, {
-                at: splitPoint,
-                mode: 'highest',
-              })
+          const voidMatch = profileCoreDuration('split-nodes-void-match', () =>
+            Editor.void(editor, {
+              at: splitPoint,
+              mode: 'highest',
+            })
           )
 
           if (!voids && voidMatch) {
@@ -257,24 +225,21 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           const depth = splitPoint.path.length - height
           const [, highestPath] = highest
           const textEndForwardPoint = always
-            ? profileSplitNodesDuration(
-                'split-nodes-text-end-forward-point',
-                () => getTextEndForwardPoint(editor, splitPoint, highestPath)
+            ? profileCoreDuration('split-nodes-text-end-forward-point', () =>
+                getTextEndForwardPoint(editor, splitPoint, highestPath)
               )
             : null
-          afterRef = profileSplitNodesDuration(
-            'split-nodes-after-point-ref',
-            () =>
-              Editor.pointRef(editor, textEndForwardPoint ?? splitPoint, {
-                affinity: 'forward',
-              })
+          afterRef = profileCoreDuration('split-nodes-after-point-ref', () =>
+            Editor.pointRef(editor, textEndForwardPoint ?? splitPoint, {
+              affinity: 'forward',
+            })
           )
           const lowestPath = splitPoint.path.slice(0, depth)
           let rightHighestPath: Path | null = null
           let position =
             height === 0 ? splitPoint.offset : splitPoint.path[depth]!
 
-          profileSplitNodesDuration('split-nodes-levels-loop', () => {
+          profileCoreDuration('split-nodes-levels-loop', () => {
             for (const [node, path] of Editor.levels(editor, {
               at: lowestPath,
               reverse: true,
@@ -323,7 +288,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           })
 
           if (options.at == null) {
-            profileSplitNodesDuration('split-nodes-select-after', () => {
+            profileCoreDuration('split-nodes-select-after', () => {
               const rightHighestPoint =
                 rightHighestPath === null
                   ? null
@@ -336,7 +301,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
             })
           }
         } finally {
-          profileSplitNodesDuration('split-nodes-unref', () => {
+          profileCoreDuration('split-nodes-unref', () => {
             beforeRef.unref()
             afterRef?.unref()
           })

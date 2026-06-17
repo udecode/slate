@@ -146,36 +146,10 @@ const readPackageJson = (packageName: string) =>
     version: string
   }
 
-const bumpPatchVersion = (version: string) => {
-  const [major = 0, minor = 0, patch = 0] = version
-    .split('.')
-    .map((part) => Number(part))
-
-  return `${major}.${minor}.${patch + 1}`
-}
-
-const hasPendingChangesetRelease = (packageName: string) => {
-  for (const file of readdirSync(resolve(repoRoot, '.changeset'))) {
-    if (!file.endsWith('.md')) continue
-
-    const source = readFileSync(resolve(repoRoot, '.changeset', file), 'utf8')
-    const match = source.match(
-      new RegExp(`"${packageName}"\\s*:\\s*(major|minor|patch)`)
-    )
-
-    if (match) return true
-  }
-
-  return false
-}
-
-const expectedRuntimePeerFloor = (packageName: string) => {
+const expectedRuntimePeerRange = (packageName: string) => {
   const packageJson = readPackageJson(packageName)
-  const version = hasPendingChangesetRelease(packageName)
-    ? bumpPatchVersion(packageJson.version)
-    : packageJson.version
 
-  return `>=${version}`
+  return packageJson.version
 }
 
 const allowedSlateInternalImportFiles = new Set([
@@ -494,10 +468,10 @@ describe('slate-react surface contract', () => {
     expect(runtimeSources).toContain("from 'slate-dom/internal'")
     expect(runtimeSources).toContain("from 'slate'")
     expect(slateReactPackage.peerDependencies?.slate).toBe(
-      expectedRuntimePeerFloor('slate')
+      expectedRuntimePeerRange('slate')
     )
     expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe(
-      expectedRuntimePeerFloor('slate-dom')
+      expectedRuntimePeerRange('slate-dom')
     )
   })
 

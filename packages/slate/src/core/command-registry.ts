@@ -7,43 +7,12 @@ import type {
   EditorCommandReference,
 } from '../interfaces/editor'
 import { getExtensionRegistry } from './extension-registry'
+import { profileCoreDuration } from './profiling'
 import {
   getCommandContext,
   updateEditor,
   withCommandContext,
 } from './public-state'
-
-const now = () => globalThis.performance?.now?.() ?? Date.now()
-
-const profileCommandDuration = <T>(id: string, callback: () => T): T => {
-  const profiler = (
-    globalThis as typeof globalThis & {
-      __SLATE_REACT_RENDER_PROFILER__?: {
-        record?: (event: {
-          duration: number
-          id: string
-          kind: 'core-time'
-        }) => void
-      }
-    }
-  ).__SLATE_REACT_RENDER_PROFILER__
-
-  if (!profiler) {
-    return callback()
-  }
-
-  const start = now()
-
-  try {
-    return callback()
-  } finally {
-    profiler.record?.({
-      duration: now() - start,
-      id,
-      kind: 'core-time',
-    })
-  }
-}
 
 type RegisteredCommand = {
   handler: EditorCommandHandler<any>
@@ -106,31 +75,29 @@ export const executeCommand = <TCommand extends EditorCommand>(
   const handlers = getCommandRegistry(editor).get(command.type) ?? []
 
   const dispatch = (index: number, nextCommand: TCommand): boolean => {
-    const registration = profileCommandDuration(
+    const registration = profileCoreDuration(
       `command-${command.type}-read-handler`,
       () => handlers[index]
     )
 
     if (!registration) {
-      return profileCommandDuration(`command-${command.type}-default`, () =>
+      return profileCoreDuration(`command-${command.type}-default`, () =>
         defaultHandler(nextCommand)
       )
     }
 
     let delegated = false
-    const result = profileCommandDuration(
-      `command-${command.type}-handler`,
-      () =>
-        registration.handler(
-          {
-            command: nextCommand,
-            editor,
-          },
-          (overrideCommand = nextCommand) => {
-            delegated = true
-            return dispatch(index + 1, overrideCommand)
-          }
-        )
+    const result = profileCoreDuration(`command-${command.type}-handler`, () =>
+      registration.handler(
+        {
+          command: nextCommand,
+          editor,
+        },
+        (overrideCommand = nextCommand) => {
+          delegated = true
+          return dispatch(index + 1, overrideCommand)
+        }
+      )
     )
 
     if (result) {
@@ -144,18 +111,18 @@ export const executeCommand = <TCommand extends EditorCommand>(
   }
 
   if (getCommandContext(editor)) {
-    return profileCommandDuration(`command-${command.type}-dispatch`, () =>
+    return profileCoreDuration(`command-${command.type}-dispatch`, () =>
       dispatch(0, command)
     )
   }
 
   if (!options.implicitUpdate) {
-    return profileCommandDuration(`command-${command.type}-context`, () =>
+    return profileCoreDuration(`command-${command.type}-context`, () =>
       withCommandContext(
         editor,
         { origin: 'command', type: command.type },
         () =>
-          profileCommandDuration(`command-${command.type}-dispatch`, () =>
+          profileCoreDuration(`command-${command.type}-dispatch`, () =>
             dispatch(0, command)
           )
       )
@@ -163,13 +130,13 @@ export const executeCommand = <TCommand extends EditorCommand>(
   }
 
   let result = false
-  profileCommandDuration(`command-${command.type}-implicit-update`, () =>
+  profileCoreDuration(`command-${command.type}-implicit-update`, () =>
     updateEditor(editor, () => {
       result = withCommandContext(
         editor,
         { origin: 'command', type: command.type },
         () =>
-          profileCommandDuration(`command-${command.type}-dispatch`, () =>
+          profileCoreDuration(`command-${command.type}-dispatch`, () =>
             dispatch(0, command)
           )
       )

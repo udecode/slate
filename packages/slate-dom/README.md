@@ -53,8 +53,8 @@ Public type exports are grouped around:
   `HotkeyMatchOptions`, `KeyboardEventLike`, `StringDiff`, and `TextDiff`.
 
 The `/internal` package subpath is reserved for sibling Slate packages in this
-repo. Apps, plugins, and framework adapters should use the root `slate-dom`
-export.
+repo. Apps, extension libraries, and framework adapters should use the root
+`slate-dom` export.
 
 DOM coverage boundaries model same-root content whose DOM is hidden, staged, or
 virtualized. They keep selection, copy, find, and Slate-to-DOM conversion tied

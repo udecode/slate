@@ -26,9 +26,7 @@ const MAIN_ROOT_KEY: RootKey = 'main'
 
 const assertPublicRootKey = (root: RootKey | undefined) => {
   if (root === MAIN_ROOT_KEY) {
-    throw new Error(
-      '[Slate] Omit root to target the primary document. `main` is an internal root key.'
-    )
+    throw new Error('[Slate] Omit root to target the primary document.')
   }
 }
 
